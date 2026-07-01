@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #141512;
+  background: #f2f0ea;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: #f2f0ea;
+  color: #141512;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: #aeb9aa;
+}
+
+.focus-ring {
+  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss;
+}
+
+.react-flow__node {
+  border-radius: 3px;
+  border: 1px solid #d9d7cf;
+  background: #faf9f5;
+  color: #141512;
+  font-size: 12px;
+  letter-spacing: 0;
+  width: 190px;
+  padding: 12px;
+}
+
+.react-flow__node.impacted-node {
+  border-color: #4e6253;
+  box-shadow: inset 3px 0 0 #4e6253;
+}
+
+.react-flow__node.critical-node {
+  border-color: #a9483f;
+  box-shadow: inset 3px 0 0 #a9483f;
+}
+
+.react-flow__edge.default-edge path {
+  stroke: #9d9a91;
+}
+
+.react-flow__edge.critical-edge path {
+  stroke: #a9483f;
+}
+
+.react-flow__edge-text {
+  fill: #62665e;
+  font-size: 9px;
+}
