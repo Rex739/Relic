@@ -44,7 +44,7 @@ export function createFlowGraph(review: ReviewResult): { nodes: Node[]; edges: E
       source: edge.from,
       target: edge.to,
       label: edge.relationship,
-      animated: Boolean(edge.critical),
+      animated: false,
       className: edge.critical ? "critical-edge" : "default-edge",
     })),
   };

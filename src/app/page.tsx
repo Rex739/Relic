@@ -2,13 +2,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Brand } from "@/components/relic/Brand";
+import { HeroReveal } from "@/components/relic/HeroReveal";
+import { LandingMotion } from "@/components/relic/LandingMotion";
 import { ProcessStrip } from "@/components/relic/ProcessStrip";
 import { SectionEyebrow } from "@/components/relic/SectionEyebrow";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-canvas text-ink">
-      <header className="border-b border-line">
+    <LandingMotion>
+      <main className="min-h-screen overflow-x-hidden bg-canvas text-ink">
+        <header className="border-b border-line">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-5 md:flex-row md:items-center md:justify-between">
           <Brand />
           <nav className="flex gap-6 text-sm text-muted" aria-label="Primary navigation">
@@ -21,19 +24,22 @@ export default function HomePage() {
             <Link href="/review/new" className="focus-ring bg-ink px-4 py-2 text-sm font-semibold text-canvas">Open workspace</Link>
           </div>
         </div>
-      </header>
+        </header>
 
-      <section id="platform" className="mx-auto grid max-w-7xl gap-10 px-5 py-16 lg:grid-cols-[1fr_0.9fr] lg:py-24">
+        <section
+          id="platform"
+          className="mx-auto grid max-w-7xl gap-10 px-5 py-[clamp(72px,8vw,120px)] lg:grid-cols-[1fr_0.9fr]"
+          data-hero-section
+          data-section="hero"
+        >
         <div>
-          <SectionEyebrow>Change intelligence for systems nobody fully remembers</SectionEyebrow>
-          <h1 className="mt-6 max-w-4xl text-5xl font-semibold leading-[0.96] tracking-tight md:text-7xl">
-            Understand what legacy code does. Prove what a change will cause.
-          </h1>
-          <p className="mt-7 max-w-2xl text-lg leading-8 text-muted">
+          <SectionEyebrow data-hero-eyebrow>Change intelligence for systems nobody fully remembers</SectionEyebrow>
+          <HeroReveal />
+          <p className="mt-7 max-w-2xl text-lg leading-8 text-muted" data-hero-copy>
             Relic maps hidden dependencies, challenges risky assumptions, and gives teams evidence before a critical
             system is altered.
           </p>
-          <div className="mt-9 flex flex-wrap gap-3">
+          <div className="mt-9 flex flex-wrap gap-3" data-hero-actions>
             <Link href="/review/new" className="focus-ring inline-flex items-center gap-2 bg-ink px-5 py-3 text-sm font-semibold text-canvas">
               Run a safety review <ArrowRight size={16} aria-hidden="true" />
             </Link>
@@ -42,9 +48,11 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
-        <div className="relative min-h-[420px] border border-line bg-raised p-4">
-          <Image src="/relic-strata.svg" alt="" fill className="object-cover" priority />
-          <div className="absolute bottom-6 left-6 right-6 border border-line bg-raised/95 p-5 backdrop-blur-sm">
+        <div className="relative min-h-[420px] border border-line bg-raised p-4" data-hero-artifact>
+          <div className="absolute inset-0" data-strata-parallax>
+            <Image src="/relic-strata.svg" alt="" fill className="object-cover" preload sizes="(min-width: 1024px) 45vw, 100vw" />
+          </div>
+          <div className="absolute bottom-6 left-6 right-6 border border-line bg-raised/95 p-5 shadow-sm backdrop-blur-sm" data-hero-panel>
             <div className="font-mono text-xs uppercase tracking-[0.16em] text-muted">Meridian Grid / Billing Core</div>
             <div className="mt-4 grid grid-cols-3 gap-4 border-t border-line pt-4 text-sm">
               <div>Change surface mapped</div>
@@ -53,9 +61,13 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-      </section>
+        </section>
 
-      <section id="method" className="border-t border-line px-5 py-16">
+        <section
+          id="method"
+          className="border-t border-line px-5 pb-[clamp(72px,6vw,96px)] pt-[clamp(88px,9vw,144px)]"
+          data-section="method"
+        >
         <div className="mx-auto max-w-7xl">
           <SectionEyebrow>The Relic method</SectionEyebrow>
           <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
@@ -65,38 +77,69 @@ export default function HomePage() {
             <ProcessStrip />
           </div>
         </div>
-      </section>
+        </section>
 
-      <section className="border-t border-line px-5 py-16">
+        <section
+          className="border-t border-line px-5 py-[clamp(88px,8vw,128px)]"
+          data-map-motion-section
+          data-map-section
+          data-section="system-map"
+        >
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1fr]">
-          <Image src="/relic-system-map.svg" alt="" width={960} height={620} className="border border-line bg-raised" />
+          <div data-map-artifact>
+            <div data-map-parallax>
+              <Image
+                src="/relic-system-map.svg"
+                alt=""
+                width={960}
+                height={620}
+                className="border border-line bg-raised"
+                preload
+                sizes="(min-width: 1024px) 48vw, 100vw"
+              />
+            </div>
+          </div>
           <div className="self-center">
-            <SectionEyebrow>System context</SectionEyebrow>
-            <h2 className="mt-4 text-4xl font-semibold tracking-tight">Legacy systems are not black boxes. They are undocumented maps.</h2>
-            <p className="mt-5 text-lg leading-8 text-muted">
+            <SectionEyebrow data-reveal-heading>System context</SectionEyebrow>
+            <h2 className="mt-4 text-4xl font-semibold tracking-tight" data-reveal-heading>Legacy systems are not black boxes. They are undocumented maps.</h2>
+            <p className="mt-5 text-lg leading-8 text-muted" data-reveal-copy>
               Relic turns hidden dependencies, historical rules, and critical business paths into a reviewable decision surface.
             </p>
           </div>
         </div>
-      </section>
+        </section>
 
-      <section id="use-cases" className="border-t border-line px-5 py-16">
+        <section
+          id="use-cases"
+          className="border-t border-line px-5 py-[clamp(80px,8vw,128px)]"
+          data-section="outcomes"
+          aria-label="Relic outcomes"
+        >
         <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-3">
           {[
-            ["Dependency intelligence", "Find the systems a change silently reaches."],
-            ["Adversarial review", "Expose the path that ordinary implementation planning misses."],
-            ["Evidence receipts", "Give teams a structured record of why a decision was made."],
+            ["DEPENDENCY INTELLIGENCE", "Find the systems a change silently reaches."],
+            ["ADVERSARIAL REVIEW", "Expose the path that ordinary implementation planning misses."],
+            ["EVIDENCE RECEIPTS", "Give teams a structured record of why a decision was made."],
           ].map(([title, copy]) => (
-            <div key={title} className="border-t border-line pt-5">
+            <div
+              key={title}
+              className="border-t border-line pt-5"
+            >
               <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-moss">{title}</div>
               <p className="mt-4 text-lg leading-7">{copy}</p>
             </div>
           ))}
         </div>
-      </section>
+        </section>
 
-      <section className="border-t border-line px-5 py-16">
-        <div className="mx-auto max-w-7xl">
+        <section
+          className="relative overflow-hidden border-t border-line px-5 py-[clamp(72px,7vw,112px)]"
+          data-section="final-cta"
+        >
+        <div className="absolute inset-x-0 top-0 h-24 opacity-35">
+          <Image src="/relic-strata.svg" alt="" fill className="object-cover object-top" sizes="100vw" />
+        </div>
+        <div className="relative mx-auto max-w-7xl">
           <SectionEyebrow>Ready to review a change?</SectionEyebrow>
           <div className="mt-4 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <h2 className="max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
@@ -108,9 +151,9 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-      </section>
+        </section>
 
-      <footer className="border-t border-line px-5 py-8">
+        <footer className="border-t border-line px-5 py-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 text-sm text-muted md:flex-row md:items-center md:justify-between">
           <div><span className="text-xl font-semibold text-ink">relic</span> · Make legacy systems legible.</div>
           <div className="flex flex-wrap gap-5">
@@ -121,7 +164,8 @@ export default function HomePage() {
           </div>
           <div>© 2026 Relic simulation MVP</div>
         </div>
-      </footer>
-    </main>
+        </footer>
+      </main>
+    </LandingMotion>
   );
 }

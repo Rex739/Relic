@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Copy } from "lucide-react";
 import type { ReviewResult } from "@/lib/relic/types";
 
 export function SafetyCertificate({ review }: { review: ReviewResult }) {
   const [copied, setCopied] = useState(false);
+  const reduceMotion = useReducedMotion();
   const certificate = review.certificate;
 
   async function copyReceipt() {
@@ -42,7 +44,17 @@ export function SafetyCertificate({ review }: { review: ReviewResult }) {
         <p className="text-sm text-muted">This receipt represents the review evidence generated in the current simulation.</p>
         <button onClick={copyReceipt} type="button" className="focus-ring inline-flex items-center gap-2 bg-ink px-4 py-3 text-sm font-semibold text-canvas">
           <Copy size={15} aria-hidden="true" />
-          {copied ? "Receipt copied" : "Copy receipt"}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={copied ? "copied" : "copy"}
+              initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+              transition={{ duration: 0.18 }}
+            >
+              {copied ? "Copied" : "Copy receipt"}
+            </motion.span>
+          </AnimatePresence>
         </button>
       </div>
     </section>

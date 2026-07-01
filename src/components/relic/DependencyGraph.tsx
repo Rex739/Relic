@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Background, Controls, MiniMap, ReactFlow, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { createFlowGraph } from "@/lib/relic/graph";
@@ -8,6 +9,7 @@ import type { ReviewResult, SystemComponent } from "@/lib/relic/types";
 
 export function DependencyGraph({ review }: { review: ReviewResult }) {
   const graph = useMemo(() => createFlowGraph(review), [review]);
+  const reduceMotion = useReducedMotion();
   const [selected, setSelected] = useState<SystemComponent | undefined>(
     review.components.find((component) => component.id === review.changeRequest.affectedComponentId),
   );
@@ -16,7 +18,7 @@ export function DependencyGraph({ review }: { review: ReviewResult }) {
     <section>
       <p className="mb-5 text-sm text-muted">Impact path generated from dependency traversal of the proposed policy change.</p>
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
-        <div className="h-[620px] border border-line bg-raised">
+        <div className="review-flow-ready h-[620px] border border-line bg-raised">
           <ReactFlow
             nodes={graph.nodes}
             edges={graph.edges}
@@ -35,7 +37,13 @@ export function DependencyGraph({ review }: { review: ReviewResult }) {
         <aside className="border border-line bg-raised p-5">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-moss">Component detail</div>
           {selected ? (
-            <div className="mt-5">
+            <motion.div
+              key={selected.id}
+              className="mt-5"
+              initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+            >
               <h2 className="text-2xl font-semibold tracking-tight">{selected.name}</h2>
               <p className="mt-3 text-sm leading-6 text-muted">{selected.description}</p>
               <dl className="mt-6 space-y-4 text-sm">
@@ -57,7 +65,7 @@ export function DependencyGraph({ review }: { review: ReviewResult }) {
                   <span key={tag} className="border border-line px-2 py-1 text-xs text-muted">{tag}</span>
                 ))}
               </div>
-            </div>
+            </motion.div>
           ) : null}
           <div className="mt-8 border-t border-line pt-4 text-xs text-muted">
             <div className="mb-2"><span className="mr-2 inline-block h-2 w-5 bg-moss" />Impacted component</div>

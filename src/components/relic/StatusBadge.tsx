@@ -14,7 +14,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+        "inline-flex items-center gap-1.5 border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] transition-colors duration-200",
         isBad && "border-blocked text-blocked",
         isGood && "border-approved text-approved",
         !isBad && !isGood && "border-line text-muted",

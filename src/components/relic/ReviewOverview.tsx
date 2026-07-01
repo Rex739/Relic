@@ -1,3 +1,6 @@
+"use client";
+
+import { motion, useReducedMotion } from "framer-motion";
 import { MetricCard } from "./MetricCard";
 import { RemediationCard } from "./RemediationCard";
 import { AgentTimeline } from "./AgentTimeline";
@@ -6,6 +9,7 @@ import { ImpactSummary } from "./ImpactSummary";
 import type { ReviewResult } from "@/lib/relic/types";
 
 export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult; visibleAgents: number }) {
+  const reduceMotion = useReducedMotion();
   const complete = visibleAgents >= review.agents.length;
   const failedTestCount = review.regressionResults.filter((result) => result.status === "failed").length;
   const remediation = review.regressionResults.find((result) => result.remediation)?.remediation ?? "";
@@ -13,7 +17,12 @@ export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult
   return (
     <div className="grid gap-8 xl:grid-cols-[1fr_360px]">
       <div className="space-y-8">
-        <section className="border-l-2 border-blocked bg-raised px-6 py-7">
+        <motion.section
+          className="border-l-2 border-blocked bg-raised px-6 py-7"
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+        >
           <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">
             {complete ? "Review outcome" : "Review in progress"}
           </div>
@@ -35,7 +44,7 @@ export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult
           ) : (
             <p className="mt-5 max-w-2xl leading-7 text-muted">Agent stages are being revealed from the review result returned by the API.</p>
           )}
-        </section>
+        </motion.section>
 
         <section className="grid gap-5 border-y border-line py-6 md:grid-cols-4">
           <MetricCard value={review.impactAnalysis.impactedComponents.length} label="Impacted components" />
@@ -48,7 +57,12 @@ export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult
         <TestResults results={review.regressionResults} />
       </div>
 
-      <aside className="space-y-6">
+      <motion.aside
+        className="space-y-6"
+        initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: reduceMotion ? 0 : 0.08, duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+      >
         <ImpactSummary analysis={review.impactAnalysis} />
         <section className="border border-line bg-raised p-5">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-moss">Review metadata</div>
@@ -68,7 +82,7 @@ export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult
           </dl>
         </section>
         <RemediationCard remediation={remediation} />
-      </aside>
+      </motion.aside>
     </div>
   );
 }

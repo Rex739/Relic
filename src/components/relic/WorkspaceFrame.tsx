@@ -11,10 +11,46 @@ const navItems = [
 
 export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-canvas text-ink">
-      <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
-        <aside className="border-b border-line bg-raised lg:border-b-0 lg:border-r">
-          <div className="flex h-full flex-col p-6">
+    <div className="min-h-[100dvh] bg-canvas text-ink">
+      <div className="grid min-h-[100dvh] lg:grid-cols-[260px_1fr]">
+        <header className="border-b border-line bg-raised lg:hidden">
+          <div className="flex items-start justify-between gap-4 px-4 py-4">
+            <Brand />
+            <button
+              className="focus-ring border border-line px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted"
+              type="button"
+              aria-label="Workspace navigation"
+            >
+              Workspace
+            </button>
+          </div>
+          <div className="border-t border-line px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-moss">
+              Meridian Grid · Billing Core
+            </div>
+            <div className="mt-1 text-xs text-muted">Simulation workspace</div>
+          </div>
+          <nav
+            className="flex gap-5 overflow-x-auto border-t border-line px-4 text-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Mobile workspace navigation"
+          >
+            {navItems.map((item) => (
+              <button
+                key={item.label}
+                className={cn(
+                  "focus-ring whitespace-nowrap border-b-2 px-0 py-3 text-muted",
+                  item.active ? "border-ink text-ink" : "border-transparent",
+                )}
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </header>
+
+        <aside className="hidden border-b border-line bg-raised lg:sticky lg:top-0 lg:block lg:h-[100dvh] lg:self-start lg:overflow-y-auto lg:border-b-0 lg:border-r">
+          <div className="flex min-h-full flex-col p-6">
             <Brand />
             <nav className="mt-12 grid gap-1" aria-label="Workspace navigation">
               {navItems.map((item) => (
@@ -39,7 +75,7 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </aside>
-        <main>{children}</main>
+        <main className="min-w-0">{children}</main>
       </div>
     </div>
   );

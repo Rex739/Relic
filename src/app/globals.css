@@ -50,6 +50,15 @@ select {
   letter-spacing: 0;
   width: 190px;
   padding: 12px;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.react-flow__node:hover {
+  transform: scale(1.015);
+  border-color: #141512;
 }
 
 .react-flow__node.impacted-node {
@@ -70,7 +79,37 @@ select {
   stroke: #a9483f;
 }
 
+.review-flow-ready .react-flow__edge.critical-edge path {
+  stroke-dasharray: 420;
+  animation: relic-edge-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 .react-flow__edge-text {
   fill: #62665e;
   font-size: 9px;
+}
+
+@keyframes relic-edge-draw {
+  from {
+    stroke-dashoffset: 420;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+
+  .review-flow-ready .react-flow__edge.critical-edge path {
+    animation: none;
+  }
+
+  .react-flow__node:hover {
+    transform: none;
+  }
 }

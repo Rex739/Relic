@@ -1,8 +1,13 @@
+"use client";
+
+import { motion, useReducedMotion } from "framer-motion";
 import { StatusBadge } from "./StatusBadge";
 import { formatDateTime } from "@/lib/relic/utils";
 import type { ReviewResult } from "@/lib/relic/types";
 
 export function ReviewHeader({ review, visibleComplete }: { review: ReviewResult; visibleComplete: boolean }) {
+  const reduceMotion = useReducedMotion();
+
   return (
     <header className="border-b border-line px-5 py-8 lg:px-10">
       <div className="text-sm text-muted">Reviews / Meridian Grid / Billing Policy Change</div>
@@ -13,7 +18,12 @@ export function ReviewHeader({ review, visibleComplete }: { review: ReviewResult
         </div>
         <StatusBadge status={visibleComplete ? review.decision : "Reviewing"} />
       </div>
-      <dl className="mt-8 grid gap-4 border-t border-line pt-5 text-sm md:grid-cols-4">
+      <motion.dl
+        className="mt-8 grid gap-4 border-t border-line pt-5 text-sm md:grid-cols-4"
+        initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+      >
         <div>
           <dt className="text-[11px] uppercase tracking-[0.16em] text-muted">Review ID</dt>
           <dd className="mt-1 font-mono text-xs">{review.reviewId}</dd>
@@ -30,7 +40,7 @@ export function ReviewHeader({ review, visibleComplete }: { review: ReviewResult
           <dt className="text-[11px] uppercase tracking-[0.16em] text-muted">Risk sensitivity</dt>
           <dd className="mt-1">{review.changeRequest.riskSensitivity}</dd>
         </div>
-      </dl>
+      </motion.dl>
     </header>
   );
 }
