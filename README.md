@@ -33,6 +33,18 @@ Relic includes a two-agent uAgents workflow:
 
 See [agents/README.md](agents/README.md) for local setup, mailbox connection notes, and ASI:One testing status.
 
+## Brand Assets
+
+The Relic visual identity is derived from the approved angular R logo reference provided for this project.
+
+SVG source assets live in `public/brand`, and PNG exports are generated from those SVG files. `BrandMark` and `BrandLogo` provide reusable React components for app navigation, workspace chrome, and compact product surfaces. Favicon and manifest metadata are configured in `src/app/layout.tsx`.
+
+Regenerate PNG assets with:
+
+```bash
+npm run generate:brand
+```
+
 ## Product Architecture
 
 - Next.js App Router, TypeScript, Tailwind CSS, and local fixture data.

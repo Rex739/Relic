@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Relic mark</title>
+  <desc id="desc">Angular burnt-orange Relic R mark.</desc>
+  <defs>
+    <linearGradient id="relic-coral" x1="22" y1="18" x2="106" y2="110" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F25A45"/>
+      <stop offset="1" stop-color="#D86A4C"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#relic-coral)" d="M25 21h17l40 40-13 13-44-44V21Z"/>
+  <path fill="url(#relic-coral)" d="M25 47l56 56h22L25 25v22Z"/>
+  <path fill="url(#relic-coral)" d="M25 76l28 28h23L25 53v23Z"/>
+  <path fill="url(#relic-coral)" d="M53 21h36c12 0 22 10 22 22 0 10-7 19-17 21l-10 2 27 27v14H91L66 82 53 69l18-18h15c5 0 9-4 9-9s-4-9-9-9H64L53 21Z"/>
+</svg>

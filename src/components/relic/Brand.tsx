@@ -1,10 +1,10 @@
 import Link from "next/link";
+import { BrandLogo } from "./BrandLogo";
 
 export function Brand() {
   return (
-    <Link href="/" className="focus-ring block" aria-label="Relic home">
-      <div className="text-2xl font-semibold tracking-tight">relic</div>
-      <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">Change intelligence</div>
+    <Link href="/" className="focus-ring inline-flex min-w-[184px] items-center" aria-label="Relic home">
+      <BrandLogo variant="full" theme="light" />
     </Link>
   );
 }

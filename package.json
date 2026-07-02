@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "commit": "bash scripts/relicCommit.sh",
+    "generate:brand": "node scripts/generateBrandAssets.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",

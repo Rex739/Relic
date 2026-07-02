@@ -2,8 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Brand } from "@/components/relic/Brand";
+import { BrandLogo } from "@/components/relic/BrandLogo";
 import { HeroReveal } from "@/components/relic/HeroReveal";
 import { LandingMotion } from "@/components/relic/LandingMotion";
+import { MobileNavigation } from "@/components/relic/MobileNavigation";
 import { ProcessStrip } from "@/components/relic/ProcessStrip";
 import { SectionEyebrow } from "@/components/relic/SectionEyebrow";
 
@@ -12,17 +14,18 @@ export default function HomePage() {
     <LandingMotion>
       <main className="min-h-screen overflow-x-hidden bg-canvas text-ink">
         <header className="border-b border-line">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-5 md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:py-5">
           <Brand />
-          <nav className="flex gap-6 text-sm text-muted" aria-label="Primary navigation">
+          <nav className="hidden gap-6 text-sm text-muted lg:flex" aria-label="Primary navigation">
             <a href="#platform" className="focus-ring hover:text-ink">Platform</a>
             <a href="#use-cases" className="focus-ring hover:text-ink">Use cases</a>
             <a href="#method" className="focus-ring hover:text-ink">How it works</a>
           </nav>
-          <div className="flex gap-3">
+          <div className="hidden gap-3 lg:flex">
             <Link href="/review/meridian-billing" className="focus-ring border border-line px-4 py-2 text-sm hover:border-ink">View sample</Link>
             <Link href="/review/new" className="focus-ring bg-ink px-4 py-2 text-sm font-semibold text-canvas">Open workspace</Link>
           </div>
+          <MobileNavigation />
         </div>
         </header>
 
@@ -154,15 +157,18 @@ export default function HomePage() {
         </section>
 
         <footer className="border-t border-line px-5 py-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 text-sm text-muted md:flex-row md:items-center md:justify-between">
-          <div><span className="text-xl font-semibold text-ink">relic</span> · Make legacy systems legible.</div>
-          <div className="flex flex-wrap gap-5">
-            <span>Platform</span>
-            <span>Product</span>
-            <Link href="/review/new">Review workspace</Link>
-            <Link href="/review/meridian-billing">Sample review</Link>
+        <div className="mx-auto grid max-w-7xl gap-8 text-sm text-muted lg:grid-cols-[280px_1fr_auto] lg:items-center">
+          <div className="max-w-[280px]">
+            <BrandLogo variant="compact" theme="light" />
+            <p className="mt-3 leading-6">Make legacy systems legible.</p>
           </div>
-          <div>© 2026 Relic simulation MVP</div>
+          <nav className="grid gap-3 sm:grid-cols-2 lg:flex lg:justify-center lg:gap-6" aria-label="Footer navigation">
+            <a href="#platform" className="focus-ring hover:text-ink">Platform</a>
+            <a href="#use-cases" className="focus-ring hover:text-ink">Product</a>
+            <Link href="/review/new" className="focus-ring hover:text-ink">Review workspace</Link>
+            <Link href="/review/meridian-billing" className="focus-ring hover:text-ink">Sample review</Link>
+          </nav>
+          <div className="lg:text-right">© 2026 Relic simulation MVP</div>
         </div>
         </footer>
       </main>

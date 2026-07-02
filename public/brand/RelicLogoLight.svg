@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 180" role="img" aria-labelledby="title desc">
+  <title id="title">Relic logo for light surfaces</title>
+  <desc id="desc">Angular Relic R mark with charcoal RELIC wordmark.</desc>
+  <defs>
+    <linearGradient id="relic-coral" x1="24" y1="28" x2="128" y2="142" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F25A45"/>
+      <stop offset="1" stop-color="#D86A4C"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(36 27)">
+    <path fill="url(#relic-coral)" d="M25 21h17l40 40-13 13-44-44V21Z"/>
+    <path fill="url(#relic-coral)" d="M25 47l56 56h22L25 25v22Z"/>
+    <path fill="url(#relic-coral)" d="M25 76l28 28h23L25 53v23Z"/>
+    <path fill="url(#relic-coral)" d="M53 21h36c12 0 22 10 22 22 0 10-7 19-17 21l-10 2 27 27v14H91L66 82 53 69l18-18h15c5 0 9-4 9-9s-4-9-9-9H64L53 21Z"/>
+  </g>
+  <text x="230" y="111" fill="#141512" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="76" font-weight="650" letter-spacing="48">RELIC</text>
+</svg>

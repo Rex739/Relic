@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Relic">
+  <rect width="64" height="64" rx="10" fill="#141512"/>
+  <defs>
+    <linearGradient id="relic-coral" x1="13" y1="10" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF624B"/>
+      <stop offset="1" stop-color="#D86A4C"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#relic-coral)" d="M14 10h9l20 20-7 7-22-22v-5Z"/>
+  <path fill="url(#relic-coral)" d="M14 24l28 28h11L14 13v11Z"/>
+  <path fill="url(#relic-coral)" d="M14 39l13 13h12L14 27v12Z"/>
+  <path fill="url(#relic-coral)" d="M28 10h18c7 0 12 5 12 12 0 5-4 10-9 11l-5 1 14 14v7H48L35 42l-7-7 9-9h8c3 0 5-2 5-5s-2-5-5-5H34L28 10Z"/>
+</svg>
