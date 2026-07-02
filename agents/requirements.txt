@@ -1,0 +1,4 @@
+# Requires Python >=3.10 for the official Fetch chat protocol modules.
+uagents==0.24.2
+uagents-core>=0.4.3,<0.5
+requests>=2.31,<3

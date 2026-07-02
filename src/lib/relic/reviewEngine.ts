@@ -1,5 +1,6 @@
 import {
   evidenceReferences,
+  institutionalKnowledgeRecords,
   meridianChangeRequest,
   meridianComponents,
   meridianDependencies,
@@ -112,6 +113,7 @@ export function runMeridianReview(): ReviewResult {
     regressionResults,
     agents,
     evidence: evidenceReferences,
+    institutionalKnowledge: institutionalKnowledgeRecords,
     components: meridianComponents,
     dependencies: meridianDependencies,
   };

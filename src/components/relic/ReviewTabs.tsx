@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DependencyGraph } from "./DependencyGraph";
 import { EvidencePanel } from "./EvidencePanel";
@@ -9,10 +9,32 @@ import { ReviewHeader } from "./ReviewHeader";
 import { ReviewOverview } from "./ReviewOverview";
 import { SafetyCertificate } from "./SafetyCertificate";
 import { cn } from "@/lib/relic/utils";
+import {
+  getInitialVisibleAgentCount,
+  isReviewComplete,
+  nextVisibleAgentCount,
+  REVIEW_REQUEST_TIMEOUT_MS,
+  REVIEW_STAGE_DELAY_MS,
+} from "@/lib/relic/reviewStaging";
 import type { ReviewResult } from "@/lib/relic/types";
 
 const tabs = ["Overview", "Impact Map", "Evidence", "Certificate"] as const;
 type Tab = (typeof tabs)[number];
+
+async function requestReview(signal: AbortSignal): Promise<ReviewResult> {
+  const response = await fetch("/api/review/run", { method: "POST", signal });
+  if (!response.ok) {
+    throw new Error("Review run failed.");
+  }
+  return (await response.json()) as ReviewResult;
+}
+
+function getReviewErrorMessage(caught: unknown): string {
+  if (caught instanceof DOMException && caught.name === "AbortError") {
+    return "Review request timed out.";
+  }
+  return caught instanceof Error ? caught.message : "Unexpected review error.";
+}
 
 export function ReviewTabs() {
   const [review, setReview] = useState<ReviewResult | undefined>();
@@ -21,22 +43,53 @@ export function ReviewTabs() {
   const [visibleAgents, setVisibleAgents] = useState(0);
   const reduceMotion = useReducedMotion();
 
+  const runReview = useCallback(async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REVIEW_REQUEST_TIMEOUT_MS);
+
+    setError(undefined);
+    setReview(undefined);
+    setVisibleAgents(0);
+
+    try {
+      const payload = await requestReview(controller.signal);
+      setVisibleAgents(getInitialVisibleAgentCount(payload.agents.length, false));
+      setReview(payload);
+    } catch (caught) {
+      setError(getReviewErrorMessage(caught));
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, []);
+
   useEffect(() => {
-    async function runReview() {
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REVIEW_REQUEST_TIMEOUT_MS);
+
+    async function loadReview() {
       try {
-        const response = await fetch("/api/review/run", { method: "POST" });
-        if (!response.ok) {
-          throw new Error("Review run failed.");
+        const payload = await requestReview(controller.signal);
+        if (!cancelled) {
+          setVisibleAgents(getInitialVisibleAgentCount(payload.agents.length, false));
+          setReview(payload);
         }
-        const payload = (await response.json()) as ReviewResult;
-        setVisibleAgents(0);
-        setReview(payload);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Unexpected review error.");
+        if (!cancelled) {
+          setError(getReviewErrorMessage(caught));
+        }
+      } finally {
+        window.clearTimeout(timeout);
       }
     }
 
-    void runReview();
+    void loadReview();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {
@@ -44,17 +97,49 @@ export function ReviewTabs() {
       return;
     }
 
+    if (reduceMotion === true) {
+      return;
+    }
+
     const timers = review.agents.map((_, index) =>
-      window.setTimeout(() => setVisibleAgents(index + 1), 650 * (index + 1)),
+      window.setTimeout(
+        () => setVisibleAgents((current) => nextVisibleAgentCount(current, index + 1)),
+        REVIEW_STAGE_DELAY_MS * (index + 1),
+      ),
+    );
+    const completionTimer = window.setTimeout(
+      () => setVisibleAgents(review.agents.length),
+      REVIEW_STAGE_DELAY_MS * (review.agents.length + 1),
     );
 
-    return () => timers.forEach(window.clearTimeout);
-  }, [review]);
+    return () => {
+      timers.forEach(window.clearTimeout);
+      window.clearTimeout(completionTimer);
+    };
+  }, [reduceMotion, review]);
 
   if (error) {
     return (
-      <div className="p-10">
-        <div className="border border-blocked bg-raised p-6 text-blocked" role="alert">{error}</div>
+      <div>
+        <div className="border-b border-line px-5 py-8 lg:px-10">
+          <h1 className="text-5xl font-semibold tracking-tight">Billing Policy Change</h1>
+          <p className="mt-3 text-muted">Meridian Grid · Billing Core</p>
+        </div>
+        <div className="p-5 lg:p-10">
+          <div className="border border-blocked bg-raised p-6" role="alert">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blocked">Review unavailable</div>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
+              Relic could not complete this review. {error} No release recommendation has been issued.
+            </p>
+            <button
+              type="button"
+              onClick={() => void runReview()}
+              className="focus-ring mt-5 border border-ink px-4 py-3 text-sm font-semibold text-ink transition-colors hover:bg-ink hover:text-canvas"
+            >
+              Retry review
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -73,7 +158,11 @@ export function ReviewTabs() {
     );
   }
 
-  const complete = visibleAgents >= review.agents.length;
+  const displayedVisibleAgents = Math.max(
+    visibleAgents,
+    getInitialVisibleAgentCount(review.agents.length, reduceMotion === true),
+  );
+  const complete = isReviewComplete(displayedVisibleAgents, review.agents.length);
 
   return (
     <>
@@ -111,7 +200,7 @@ export function ReviewTabs() {
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
             transition={{ duration: 0.23, ease: [0.16, 1, 0.3, 1] }}
           >
-            {activeTab === "Overview" ? <ReviewOverview review={review} visibleAgents={visibleAgents} /> : null}
+            {activeTab === "Overview" ? <ReviewOverview review={review} visibleAgents={displayedVisibleAgents} /> : null}
             {activeTab === "Impact Map" ? <DependencyGraph review={review} /> : null}
             {activeTab === "Evidence" ? <EvidencePanel review={review} /> : null}
             {activeTab === "Certificate" ? <SafetyCertificate review={review} /> : null}

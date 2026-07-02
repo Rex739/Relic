@@ -1,4 +1,10 @@
-import type { ChangeRequest, DependencyEdge, EvidenceReference, SystemComponent } from "./types";
+import type {
+  ChangeRequest,
+  DependencyEdge,
+  EvidenceReference,
+  InstitutionalKnowledgeRecord,
+  SystemComponent,
+} from "./types";
 
 export const meridianChangeRequest: ChangeRequest = {
   id: "chg-meridian-reg-surcharge",
@@ -187,5 +193,52 @@ export const evidenceReferences: EvidenceReference[] = [
     severity: "informational",
     relatedAgent: "Verdict",
     excerpt: "Audit trail records each charge instruction with originating rule metadata.",
+  },
+];
+
+export const institutionalKnowledgeRecords: InstitutionalKnowledgeRecord[] = [
+  {
+    id: "knowledge-volume-discount-sequencing",
+    title: "Legacy volume discount sequencing",
+    description:
+      "Volume-discount eligibility must be resolved before regulatory surcharge evaluation. This ordering prevents duplicate ledger instructions.",
+    sourceReference: "LegacyVolumeDiscount.ts:88",
+    verification: "Verified by regression test",
+    confidence: "High",
+    status: "VERIFIED",
+    relatedComponentIds: [
+      "legacy-volume-discount",
+      "regulatory-surcharge-rule",
+      "invoice-ledger-writer",
+    ],
+  },
+  {
+    id: "knowledge-commercial-reconciliation",
+    title: "Commercial billing reconciliation",
+    description:
+      "Commercial invoices pass through both policy resolution and reconciliation logic before ledger write. Both paths can emit charges unless normalized.",
+    sourceReference: "CommercialInvoiceService.ts:163",
+    verification: "Confirmed by dependency traversal",
+    confidence: "High",
+    status: "CONFIRMED",
+    relatedComponentIds: [
+      "commercial-invoice-service",
+      "billing-policy-resolver",
+      "invoice-ledger-writer",
+    ],
+  },
+  {
+    id: "knowledge-finance-release-control",
+    title: "Finance release control",
+    description:
+      "Changes affecting commercial billing require Finance Systems Owner and Billing Policy Lead sign-off before release readiness can be issued.",
+    sourceReference: "Billing policy control record",
+    verification: "Required by review policy",
+    confidence: "Policy-controlled",
+    status: "POLICY-CONTROLLED",
+    relatedComponentIds: [
+      "commercial-invoice-service",
+      "finance-reporting-adapter",
+    ],
   },
 ];

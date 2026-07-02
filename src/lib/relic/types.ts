@@ -13,6 +13,12 @@ export type TestStatus = "passed" | "failed";
 export type EvidenceSeverity = "informational" | "warning" | "critical";
 export type ReviewDecision = "APPROVED" | "BLOCKED";
 export type AgentRole = "Mapper" | "Planner" | "Red Team" | "Test Runner" | "Verdict";
+export type KnowledgeVerificationState =
+  | "Verified by regression test"
+  | "Confirmed by dependency traversal"
+  | "Required by review policy";
+export type KnowledgeConfidence = "High" | "Policy-controlled";
+export type KnowledgeStatus = "VERIFIED" | "CONFIRMED" | "POLICY-CONTROLLED";
 
 export interface DependencyEdge {
   from: string;
@@ -91,6 +97,17 @@ export interface EvidenceReference {
   excerpt: string;
 }
 
+export interface InstitutionalKnowledgeRecord {
+  id: string;
+  title: string;
+  description: string;
+  sourceReference: string;
+  verification: KnowledgeVerificationState;
+  confidence: KnowledgeConfidence;
+  status: KnowledgeStatus;
+  relatedComponentIds: string[];
+}
+
 export interface AgentRun {
   id: string;
   role: AgentRole;
@@ -133,6 +150,7 @@ export interface ReviewResult {
   regressionResults: RegressionTestResult[];
   agents: AgentRun[];
   evidence: EvidenceReference[];
+  institutionalKnowledge: InstitutionalKnowledgeRecord[];
   certificate: SafetyCertificate;
   components: SystemComponent[];
   dependencies: DependencyEdge[];

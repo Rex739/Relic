@@ -6,6 +6,7 @@ import { RemediationCard } from "./RemediationCard";
 import { AgentTimeline } from "./AgentTimeline";
 import { TestResults } from "./TestResults";
 import { ImpactSummary } from "./ImpactSummary";
+import { LegacyKnowledgePanel } from "./LegacyKnowledgePanel";
 import type { ReviewResult } from "@/lib/relic/types";
 
 export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult; visibleAgents: number }) {
@@ -81,6 +82,7 @@ export function ReviewOverview({ review, visibleAgents }: { review: ReviewResult
             </div>
           </dl>
         </section>
+        <LegacyKnowledgePanel records={review.institutionalKnowledge} />
         <RemediationCard remediation={remediation} />
       </motion.aside>
     </div>
