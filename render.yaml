@@ -1,0 +1,46 @@
+services:
+  - type: worker
+    name: relic-review-agent
+    runtime: python
+    region: frankfurt
+    plan: starter
+    rootDir: agents
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: python reviewAgent.py
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.15
+      - key: RELIC_APP_URL
+        value: https://relic-brown.vercel.app
+      - key: RELIC_REVIEW_AGENT_SEED
+        sync: false
+      - key: RELIC_REVIEW_AGENT_PORT
+        value: "8001"
+      - key: RELIC_VERIFICATION_AGENT_ADDRESS
+        value: agent1q2nkm6zdul4lnchpmxk0jummy9uefwf2esvanenjsu629pmjau6m5usxcaf
+      - key: RELIC_REVIEW_TIMEOUT_SECONDS
+        value: "30"
+
+  - type: worker
+    name: relic-verification-agent
+    runtime: python
+    region: frankfurt
+    plan: starter
+    rootDir: agents
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: python verificationAgent.py
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.15
+      - key: RELIC_API_BASE_URL
+        value: https://relic-brown.vercel.app
+      - key: RELIC_VERIFICATION_AGENT_SEED
+        sync: false
+      - key: RELIC_VERIFICATION_AGENT_PORT
+        value: "8002"
+      - key: RELIC_REVIEW_TIMEOUT_SECONDS
+        value: "30"

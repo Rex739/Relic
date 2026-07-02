@@ -119,3 +119,39 @@ Current simulation limitation: Relic currently supports the Meridian Grid billin
 - Verification Agent address: pending local launch
 - Agentverse profile URL: pending mailbox connection
 - ASI:One shared chat URL: pending discovery setup
+
+## Production Deployment On Render
+
+Production keeps the Relic web app and review API on Vercel while the Fetch/uAgents layer runs as two Render Background Workers.
+
+```text
+ASI:One / Agentverse
+  -> relic-review-agent
+  -> relic-verification-agent
+  -> Relic public review API
+  -> https://relic-brown.vercel.app
+```
+
+Render services:
+
+- `relic-review-agent`: public, chat-enabled Review Agent.
+- `relic-verification-agent`: internal Verification Agent for typed agent-to-agent review work.
+
+Both services use Agentverse mailbox communication. Render must create Background Worker services, not public web services. The Relic API remains deployed separately on Vercel at `https://relic-brown.vercel.app`.
+
+All secrets are entered in Render and never committed. Use the exact existing seed values to preserve the current Agentverse identities and addresses. See `agents/RENDER_ENVIRONMENT.md` for the full Render environment matrix.
+
+Deployment order:
+
+1. Deploy `relic-verification-agent`.
+2. Confirm its Render logs show mailbox startup and the expected Verification Agent address.
+3. Deploy `relic-review-agent`.
+4. Confirm its Render logs show mailbox startup and the expected Review Agent address.
+5. Test through ASI:One.
+
+Run local validation before deployment:
+
+```bash
+python -m unittest discover -s agents/tests -p "test*.py" -v
+python -m py_compile agents/reviewAgent.py agents/verificationAgent.py
+```

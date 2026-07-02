@@ -4,10 +4,10 @@ from uagents import Agent, Context
 
 from relicTools import runRelicReview
 from schemas import ReviewJob, VerificationResult
-from settings import loadSettings
+from settings import loadVerificationAgentSettings
 
 
-settings = loadSettings(requireSeeds=True)
+settings = loadVerificationAgentSettings()
 
 
 def _make_agent() -> Agent:

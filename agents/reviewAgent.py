@@ -15,10 +15,10 @@ from uagents_core.contrib.protocols.chat import (
 
 from relicTools import extractReviewRequest, formatAsiResponse, isSupportedReviewRequest
 from schemas import ReviewJob, ReviewRequestState, VerificationResult
-from settings import loadSettings
+from settings import loadReviewAgentSettings
 
 
-settings = loadSettings(requireSeeds=True)
+settings = loadReviewAgentSettings()
 pendingReviews: dict[str, ReviewRequestState] = {}
 
 

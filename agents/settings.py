@@ -36,8 +36,8 @@ def _require_seed(name: str, value: str) -> None:
         )
 
 
-def loadSettings(requireSeeds: bool = True) -> Settings:
-    settings = Settings(
+def _read_settings() -> Settings:
+    return Settings(
         relicApiBaseUrl=_getenv("RELIC_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/"),
         relicAppUrl=_getenv("RELIC_APP_URL", "http://127.0.0.1:3000").rstrip("/"),
         reviewAgentSeed=_getenv("RELIC_REVIEW_AGENT_SEED"),
@@ -51,12 +51,33 @@ def loadSettings(requireSeeds: bool = True) -> Settings:
         reviewTimeoutSeconds=_get_int("RELIC_REVIEW_TIMEOUT_SECONDS", 30),
     )
 
+
+def _validate_timeout(settings: Settings) -> None:
+    if settings.reviewTimeoutSeconds < 1:
+        raise RuntimeError("RELIC_REVIEW_TIMEOUT_SECONDS must be at least 1.")
+
+
+def loadSettings(requireSeeds: bool = True) -> Settings:
+    settings = _read_settings()
+
     if requireSeeds:
         _require_seed("RELIC_REVIEW_AGENT_SEED", settings.reviewAgentSeed)
         _require_seed("RELIC_VERIFICATION_AGENT_SEED", settings.verificationAgentSeed)
         _require_seed("RELIC_DEMO_CLIENT_SEED", settings.demoClientSeed)
 
-    if settings.reviewTimeoutSeconds < 1:
-        raise RuntimeError("RELIC_REVIEW_TIMEOUT_SECONDS must be at least 1.")
+    _validate_timeout(settings)
+    return settings
 
+
+def loadReviewAgentSettings() -> Settings:
+    settings = _read_settings()
+    _require_seed("RELIC_REVIEW_AGENT_SEED", settings.reviewAgentSeed)
+    _validate_timeout(settings)
+    return settings
+
+
+def loadVerificationAgentSettings() -> Settings:
+    settings = _read_settings()
+    _require_seed("RELIC_VERIFICATION_AGENT_SEED", settings.verificationAgentSeed)
+    _validate_timeout(settings)
     return settings
