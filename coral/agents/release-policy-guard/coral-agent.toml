@@ -1,0 +1,15 @@
+edition = 3
+
+[agent]
+name = "relic-release-policy-guard"
+version = "0.1.0"
+description = "Evaluates verified Relic evidence and prevents agents from turning a BLOCKED review into release approval."
+summary = "Constrains blocked Relic reviews to remediation-required governance outcomes."
+readme = "Local Relic governance adapter. It evaluates verified evidence and prevents a BLOCKED review from becoming RELEASE_READY or an agent-issued release approval."
+license = { type = "spdx", expression = "MIT" }
+keywords = ["relic", "policy", "guard"]
+
+[runtimes.executable]
+path = "bash"
+arguments = ["-c", "./launch.sh"]
+transport = "streamable_http"

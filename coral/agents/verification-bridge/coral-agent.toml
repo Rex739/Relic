@@ -1,0 +1,29 @@
+edition = 3
+
+[agent]
+name = "relic-verification-bridge"
+version = "0.1.0"
+description = "Calls Relic's existing deterministic public review endpoint and returns only verified evidence for the Coral governance thread."
+summary = "Fetches deterministic Relic Meridian Grid evidence for Coral governance."
+readme = "Local Relic governance adapter. It calls the public Relic review endpoint and returns verified evidence only; it cannot mutate reviews, access secrets, or call blockchain services."
+license = { type = "spdx", expression = "MIT" }
+keywords = ["relic", "verification", "evidence"]
+
+[options.RELIC_API_BASE_URL]
+type = "string"
+required = false
+secret = false
+default = "https://relic-brown.vercel.app"
+display.description = "Base URL for Relic's public deterministic review capability."
+
+[options.RELIC_WORKSPACE_URL]
+type = "string"
+required = false
+secret = false
+default = "https://relic-brown.vercel.app/review/meridian-billing"
+display.description = "Public Relic workspace URL for the Meridian Billing review."
+
+[runtimes.executable]
+path = "bash"
+arguments = ["-c", "./launch.sh"]
+transport = "streamable_http"

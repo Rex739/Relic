@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -41,13 +42,13 @@ export function WorkspaceMobileHeader() {
   return (
     <header className="border-b border-line bg-raised lg:hidden">
       <div className="flex items-center justify-between gap-4 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-            <BrandMark theme="light" size={34} />
-            <div className="min-w-0">
+        <Link href="/" className="focus-ring flex min-w-0 items-center gap-3" aria-label="Go to Relic home">
+          <BrandMark theme="light" size={34} />
+          <div className="min-w-0">
             <div className="text-xl font-semibold uppercase tracking-[0.18em]">RELIC</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">Change intelligence</div>
           </div>
-        </div>
+        </Link>
         <button
           type="button"
           className="focus-ring inline-flex h-10 w-10 items-center justify-center border border-line text-ink"
@@ -87,13 +88,18 @@ export function WorkspaceMobileHeader() {
               transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] }}
             >
               <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
+                <Link
+                  href="/"
+                  className="focus-ring flex items-center gap-3"
+                  aria-label="Go to Relic home"
+                  onClick={() => setOpen(false)}
+                >
                   <BrandMark theme="light" size={34} />
                   <div>
                     <div className="text-xl font-semibold uppercase tracking-[0.18em]">RELIC</div>
                     <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">Workspace</div>
                   </div>
-                </div>
+                </Link>
                 <button
                   type="button"
                   className="focus-ring inline-flex h-9 w-9 items-center justify-center border border-line text-ink"

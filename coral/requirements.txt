@@ -1,0 +1,2 @@
+# No Python dependencies are required for the deterministic local CoralOS adapters.
+# Keep this file for future project-local virtualenv setup if Coral examples add Python SDK needs.

@@ -21,6 +21,18 @@ import type { ReviewResult } from "@/lib/relic/types";
 
 const tabs = ["Overview", "Impact Map", "Evidence", "Commitment", "Certificate"] as const;
 type Tab = (typeof tabs)[number];
+const tabSlugs: Record<Tab, string> = {
+  Overview: "overview",
+  "Impact Map": "impact-map",
+  Evidence: "evidence",
+  Commitment: "commitment",
+  Certificate: "certificate",
+};
+
+function getTabFromQuery(value: string | null): Tab {
+  const match = tabs.find((tab) => tabSlugs[tab] === value);
+  return match ?? "Overview";
+}
 
 async function requestReview(signal: AbortSignal): Promise<ReviewResult> {
   const response = await fetch("/api/review/run", { method: "POST", signal });
@@ -43,6 +55,30 @@ export function ReviewTabs() {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [visibleAgents, setVisibleAgents] = useState(0);
   const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    function syncTabFromUrl() {
+      setActiveTab(getTabFromQuery(new URLSearchParams(window.location.search).get("tab")));
+    }
+
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => window.removeEventListener("popstate", syncTabFromUrl);
+  }, []);
+
+  const selectTab = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+
+    const url = new URL(window.location.href);
+    if (tab === "Overview") {
+      url.searchParams.delete("tab");
+    } else {
+      url.searchParams.set("tab", tabSlugs[tab]);
+    }
+
+    window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.dispatchEvent(new Event("relic:workspace-nav"));
+  }, []);
 
   const runReview = useCallback(async () => {
     const controller = new AbortController();
@@ -174,7 +210,7 @@ export function ReviewTabs() {
             <button
               key={tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => selectTab(tab)}
               className={cn(
                 "focus-ring relative px-1 py-4 text-sm text-muted",
                 activeTab === tab ? "text-ink" : "hover:text-ink",

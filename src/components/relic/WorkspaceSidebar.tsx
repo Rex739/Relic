@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { BrandLogo } from "./BrandLogo";
 import { BrandMark } from "./BrandMark";
@@ -24,7 +25,13 @@ export function WorkspaceSidebar({ expanded, onToggle }: WorkspaceSidebarProps) 
     >
       <div className={cn("flex min-h-full flex-col", expanded ? "p-6" : "items-center px-3 py-6")}>
         <div className={cn("flex w-full items-start", expanded ? "justify-between gap-4" : "flex-col items-center gap-3")}>
-          {expanded ? <BrandLogo variant="compact" theme="light" /> : <BrandMark theme="light" size={38} />}
+          <Link
+            href="/"
+            className="focus-ring inline-flex shrink-0 items-center"
+            aria-label="Go to Relic home"
+          >
+            {expanded ? <BrandLogo variant="compact" theme="light" /> : <BrandMark theme="light" size={38} />}
+          </Link>
           <SidebarToggle expanded={expanded} onToggle={onToggle} />
         </div>
 

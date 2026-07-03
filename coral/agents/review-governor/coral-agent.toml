@@ -1,0 +1,29 @@
+edition = 3
+
+[agent]
+name = "relic-review-governor"
+version = "0.1.0"
+description = "Creates a scoped Coral review thread, delegates evidence verification, and requests a constrained release-policy decision for Relic."
+summary = "Scopes a Relic Meridian Grid review into a Coral governance thread."
+readme = "Local Relic governance adapter. It delegates evidence verification and policy evaluation, but cannot issue release approval or acknowledge for human owners."
+license = { type = "spdx", expression = "MIT" }
+keywords = ["relic", "governance", "review"]
+
+[options.RELIC_REVIEW_REQUEST]
+type = "string"
+required = true
+secret = false
+default = "Review Meridian Grid’s proposed 7% regulatory surcharge for commercial customers above 10,000 kWh. Check for billing and ledger regression risk."
+display.description = "Canonical Meridian Grid review request."
+
+[options.RELIC_WORKSPACE_URL]
+type = "string"
+required = false
+secret = false
+default = "https://relic-brown.vercel.app/review/meridian-billing"
+display.description = "Public Relic workspace URL for the reviewed Meridian Grid result."
+
+[runtimes.executable]
+path = "bash"
+arguments = ["-c", "./launch.sh"]
+transport = "streamable_http"
