@@ -1,0 +1,84 @@
+pragma silverscript ^0.1.0;
+
+contract ReleaseCommitment(
+    byte[32] initCommitmentId,
+    byte[32] initEvidenceDigest,
+    byte[32] initSourceCommitmentId,
+    int initStatus,
+    bool initFinanceAcknowledged,
+    bool initBillingAcknowledged,
+    pubkey initFinanceOwner,
+    pubkey initBillingPolicyLead,
+    pubkey initRelicAttestor
+) {
+    byte[32] commitmentId = initCommitmentId;
+    byte[32] evidenceDigest = initEvidenceDigest;
+    byte[32] sourceCommitmentId = initSourceCommitmentId;
+    int status = initStatus;
+    bool financeAcknowledged = initFinanceAcknowledged;
+    bool billingAcknowledged = initBillingAcknowledged;
+    pubkey financeOwner = initFinanceOwner;
+    pubkey billingPolicyLead = initBillingPolicyLead;
+    pubkey relicAttestor = initRelicAttestor;
+
+    #[covenant.singleton(mode = transition)]
+    function acknowledgeFinance(State prev_state, sig financeSignature) : State {
+        require(prev_state.status == 0);
+        require(prev_state.financeAcknowledged == false);
+        require(prev_state.billingAcknowledged == false);
+        require(checkSig(financeSignature, prev_state.financeOwner));
+
+        return {
+            commitmentId: prev_state.commitmentId,
+            evidenceDigest: prev_state.evidenceDigest,
+            sourceCommitmentId: prev_state.sourceCommitmentId,
+            status: 1,
+            financeAcknowledged: true,
+            billingAcknowledged: false,
+            financeOwner: prev_state.financeOwner,
+            billingPolicyLead: prev_state.billingPolicyLead,
+            relicAttestor: prev_state.relicAttestor
+        };
+    }
+
+    #[covenant.singleton(mode = transition)]
+    function acknowledgeBilling(State prev_state, sig billingSignature) : State {
+        require(prev_state.status == 1);
+        require(prev_state.financeAcknowledged == true);
+        require(prev_state.billingAcknowledged == false);
+        require(checkSig(billingSignature, prev_state.billingPolicyLead));
+
+        return {
+            commitmentId: prev_state.commitmentId,
+            evidenceDigest: prev_state.evidenceDigest,
+            sourceCommitmentId: prev_state.sourceCommitmentId,
+            status: 2,
+            financeAcknowledged: true,
+            billingAcknowledged: true,
+            financeOwner: prev_state.financeOwner,
+            billingPolicyLead: prev_state.billingPolicyLead,
+            relicAttestor: prev_state.relicAttestor
+        };
+    }
+
+    #[covenant.singleton(mode = transition)]
+    function supersede(State prev_state, sig attestorSignature, byte[32] supersedingCommitmentId) : State {
+        require(prev_state.status == 2);
+        require(prev_state.financeAcknowledged == true);
+        require(prev_state.billingAcknowledged == true);
+        require(supersedingCommitmentId != prev_state.commitmentId);
+        require(checkSig(attestorSignature, prev_state.relicAttestor));
+
+        return {
+            commitmentId: prev_state.commitmentId,
+            evidenceDigest: prev_state.evidenceDigest,
+            sourceCommitmentId: supersedingCommitmentId,
+            status: 3,
+            financeAcknowledged: true,
+            billingAcknowledged: true,
+            financeOwner: prev_state.financeOwner,
+            billingPolicyLead: prev_state.billingPolicyLead,
+            relicAttestor: prev_state.relicAttestor
+        };
+    }
+}

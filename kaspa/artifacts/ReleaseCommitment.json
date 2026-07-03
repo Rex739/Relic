@@ -1,0 +1,2906 @@
+{
+  "contract_name": "ReleaseCommitment",
+  "compiler_version": "0.1.0",
+  "script": [
+    107,
+    32,
+    82,
+    69,
+    76,
+    45,
+    77,
+    69,
+    82,
+    45,
+    50,
+    48,
+    50,
+    54,
+    45,
+    48,
+    55,
+    48,
+    49,
+    45,
+    48,
+    48,
+    49,
+    45,
+    66,
+    76,
+    79,
+    67,
+    75,
+    69,
+    68,
+    45,
+    48,
+    49,
+    32,
+    114,
+    23,
+    185,
+    25,
+    213,
+    117,
+    77,
+    238,
+    240,
+    40,
+    102,
+    67,
+    123,
+    96,
+    83,
+    204,
+    91,
+    221,
+    89,
+    191,
+    67,
+    36,
+    125,
+    47,
+    181,
+    250,
+    44,
+    122,
+    72,
+    39,
+    25,
+    128,
+    32,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    8,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    0,
+    32,
+    3,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    32,
+    3,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    34,
+    32,
+    3,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    51,
+    108,
+    118,
+    0,
+    156,
+    99,
+    117,
+    82,
+    121,
+    86,
+    121,
+    0,
+    156,
+    105,
+    85,
+    121,
+    0,
+    145,
+    145,
+    124,
+    145,
+    145,
+    156,
+    105,
+    84,
+    121,
+    0,
+    145,
+    145,
+    124,
+    145,
+    145,
+    156,
+    105,
+    90,
+    121,
+    120,
+    172,
+    105,
+    185,
+    203,
+    81,
+    156,
+    105,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    81,
+    88,
+    205,
+    1,
+    8,
+    124,
+    126,
+    81,
+    81,
+    205,
+    1,
+    1,
+    124,
+    126,
+    0,
+    81,
+    205,
+    1,
+    1,
+    124,
+    126,
+    86,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    185,
+    118,
+    201,
+    2,
+    236,
+    2,
+    148,
+    118,
+    81,
+    147,
+    188,
+    124,
+    126,
+    185,
+    118,
+    201,
+    118,
+    2,
+    236,
+    2,
+    148,
+    2,
+    212,
+    0,
+    147,
+    124,
+    188,
+    126,
+    170,
+    2,
+    0,
+    0,
+    1,
+    170,
+    126,
+    1,
+    32,
+    126,
+    124,
+    126,
+    1,
+    135,
+    126,
+    185,
+    0,
+    204,
+    195,
+    135,
+    105,
+    0,
+    122,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    81,
+    103,
+    118,
+    81,
+    156,
+    99,
+    117,
+    120,
+    86,
+    121,
+    81,
+    156,
+    105,
+    85,
+    121,
+    81,
+    145,
+    145,
+    124,
+    145,
+    145,
+    156,
+    105,
+    84,
+    121,
+    0,
+    145,
+    145,
+    124,
+    145,
+    145,
+    156,
+    105,
+    90,
+    121,
+    120,
+    172,
+    105,
+    185,
+    203,
+    81,
+    156,
+    105,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    82,
+    88,
+    205,
+    1,
+    8,
+    124,
+    126,
+    81,
+    81,
+    205,
+    1,
+    1,
+    124,
+    126,
+    81,
+    81,
+    205,
+    1,
+    1,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    87,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    185,
+    118,
+    201,
+    2,
+    236,
+    2,
+    148,
+    118,
+    81,
+    147,
+    188,
+    124,
+    126,
+    185,
+    118,
+    201,
+    118,
+    2,
+    236,
+    2,
+    148,
+    2,
+    212,
+    0,
+    147,
+    124,
+    188,
+    126,
+    170,
+    2,
+    0,
+    0,
+    1,
+    170,
+    126,
+    1,
+    32,
+    126,
+    124,
+    126,
+    1,
+    135,
+    126,
+    185,
+    0,
+    204,
+    195,
+    135,
+    105,
+    0,
+    122,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    81,
+    103,
+    118,
+    82,
+    156,
+    99,
+    117,
+    88,
+    121,
+    120,
+    91,
+    121,
+    88,
+    121,
+    82,
+    156,
+    105,
+    87,
+    121,
+    81,
+    145,
+    145,
+    124,
+    145,
+    145,
+    156,
+    105,
+    86,
+    121,
+    81,
+    145,
+    145,
+    124,
+    145,
+    145,
+    156,
+    105,
+    118,
+    83,
+    121,
+    135,
+    145,
+    105,
+    93,
+    121,
+    82,
+    121,
+    172,
+    105,
+    185,
+    203,
+    81,
+    156,
+    105,
+    82,
+    121,
+    1,
+    32,
+    124,
+    126,
+    91,
+    121,
+    1,
+    32,
+    124,
+    126,
+    82,
+    121,
+    1,
+    32,
+    124,
+    126,
+    83,
+    88,
+    205,
+    1,
+    8,
+    124,
+    126,
+    81,
+    81,
+    205,
+    1,
+    1,
+    124,
+    126,
+    81,
+    81,
+    205,
+    1,
+    1,
+    124,
+    126,
+    91,
+    121,
+    1,
+    32,
+    124,
+    126,
+    91,
+    121,
+    1,
+    32,
+    124,
+    126,
+    89,
+    121,
+    1,
+    32,
+    124,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    126,
+    185,
+    118,
+    201,
+    2,
+    236,
+    2,
+    148,
+    118,
+    81,
+    147,
+    188,
+    124,
+    126,
+    185,
+    118,
+    201,
+    118,
+    2,
+    236,
+    2,
+    148,
+    2,
+    212,
+    0,
+    147,
+    124,
+    188,
+    126,
+    170,
+    2,
+    0,
+    0,
+    1,
+    170,
+    126,
+    1,
+    32,
+    126,
+    124,
+    126,
+    1,
+    135,
+    126,
+    185,
+    0,
+    204,
+    195,
+    135,
+    105,
+    0,
+    122,
+    117,
+    0,
+    122,
+    117,
+    0,
+    122,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    117,
+    81,
+    103,
+    117,
+    0,
+    105,
+    104,
+    104,
+    104
+  ],
+  "ast": {
+    "pragma": {
+      "name": "silverscript",
+      "value": "^0.1.0",
+      "span": "pragma silverscript ^0.1.0;",
+      "name_span": "silverscript",
+      "value_span": "^0.1.0"
+    },
+    "name": "ReleaseCommitment",
+    "params": [
+      {
+        "type_ref": {
+          "base": "byte",
+          "array_dims": [
+            {
+              "kind": "fixed",
+              "value": 32
+            }
+          ]
+        },
+        "name": "initCommitmentId",
+        "span": "byte[32] initCommitmentId",
+        "type_span": "byte[32]",
+        "name_span": "initCommitmentId"
+      },
+      {
+        "type_ref": {
+          "base": "byte",
+          "array_dims": [
+            {
+              "kind": "fixed",
+              "value": 32
+            }
+          ]
+        },
+        "name": "initEvidenceDigest",
+        "span": "byte[32] initEvidenceDigest",
+        "type_span": "byte[32]",
+        "name_span": "initEvidenceDigest"
+      },
+      {
+        "type_ref": {
+          "base": "byte",
+          "array_dims": [
+            {
+              "kind": "fixed",
+              "value": 32
+            }
+          ]
+        },
+        "name": "initSourceCommitmentId",
+        "span": "byte[32] initSourceCommitmentId",
+        "type_span": "byte[32]",
+        "name_span": "initSourceCommitmentId"
+      },
+      {
+        "type_ref": {
+          "base": "int"
+        },
+        "name": "initStatus",
+        "span": "int initStatus",
+        "type_span": "int ",
+        "name_span": "initStatus"
+      },
+      {
+        "type_ref": {
+          "base": "bool"
+        },
+        "name": "initFinanceAcknowledged",
+        "span": "bool initFinanceAcknowledged",
+        "type_span": "bool ",
+        "name_span": "initFinanceAcknowledged"
+      },
+      {
+        "type_ref": {
+          "base": "bool"
+        },
+        "name": "initBillingAcknowledged",
+        "span": "bool initBillingAcknowledged",
+        "type_span": "bool ",
+        "name_span": "initBillingAcknowledged"
+      },
+      {
+        "type_ref": {
+          "base": "pubkey"
+        },
+        "name": "initFinanceOwner",
+        "span": "pubkey initFinanceOwner",
+        "type_span": "pubkey ",
+        "name_span": "initFinanceOwner"
+      },
+      {
+        "type_ref": {
+          "base": "pubkey"
+        },
+        "name": "initBillingPolicyLead",
+        "span": "pubkey initBillingPolicyLead",
+        "type_span": "pubkey ",
+        "name_span": "initBillingPolicyLead"
+      },
+      {
+        "type_ref": {
+          "base": "pubkey"
+        },
+        "name": "initRelicAttestor",
+        "span": "pubkey initRelicAttestor",
+        "type_span": "pubkey ",
+        "name_span": "initRelicAttestor"
+      }
+    ],
+    "fields": [
+      {
+        "type_ref": {
+          "base": "byte",
+          "array_dims": [
+            {
+              "kind": "fixed",
+              "value": 32
+            }
+          ]
+        },
+        "name": "commitmentId",
+        "expr": {
+          "kind": "identifier",
+          "data": "initCommitmentId",
+          "span": "initCommitmentId"
+        },
+        "span": "byte[32] commitmentId = initCommitmentId;",
+        "type_span": "byte[32]",
+        "name_span": "commitmentId"
+      },
+      {
+        "type_ref": {
+          "base": "byte",
+          "array_dims": [
+            {
+              "kind": "fixed",
+              "value": 32
+            }
+          ]
+        },
+        "name": "evidenceDigest",
+        "expr": {
+          "kind": "identifier",
+          "data": "initEvidenceDigest",
+          "span": "initEvidenceDigest"
+        },
+        "span": "byte[32] evidenceDigest = initEvidenceDigest;",
+        "type_span": "byte[32]",
+        "name_span": "evidenceDigest"
+      },
+      {
+        "type_ref": {
+          "base": "byte",
+          "array_dims": [
+            {
+              "kind": "fixed",
+              "value": 32
+            }
+          ]
+        },
+        "name": "sourceCommitmentId",
+        "expr": {
+          "kind": "identifier",
+          "data": "initSourceCommitmentId",
+          "span": "initSourceCommitmentId"
+        },
+        "span": "byte[32] sourceCommitmentId = initSourceCommitmentId;",
+        "type_span": "byte[32]",
+        "name_span": "sourceCommitmentId"
+      },
+      {
+        "type_ref": {
+          "base": "int"
+        },
+        "name": "status",
+        "expr": {
+          "kind": "identifier",
+          "data": "initStatus",
+          "span": "initStatus"
+        },
+        "span": "int status = initStatus;",
+        "type_span": "int ",
+        "name_span": "status"
+      },
+      {
+        "type_ref": {
+          "base": "bool"
+        },
+        "name": "financeAcknowledged",
+        "expr": {
+          "kind": "identifier",
+          "data": "initFinanceAcknowledged",
+          "span": "initFinanceAcknowledged"
+        },
+        "span": "bool financeAcknowledged = initFinanceAcknowledged;",
+        "type_span": "bool ",
+        "name_span": "financeAcknowledged"
+      },
+      {
+        "type_ref": {
+          "base": "bool"
+        },
+        "name": "billingAcknowledged",
+        "expr": {
+          "kind": "identifier",
+          "data": "initBillingAcknowledged",
+          "span": "initBillingAcknowledged"
+        },
+        "span": "bool billingAcknowledged = initBillingAcknowledged;",
+        "type_span": "bool ",
+        "name_span": "billingAcknowledged"
+      },
+      {
+        "type_ref": {
+          "base": "pubkey"
+        },
+        "name": "financeOwner",
+        "expr": {
+          "kind": "identifier",
+          "data": "initFinanceOwner",
+          "span": "initFinanceOwner"
+        },
+        "span": "pubkey financeOwner = initFinanceOwner;",
+        "type_span": "pubkey ",
+        "name_span": "financeOwner"
+      },
+      {
+        "type_ref": {
+          "base": "pubkey"
+        },
+        "name": "billingPolicyLead",
+        "expr": {
+          "kind": "identifier",
+          "data": "initBillingPolicyLead",
+          "span": "initBillingPolicyLead"
+        },
+        "span": "pubkey billingPolicyLead = initBillingPolicyLead;",
+        "type_span": "pubkey ",
+        "name_span": "billingPolicyLead"
+      },
+      {
+        "type_ref": {
+          "base": "pubkey"
+        },
+        "name": "relicAttestor",
+        "expr": {
+          "kind": "identifier",
+          "data": "initRelicAttestor",
+          "span": "initRelicAttestor"
+        },
+        "span": "pubkey relicAttestor = initRelicAttestor;",
+        "type_span": "pubkey ",
+        "name_span": "relicAttestor"
+      }
+    ],
+    "constants": [],
+    "functions": [
+      {
+        "name": "__covenant_policy_acknowledgeFinance",
+        "params": [
+          {
+            "type_ref": {
+              "base": "State"
+            },
+            "name": "prev_state",
+            "span": "State prev_state",
+            "type_span": "State ",
+            "name_span": "prev_state"
+          },
+          {
+            "type_ref": {
+              "base": "sig"
+            },
+            "name": "financeSignature",
+            "span": "sig financeSignature",
+            "type_span": "sig ",
+            "name_span": "financeSignature"
+          }
+        ],
+        "entrypoint": false,
+        "return_types": [
+          {
+            "base": "State"
+          }
+        ],
+        "returns_tuple": false,
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "status",
+                      "field_span": "status"
+                    },
+                    "span": "prev_state.status"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 0,
+                    "span": "0"
+                  }
+                },
+                "span": "prev_state.status == 0"
+              },
+              "message": null,
+              "span": "require(prev_state.status == 0);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "financeAcknowledged",
+                      "field_span": "financeAcknowledged"
+                    },
+                    "span": "prev_state.financeAcknowledged"
+                  },
+                  "right": {
+                    "kind": "bool",
+                    "data": false,
+                    "span": "false"
+                  }
+                },
+                "span": "prev_state.financeAcknowledged == false"
+              },
+              "message": null,
+              "span": "require(prev_state.financeAcknowledged == false);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "billingAcknowledged",
+                      "field_span": "billingAcknowledged"
+                    },
+                    "span": "prev_state.billingAcknowledged"
+                  },
+                  "right": {
+                    "kind": "bool",
+                    "data": false,
+                    "span": "false"
+                  }
+                },
+                "span": "prev_state.billingAcknowledged == false"
+              },
+              "message": null,
+              "span": "require(prev_state.billingAcknowledged == false);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "financeSignature",
+                      "span": "financeSignature"
+                    },
+                    {
+                      "kind": "field_access",
+                      "data": {
+                        "source": {
+                          "kind": "identifier",
+                          "data": "prev_state",
+                          "span": "prev_state"
+                        },
+                        "field": "financeOwner",
+                        "field_span": "financeOwner"
+                      },
+                      "span": "prev_state.financeOwner"
+                    }
+                  ],
+                  "name_span": "checkSig"
+                },
+                "span": "checkSig(financeSignature, prev_state.financeOwner)"
+              },
+              "message": null,
+              "span": "require(checkSig(financeSignature, prev_state.financeOwner));",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "return",
+            "data": {
+              "exprs": [
+                {
+                  "kind": "state_object",
+                  "data": [
+                    {
+                      "name": "commitmentId",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "commitmentId",
+                          "field_span": "commitmentId"
+                        },
+                        "span": "prev_state.commitmentId"
+                      },
+                      "span": "commitmentId: prev_state.commitmentId",
+                      "name_span": "commitmentId"
+                    },
+                    {
+                      "name": "evidenceDigest",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "evidenceDigest",
+                          "field_span": "evidenceDigest"
+                        },
+                        "span": "prev_state.evidenceDigest"
+                      },
+                      "span": "evidenceDigest: prev_state.evidenceDigest",
+                      "name_span": "evidenceDigest"
+                    },
+                    {
+                      "name": "sourceCommitmentId",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "sourceCommitmentId",
+                          "field_span": "sourceCommitmentId"
+                        },
+                        "span": "prev_state.sourceCommitmentId"
+                      },
+                      "span": "sourceCommitmentId: prev_state.sourceCommitmentId",
+                      "name_span": "sourceCommitmentId"
+                    },
+                    {
+                      "name": "status",
+                      "expr": {
+                        "kind": "int",
+                        "data": 1,
+                        "span": "1"
+                      },
+                      "span": "status: 1",
+                      "name_span": "status"
+                    },
+                    {
+                      "name": "financeAcknowledged",
+                      "expr": {
+                        "kind": "bool",
+                        "data": true,
+                        "span": "true"
+                      },
+                      "span": "financeAcknowledged: true",
+                      "name_span": "financeAcknowledged"
+                    },
+                    {
+                      "name": "billingAcknowledged",
+                      "expr": {
+                        "kind": "bool",
+                        "data": false,
+                        "span": "false"
+                      },
+                      "span": "billingAcknowledged: false",
+                      "name_span": "billingAcknowledged"
+                    },
+                    {
+                      "name": "financeOwner",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "financeOwner",
+                          "field_span": "financeOwner"
+                        },
+                        "span": "prev_state.financeOwner"
+                      },
+                      "span": "financeOwner: prev_state.financeOwner",
+                      "name_span": "financeOwner"
+                    },
+                    {
+                      "name": "billingPolicyLead",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "billingPolicyLead",
+                          "field_span": "billingPolicyLead"
+                        },
+                        "span": "prev_state.billingPolicyLead"
+                      },
+                      "span": "billingPolicyLead: prev_state.billingPolicyLead",
+                      "name_span": "billingPolicyLead"
+                    },
+                    {
+                      "name": "relicAttestor",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "relicAttestor",
+                          "field_span": "relicAttestor"
+                        },
+                        "span": "prev_state.relicAttestor"
+                      },
+                      "span": "relicAttestor: prev_state.relicAttestor\n        ",
+                      "name_span": "relicAttestor"
+                    }
+                  ],
+                  "span": "{\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        }"
+                }
+              ],
+              "span": "return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+            }
+          }
+        ],
+        "return_type_spans": [
+          "State "
+        ],
+        "span": "#[covenant.singleton(mode = transition)]\n    function acknowledgeFinance(State prev_state, sig financeSignature) : State {\n        require(prev_state.status == 0);\n        require(prev_state.financeAcknowledged == false);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(financeSignature, prev_state.financeOwner));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }",
+        "name_span": "acknowledgeFinance",
+        "body_span": "require(prev_state.status == 0);\n        require(prev_state.financeAcknowledged == false);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(financeSignature, prev_state.financeOwner));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+      },
+      {
+        "name": "__covenant_entrypoint_auth_acknowledgeFinance",
+        "params": [
+          {
+            "type_ref": {
+              "base": "sig"
+            },
+            "name": "financeSignature",
+            "span": "sig financeSignature",
+            "type_span": "sig ",
+            "name_span": "financeSignature"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "returns_tuple": false,
+        "body": [
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "int"
+              },
+              "modifiers": [],
+              "name": "__auth_out_count",
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "OpAuthOutputCount",
+                  "args": [
+                    {
+                      "kind": "nullary",
+                      "data": "active_input_index",
+                      "span": "<synthetic>"
+                    }
+                  ],
+                  "name_span": "<synthetic>"
+                },
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "State"
+              },
+              "modifiers": [],
+              "name": "prev_state",
+              "expr": {
+                "kind": "state_object",
+                "data": [
+                  {
+                    "name": "commitmentId",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "commitmentId",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "evidenceDigest",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "evidenceDigest",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "sourceCommitmentId",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "sourceCommitmentId",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "status",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "status",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "financeAcknowledged",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "financeAcknowledged",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "billingAcknowledged",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "billingAcknowledged",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "financeOwner",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "financeOwner",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "billingPolicyLead",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "billingPolicyLead",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "relicAttestor",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "relicAttestor",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  }
+                ],
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "function_call_assign",
+            "data": {
+              "bindings": [
+                {
+                  "type_ref": {
+                    "base": "State"
+                  },
+                  "name": "__cov_new_state",
+                  "span": "<synthetic>",
+                  "type_span": "<synthetic>",
+                  "name_span": "<synthetic>"
+                }
+              ],
+              "name": "__covenant_policy_acknowledgeFinance",
+              "args": [
+                {
+                  "kind": "identifier",
+                  "data": "prev_state",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "financeSignature",
+                  "span": "<synthetic>"
+                }
+              ],
+              "span": "<synthetic>",
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "identifier",
+                    "data": "__auth_out_count",
+                    "span": "<synthetic>"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 1,
+                    "span": "<synthetic>"
+                  }
+                },
+                "span": "<synthetic>"
+              },
+              "message": null,
+              "span": "<synthetic>",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "int"
+              },
+              "modifiers": [],
+              "name": "__cov_out_idx",
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "OpAuthOutputIdx",
+                  "args": [
+                    {
+                      "kind": "nullary",
+                      "data": "active_input_index",
+                      "span": "<synthetic>"
+                    },
+                    {
+                      "kind": "int",
+                      "data": 0,
+                      "span": "<synthetic>"
+                    }
+                  ],
+                  "name_span": "<synthetic>"
+                },
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "function_call",
+            "data": {
+              "name": "validateOutputState",
+              "args": [
+                {
+                  "kind": "identifier",
+                  "data": "__cov_out_idx",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "__cov_new_state",
+                  "span": "<synthetic>"
+                }
+              ],
+              "span": "<synthetic>",
+              "name_span": "<synthetic>"
+            }
+          }
+        ],
+        "return_type_spans": [],
+        "span": "#[covenant.singleton(mode = transition)]\n    function acknowledgeFinance(State prev_state, sig financeSignature) : State {\n        require(prev_state.status == 0);\n        require(prev_state.financeAcknowledged == false);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(financeSignature, prev_state.financeOwner));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }",
+        "name_span": "acknowledgeFinance",
+        "body_span": "require(prev_state.status == 0);\n        require(prev_state.financeAcknowledged == false);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(financeSignature, prev_state.financeOwner));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+      },
+      {
+        "name": "__covenant_policy_acknowledgeBilling",
+        "params": [
+          {
+            "type_ref": {
+              "base": "State"
+            },
+            "name": "prev_state",
+            "span": "State prev_state",
+            "type_span": "State ",
+            "name_span": "prev_state"
+          },
+          {
+            "type_ref": {
+              "base": "sig"
+            },
+            "name": "billingSignature",
+            "span": "sig billingSignature",
+            "type_span": "sig ",
+            "name_span": "billingSignature"
+          }
+        ],
+        "entrypoint": false,
+        "return_types": [
+          {
+            "base": "State"
+          }
+        ],
+        "returns_tuple": false,
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "status",
+                      "field_span": "status"
+                    },
+                    "span": "prev_state.status"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 1,
+                    "span": "1"
+                  }
+                },
+                "span": "prev_state.status == 1"
+              },
+              "message": null,
+              "span": "require(prev_state.status == 1);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "financeAcknowledged",
+                      "field_span": "financeAcknowledged"
+                    },
+                    "span": "prev_state.financeAcknowledged"
+                  },
+                  "right": {
+                    "kind": "bool",
+                    "data": true,
+                    "span": "true"
+                  }
+                },
+                "span": "prev_state.financeAcknowledged == true"
+              },
+              "message": null,
+              "span": "require(prev_state.financeAcknowledged == true);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "billingAcknowledged",
+                      "field_span": "billingAcknowledged"
+                    },
+                    "span": "prev_state.billingAcknowledged"
+                  },
+                  "right": {
+                    "kind": "bool",
+                    "data": false,
+                    "span": "false"
+                  }
+                },
+                "span": "prev_state.billingAcknowledged == false"
+              },
+              "message": null,
+              "span": "require(prev_state.billingAcknowledged == false);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "billingSignature",
+                      "span": "billingSignature"
+                    },
+                    {
+                      "kind": "field_access",
+                      "data": {
+                        "source": {
+                          "kind": "identifier",
+                          "data": "prev_state",
+                          "span": "prev_state"
+                        },
+                        "field": "billingPolicyLead",
+                        "field_span": "billingPolicyLead"
+                      },
+                      "span": "prev_state.billingPolicyLead"
+                    }
+                  ],
+                  "name_span": "checkSig"
+                },
+                "span": "checkSig(billingSignature, prev_state.billingPolicyLead)"
+              },
+              "message": null,
+              "span": "require(checkSig(billingSignature, prev_state.billingPolicyLead));",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "return",
+            "data": {
+              "exprs": [
+                {
+                  "kind": "state_object",
+                  "data": [
+                    {
+                      "name": "commitmentId",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "commitmentId",
+                          "field_span": "commitmentId"
+                        },
+                        "span": "prev_state.commitmentId"
+                      },
+                      "span": "commitmentId: prev_state.commitmentId",
+                      "name_span": "commitmentId"
+                    },
+                    {
+                      "name": "evidenceDigest",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "evidenceDigest",
+                          "field_span": "evidenceDigest"
+                        },
+                        "span": "prev_state.evidenceDigest"
+                      },
+                      "span": "evidenceDigest: prev_state.evidenceDigest",
+                      "name_span": "evidenceDigest"
+                    },
+                    {
+                      "name": "sourceCommitmentId",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "sourceCommitmentId",
+                          "field_span": "sourceCommitmentId"
+                        },
+                        "span": "prev_state.sourceCommitmentId"
+                      },
+                      "span": "sourceCommitmentId: prev_state.sourceCommitmentId",
+                      "name_span": "sourceCommitmentId"
+                    },
+                    {
+                      "name": "status",
+                      "expr": {
+                        "kind": "int",
+                        "data": 2,
+                        "span": "2"
+                      },
+                      "span": "status: 2",
+                      "name_span": "status"
+                    },
+                    {
+                      "name": "financeAcknowledged",
+                      "expr": {
+                        "kind": "bool",
+                        "data": true,
+                        "span": "true"
+                      },
+                      "span": "financeAcknowledged: true",
+                      "name_span": "financeAcknowledged"
+                    },
+                    {
+                      "name": "billingAcknowledged",
+                      "expr": {
+                        "kind": "bool",
+                        "data": true,
+                        "span": "true"
+                      },
+                      "span": "billingAcknowledged: true",
+                      "name_span": "billingAcknowledged"
+                    },
+                    {
+                      "name": "financeOwner",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "financeOwner",
+                          "field_span": "financeOwner"
+                        },
+                        "span": "prev_state.financeOwner"
+                      },
+                      "span": "financeOwner: prev_state.financeOwner",
+                      "name_span": "financeOwner"
+                    },
+                    {
+                      "name": "billingPolicyLead",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "billingPolicyLead",
+                          "field_span": "billingPolicyLead"
+                        },
+                        "span": "prev_state.billingPolicyLead"
+                      },
+                      "span": "billingPolicyLead: prev_state.billingPolicyLead",
+                      "name_span": "billingPolicyLead"
+                    },
+                    {
+                      "name": "relicAttestor",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "relicAttestor",
+                          "field_span": "relicAttestor"
+                        },
+                        "span": "prev_state.relicAttestor"
+                      },
+                      "span": "relicAttestor: prev_state.relicAttestor\n        ",
+                      "name_span": "relicAttestor"
+                    }
+                  ],
+                  "span": "{\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        }"
+                }
+              ],
+              "span": "return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+            }
+          }
+        ],
+        "return_type_spans": [
+          "State "
+        ],
+        "span": "#[covenant.singleton(mode = transition)]\n    function acknowledgeBilling(State prev_state, sig billingSignature) : State {\n        require(prev_state.status == 1);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(billingSignature, prev_state.billingPolicyLead));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }",
+        "name_span": "acknowledgeBilling",
+        "body_span": "require(prev_state.status == 1);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(billingSignature, prev_state.billingPolicyLead));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+      },
+      {
+        "name": "__covenant_entrypoint_auth_acknowledgeBilling",
+        "params": [
+          {
+            "type_ref": {
+              "base": "sig"
+            },
+            "name": "billingSignature",
+            "span": "sig billingSignature",
+            "type_span": "sig ",
+            "name_span": "billingSignature"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "returns_tuple": false,
+        "body": [
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "int"
+              },
+              "modifiers": [],
+              "name": "__auth_out_count",
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "OpAuthOutputCount",
+                  "args": [
+                    {
+                      "kind": "nullary",
+                      "data": "active_input_index",
+                      "span": "<synthetic>"
+                    }
+                  ],
+                  "name_span": "<synthetic>"
+                },
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "State"
+              },
+              "modifiers": [],
+              "name": "prev_state",
+              "expr": {
+                "kind": "state_object",
+                "data": [
+                  {
+                    "name": "commitmentId",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "commitmentId",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "evidenceDigest",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "evidenceDigest",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "sourceCommitmentId",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "sourceCommitmentId",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "status",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "status",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "financeAcknowledged",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "financeAcknowledged",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "billingAcknowledged",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "billingAcknowledged",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "financeOwner",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "financeOwner",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "billingPolicyLead",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "billingPolicyLead",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "relicAttestor",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "relicAttestor",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  }
+                ],
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "function_call_assign",
+            "data": {
+              "bindings": [
+                {
+                  "type_ref": {
+                    "base": "State"
+                  },
+                  "name": "__cov_new_state",
+                  "span": "<synthetic>",
+                  "type_span": "<synthetic>",
+                  "name_span": "<synthetic>"
+                }
+              ],
+              "name": "__covenant_policy_acknowledgeBilling",
+              "args": [
+                {
+                  "kind": "identifier",
+                  "data": "prev_state",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "billingSignature",
+                  "span": "<synthetic>"
+                }
+              ],
+              "span": "<synthetic>",
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "identifier",
+                    "data": "__auth_out_count",
+                    "span": "<synthetic>"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 1,
+                    "span": "<synthetic>"
+                  }
+                },
+                "span": "<synthetic>"
+              },
+              "message": null,
+              "span": "<synthetic>",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "int"
+              },
+              "modifiers": [],
+              "name": "__cov_out_idx",
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "OpAuthOutputIdx",
+                  "args": [
+                    {
+                      "kind": "nullary",
+                      "data": "active_input_index",
+                      "span": "<synthetic>"
+                    },
+                    {
+                      "kind": "int",
+                      "data": 0,
+                      "span": "<synthetic>"
+                    }
+                  ],
+                  "name_span": "<synthetic>"
+                },
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "function_call",
+            "data": {
+              "name": "validateOutputState",
+              "args": [
+                {
+                  "kind": "identifier",
+                  "data": "__cov_out_idx",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "__cov_new_state",
+                  "span": "<synthetic>"
+                }
+              ],
+              "span": "<synthetic>",
+              "name_span": "<synthetic>"
+            }
+          }
+        ],
+        "return_type_spans": [],
+        "span": "#[covenant.singleton(mode = transition)]\n    function acknowledgeBilling(State prev_state, sig billingSignature) : State {\n        require(prev_state.status == 1);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(billingSignature, prev_state.billingPolicyLead));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }",
+        "name_span": "acknowledgeBilling",
+        "body_span": "require(prev_state.status == 1);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(billingSignature, prev_state.billingPolicyLead));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+      },
+      {
+        "name": "__covenant_policy_supersede",
+        "params": [
+          {
+            "type_ref": {
+              "base": "State"
+            },
+            "name": "prev_state",
+            "span": "State prev_state",
+            "type_span": "State ",
+            "name_span": "prev_state"
+          },
+          {
+            "type_ref": {
+              "base": "sig"
+            },
+            "name": "attestorSignature",
+            "span": "sig attestorSignature",
+            "type_span": "sig ",
+            "name_span": "attestorSignature"
+          },
+          {
+            "type_ref": {
+              "base": "byte",
+              "array_dims": [
+                {
+                  "kind": "fixed",
+                  "value": 32
+                }
+              ]
+            },
+            "name": "supersedingCommitmentId",
+            "span": "byte[32] supersedingCommitmentId",
+            "type_span": "byte[32]",
+            "name_span": "supersedingCommitmentId"
+          }
+        ],
+        "entrypoint": false,
+        "return_types": [
+          {
+            "base": "State"
+          }
+        ],
+        "returns_tuple": false,
+        "body": [
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "status",
+                      "field_span": "status"
+                    },
+                    "span": "prev_state.status"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 2,
+                    "span": "2"
+                  }
+                },
+                "span": "prev_state.status == 2"
+              },
+              "message": null,
+              "span": "require(prev_state.status == 2);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "financeAcknowledged",
+                      "field_span": "financeAcknowledged"
+                    },
+                    "span": "prev_state.financeAcknowledged"
+                  },
+                  "right": {
+                    "kind": "bool",
+                    "data": true,
+                    "span": "true"
+                  }
+                },
+                "span": "prev_state.financeAcknowledged == true"
+              },
+              "message": null,
+              "span": "require(prev_state.financeAcknowledged == true);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "billingAcknowledged",
+                      "field_span": "billingAcknowledged"
+                    },
+                    "span": "prev_state.billingAcknowledged"
+                  },
+                  "right": {
+                    "kind": "bool",
+                    "data": true,
+                    "span": "true"
+                  }
+                },
+                "span": "prev_state.billingAcknowledged == true"
+              },
+              "message": null,
+              "span": "require(prev_state.billingAcknowledged == true);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "ne",
+                  "left": {
+                    "kind": "identifier",
+                    "data": "supersedingCommitmentId",
+                    "span": "supersedingCommitmentId"
+                  },
+                  "right": {
+                    "kind": "field_access",
+                    "data": {
+                      "source": {
+                        "kind": "identifier",
+                        "data": "prev_state",
+                        "span": "prev_state"
+                      },
+                      "field": "commitmentId",
+                      "field_span": "commitmentId"
+                    },
+                    "span": "prev_state.commitmentId"
+                  }
+                },
+                "span": "supersedingCommitmentId != prev_state.commitmentId"
+              },
+              "message": null,
+              "span": "require(supersedingCommitmentId != prev_state.commitmentId);",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "checkSig",
+                  "args": [
+                    {
+                      "kind": "identifier",
+                      "data": "attestorSignature",
+                      "span": "attestorSignature"
+                    },
+                    {
+                      "kind": "field_access",
+                      "data": {
+                        "source": {
+                          "kind": "identifier",
+                          "data": "prev_state",
+                          "span": "prev_state"
+                        },
+                        "field": "relicAttestor",
+                        "field_span": "relicAttestor"
+                      },
+                      "span": "prev_state.relicAttestor"
+                    }
+                  ],
+                  "name_span": "checkSig"
+                },
+                "span": "checkSig(attestorSignature, prev_state.relicAttestor)"
+              },
+              "message": null,
+              "span": "require(checkSig(attestorSignature, prev_state.relicAttestor));",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "return",
+            "data": {
+              "exprs": [
+                {
+                  "kind": "state_object",
+                  "data": [
+                    {
+                      "name": "commitmentId",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "commitmentId",
+                          "field_span": "commitmentId"
+                        },
+                        "span": "prev_state.commitmentId"
+                      },
+                      "span": "commitmentId: prev_state.commitmentId",
+                      "name_span": "commitmentId"
+                    },
+                    {
+                      "name": "evidenceDigest",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "evidenceDigest",
+                          "field_span": "evidenceDigest"
+                        },
+                        "span": "prev_state.evidenceDigest"
+                      },
+                      "span": "evidenceDigest: prev_state.evidenceDigest",
+                      "name_span": "evidenceDigest"
+                    },
+                    {
+                      "name": "sourceCommitmentId",
+                      "expr": {
+                        "kind": "identifier",
+                        "data": "supersedingCommitmentId",
+                        "span": "supersedingCommitmentId"
+                      },
+                      "span": "sourceCommitmentId: supersedingCommitmentId",
+                      "name_span": "sourceCommitmentId"
+                    },
+                    {
+                      "name": "status",
+                      "expr": {
+                        "kind": "int",
+                        "data": 3,
+                        "span": "3"
+                      },
+                      "span": "status: 3",
+                      "name_span": "status"
+                    },
+                    {
+                      "name": "financeAcknowledged",
+                      "expr": {
+                        "kind": "bool",
+                        "data": true,
+                        "span": "true"
+                      },
+                      "span": "financeAcknowledged: true",
+                      "name_span": "financeAcknowledged"
+                    },
+                    {
+                      "name": "billingAcknowledged",
+                      "expr": {
+                        "kind": "bool",
+                        "data": true,
+                        "span": "true"
+                      },
+                      "span": "billingAcknowledged: true",
+                      "name_span": "billingAcknowledged"
+                    },
+                    {
+                      "name": "financeOwner",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "financeOwner",
+                          "field_span": "financeOwner"
+                        },
+                        "span": "prev_state.financeOwner"
+                      },
+                      "span": "financeOwner: prev_state.financeOwner",
+                      "name_span": "financeOwner"
+                    },
+                    {
+                      "name": "billingPolicyLead",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "billingPolicyLead",
+                          "field_span": "billingPolicyLead"
+                        },
+                        "span": "prev_state.billingPolicyLead"
+                      },
+                      "span": "billingPolicyLead: prev_state.billingPolicyLead",
+                      "name_span": "billingPolicyLead"
+                    },
+                    {
+                      "name": "relicAttestor",
+                      "expr": {
+                        "kind": "field_access",
+                        "data": {
+                          "source": {
+                            "kind": "identifier",
+                            "data": "prev_state",
+                            "span": "prev_state"
+                          },
+                          "field": "relicAttestor",
+                          "field_span": "relicAttestor"
+                        },
+                        "span": "prev_state.relicAttestor"
+                      },
+                      "span": "relicAttestor: prev_state.relicAttestor\n        ",
+                      "name_span": "relicAttestor"
+                    }
+                  ],
+                  "span": "{\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        }"
+                }
+              ],
+              "span": "return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+            }
+          }
+        ],
+        "return_type_spans": [
+          "State "
+        ],
+        "span": "#[covenant.singleton(mode = transition)]\n    function supersede(State prev_state, sig attestorSignature, byte[32] supersedingCommitmentId) : State {\n        require(prev_state.status == 2);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == true);\n        require(supersedingCommitmentId != prev_state.commitmentId);\n        require(checkSig(attestorSignature, prev_state.relicAttestor));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }",
+        "name_span": "supersede",
+        "body_span": "require(prev_state.status == 2);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == true);\n        require(supersedingCommitmentId != prev_state.commitmentId);\n        require(checkSig(attestorSignature, prev_state.relicAttestor));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+      },
+      {
+        "name": "__covenant_entrypoint_auth_supersede",
+        "params": [
+          {
+            "type_ref": {
+              "base": "sig"
+            },
+            "name": "attestorSignature",
+            "span": "sig attestorSignature",
+            "type_span": "sig ",
+            "name_span": "attestorSignature"
+          },
+          {
+            "type_ref": {
+              "base": "byte",
+              "array_dims": [
+                {
+                  "kind": "fixed",
+                  "value": 32
+                }
+              ]
+            },
+            "name": "supersedingCommitmentId",
+            "span": "byte[32] supersedingCommitmentId",
+            "type_span": "byte[32]",
+            "name_span": "supersedingCommitmentId"
+          }
+        ],
+        "entrypoint": true,
+        "return_types": [],
+        "returns_tuple": false,
+        "body": [
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "int"
+              },
+              "modifiers": [],
+              "name": "__auth_out_count",
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "OpAuthOutputCount",
+                  "args": [
+                    {
+                      "kind": "nullary",
+                      "data": "active_input_index",
+                      "span": "<synthetic>"
+                    }
+                  ],
+                  "name_span": "<synthetic>"
+                },
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "State"
+              },
+              "modifiers": [],
+              "name": "prev_state",
+              "expr": {
+                "kind": "state_object",
+                "data": [
+                  {
+                    "name": "commitmentId",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "commitmentId",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "evidenceDigest",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "evidenceDigest",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "sourceCommitmentId",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "sourceCommitmentId",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "status",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "status",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "financeAcknowledged",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "financeAcknowledged",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "billingAcknowledged",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "billingAcknowledged",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "financeOwner",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "financeOwner",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "billingPolicyLead",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "billingPolicyLead",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  },
+                  {
+                    "name": "relicAttestor",
+                    "expr": {
+                      "kind": "identifier",
+                      "data": "relicAttestor",
+                      "span": "<synthetic>"
+                    },
+                    "span": "<synthetic>",
+                    "name_span": "<synthetic>"
+                  }
+                ],
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "function_call_assign",
+            "data": {
+              "bindings": [
+                {
+                  "type_ref": {
+                    "base": "State"
+                  },
+                  "name": "__cov_new_state",
+                  "span": "<synthetic>",
+                  "type_span": "<synthetic>",
+                  "name_span": "<synthetic>"
+                }
+              ],
+              "name": "__covenant_policy_supersede",
+              "args": [
+                {
+                  "kind": "identifier",
+                  "data": "prev_state",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "attestorSignature",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "supersedingCommitmentId",
+                  "span": "<synthetic>"
+                }
+              ],
+              "span": "<synthetic>",
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "require",
+            "data": {
+              "expr": {
+                "kind": "binary",
+                "data": {
+                  "op": "eq",
+                  "left": {
+                    "kind": "identifier",
+                    "data": "__auth_out_count",
+                    "span": "<synthetic>"
+                  },
+                  "right": {
+                    "kind": "int",
+                    "data": 1,
+                    "span": "<synthetic>"
+                  }
+                },
+                "span": "<synthetic>"
+              },
+              "message": null,
+              "span": "<synthetic>",
+              "message_span": null
+            }
+          },
+          {
+            "kind": "variable_definition",
+            "data": {
+              "type_ref": {
+                "base": "int"
+              },
+              "modifiers": [],
+              "name": "__cov_out_idx",
+              "expr": {
+                "kind": "call",
+                "data": {
+                  "name": "OpAuthOutputIdx",
+                  "args": [
+                    {
+                      "kind": "nullary",
+                      "data": "active_input_index",
+                      "span": "<synthetic>"
+                    },
+                    {
+                      "kind": "int",
+                      "data": 0,
+                      "span": "<synthetic>"
+                    }
+                  ],
+                  "name_span": "<synthetic>"
+                },
+                "span": "<synthetic>"
+              },
+              "span": "<synthetic>",
+              "type_span": "<synthetic>",
+              "modifier_spans": [],
+              "name_span": "<synthetic>"
+            }
+          },
+          {
+            "kind": "function_call",
+            "data": {
+              "name": "validateOutputState",
+              "args": [
+                {
+                  "kind": "identifier",
+                  "data": "__cov_out_idx",
+                  "span": "<synthetic>"
+                },
+                {
+                  "kind": "identifier",
+                  "data": "__cov_new_state",
+                  "span": "<synthetic>"
+                }
+              ],
+              "span": "<synthetic>",
+              "name_span": "<synthetic>"
+            }
+          }
+        ],
+        "return_type_spans": [],
+        "span": "#[covenant.singleton(mode = transition)]\n    function supersede(State prev_state, sig attestorSignature, byte[32] supersedingCommitmentId) : State {\n        require(prev_state.status == 2);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == true);\n        require(supersedingCommitmentId != prev_state.commitmentId);\n        require(checkSig(attestorSignature, prev_state.relicAttestor));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }",
+        "name_span": "supersede",
+        "body_span": "require(prev_state.status == 2);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == true);\n        require(supersedingCommitmentId != prev_state.commitmentId);\n        require(checkSig(attestorSignature, prev_state.relicAttestor));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };"
+      }
+    ],
+    "span": "contract ReleaseCommitment(\n    byte[32] initCommitmentId,\n    byte[32] initEvidenceDigest,\n    byte[32] initSourceCommitmentId,\n    int initStatus,\n    bool initFinanceAcknowledged,\n    bool initBillingAcknowledged,\n    pubkey initFinanceOwner,\n    pubkey initBillingPolicyLead,\n    pubkey initRelicAttestor\n) {\n    byte[32] commitmentId = initCommitmentId;\n    byte[32] evidenceDigest = initEvidenceDigest;\n    byte[32] sourceCommitmentId = initSourceCommitmentId;\n    int status = initStatus;\n    bool financeAcknowledged = initFinanceAcknowledged;\n    bool billingAcknowledged = initBillingAcknowledged;\n    pubkey financeOwner = initFinanceOwner;\n    pubkey billingPolicyLead = initBillingPolicyLead;\n    pubkey relicAttestor = initRelicAttestor;\n\n    #[covenant.singleton(mode = transition)]\n    function acknowledgeFinance(State prev_state, sig financeSignature) : State {\n        require(prev_state.status == 0);\n        require(prev_state.financeAcknowledged == false);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(financeSignature, prev_state.financeOwner));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 1,\n            financeAcknowledged: true,\n            billingAcknowledged: false,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }\n\n    #[covenant.singleton(mode = transition)]\n    function acknowledgeBilling(State prev_state, sig billingSignature) : State {\n        require(prev_state.status == 1);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == false);\n        require(checkSig(billingSignature, prev_state.billingPolicyLead));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: prev_state.sourceCommitmentId,\n            status: 2,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }\n\n    #[covenant.singleton(mode = transition)]\n    function supersede(State prev_state, sig attestorSignature, byte[32] supersedingCommitmentId) : State {\n        require(prev_state.status == 2);\n        require(prev_state.financeAcknowledged == true);\n        require(prev_state.billingAcknowledged == true);\n        require(supersedingCommitmentId != prev_state.commitmentId);\n        require(checkSig(attestorSignature, prev_state.relicAttestor));\n\n        return {\n            commitmentId: prev_state.commitmentId,\n            evidenceDigest: prev_state.evidenceDigest,\n            sourceCommitmentId: supersedingCommitmentId,\n            status: 3,\n            financeAcknowledged: true,\n            billingAcknowledged: true,\n            financeOwner: prev_state.financeOwner,\n            billingPolicyLead: prev_state.billingPolicyLead,\n            relicAttestor: prev_state.relicAttestor\n        };\n    }\n}",
+    "name_span": "ReleaseCommitment"
+  },
+  "abi": [
+    {
+      "name": "__covenant_entrypoint_auth_acknowledgeFinance",
+      "inputs": [
+        {
+          "name": "financeSignature",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "__covenant_entrypoint_auth_acknowledgeBilling",
+      "inputs": [
+        {
+          "name": "billingSignature",
+          "type_name": "sig"
+        }
+      ]
+    },
+    {
+      "name": "__covenant_entrypoint_auth_supersede",
+      "inputs": [
+        {
+          "name": "attestorSignature",
+          "type_name": "sig"
+        },
+        {
+          "name": "supersedingCommitmentId",
+          "type_name": "byte[32]"
+        }
+      ]
+    }
+  ],
+  "without_selector": false,
+  "state_layout": {
+    "start": 1,
+    "len": 211
+  },
+  "debug_info": null
+}
