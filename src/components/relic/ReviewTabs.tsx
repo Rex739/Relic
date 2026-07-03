@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DependencyGraph } from "./DependencyGraph";
 import { EvidencePanel } from "./EvidencePanel";
+import { KaspaCommitmentPanel } from "./KaspaCommitmentPanel";
 import { LoadingState } from "./LoadingState";
 import { ReviewHeader } from "./ReviewHeader";
 import { ReviewOverview } from "./ReviewOverview";
@@ -18,7 +19,7 @@ import {
 } from "@/lib/relic/reviewStaging";
 import type { ReviewResult } from "@/lib/relic/types";
 
-const tabs = ["Overview", "Impact Map", "Evidence", "Certificate"] as const;
+const tabs = ["Overview", "Impact Map", "Evidence", "Commitment", "Certificate"] as const;
 type Tab = (typeof tabs)[number];
 
 async function requestReview(signal: AbortSignal): Promise<ReviewResult> {
@@ -203,6 +204,7 @@ export function ReviewTabs() {
             {activeTab === "Overview" ? <ReviewOverview review={review} visibleAgents={displayedVisibleAgents} /> : null}
             {activeTab === "Impact Map" ? <DependencyGraph review={review} /> : null}
             {activeTab === "Evidence" ? <EvidencePanel review={review} /> : null}
+            {activeTab === "Commitment" ? <KaspaCommitmentPanel /> : null}
             {activeTab === "Certificate" ? <SafetyCertificate review={review} /> : null}
           </motion.div>
         </AnimatePresence>
