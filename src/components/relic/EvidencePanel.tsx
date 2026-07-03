@@ -62,7 +62,7 @@ function EvidenceRow({ item, index, componentName }: { item: EvidenceReference; 
           <dd className={cn("mt-1 capitalize", item.severity === "critical" && "text-blocked")}>{item.severity}</dd>
         </div>
         <div>
-          <dt className="text-muted">Agent</dt>
+          <dt className="text-muted">Review role</dt>
           <dd className="mt-1">{item.relatedAgent}</dd>
         </div>
       </dl>

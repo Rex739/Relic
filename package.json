@@ -12,6 +12,7 @@
     "kaspa:verify": "node kaspa/scripts/verifyReleaseCommitment.mjs",
     "start": "next start",
     "lint": "eslint .",
+    "coral:test": "vitest run coral/tests",
     "test": "vitest run",
     "test:watch": "vitest"
   },

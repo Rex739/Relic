@@ -31,18 +31,20 @@ export default function HomePage() {
 
         <section
           id="platform"
-          className="mx-auto grid max-w-7xl gap-10 px-5 py-[clamp(72px,8vw,120px)] lg:grid-cols-[1fr_0.9fr]"
+          className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-10 px-5 py-[clamp(72px,8vw,120px)] lg:grid-cols-[1fr_0.9fr]"
           data-hero-section
           data-section="hero"
         >
-        <div>
-          <SectionEyebrow data-hero-eyebrow>Change intelligence for systems nobody fully remembers</SectionEyebrow>
+        <div className="min-w-0">
+          <SectionEyebrow className="max-w-[34ch] break-words sm:max-w-full" data-hero-eyebrow>
+            Change intelligence for systems nobody fully remembers
+          </SectionEyebrow>
           <HeroReveal />
-          <p className="mt-7 max-w-2xl text-lg leading-8 text-muted" data-hero-copy>
+          <p className="mt-7 max-w-full text-lg leading-8 text-muted sm:max-w-2xl" data-hero-copy>
             Relic maps hidden dependencies, challenges risky assumptions, and gives teams evidence before a critical
             system is altered.
           </p>
-          <div className="mt-9 flex flex-wrap gap-3" data-hero-actions>
+          <div className="mt-9 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap" data-hero-actions>
             <Link href="/review/new" className="focus-ring inline-flex items-center gap-2 bg-ink px-5 py-3 text-sm font-semibold text-canvas">
               Run a safety review <ArrowRight size={16} aria-hidden="true" />
             </Link>
@@ -51,13 +53,13 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
-        <div className="relative min-h-[420px] border border-line bg-raised p-4" data-hero-artifact>
+        <div className="relative min-h-[420px] min-w-0 border border-line bg-raised p-4" data-hero-artifact>
           <div className="absolute inset-0" data-strata-parallax>
             <Image src="/relic-strata.svg" alt="" fill className="object-cover" preload sizes="(min-width: 1024px) 45vw, 100vw" />
           </div>
           <div className="absolute bottom-6 left-6 right-6 border border-line bg-raised/95 p-5 shadow-sm backdrop-blur-sm" data-hero-panel>
             <div className="font-mono text-xs uppercase tracking-[0.16em] text-muted">Meridian Grid / Billing Core</div>
-            <div className="mt-4 grid grid-cols-3 gap-4 border-t border-line pt-4 text-sm">
+            <div className="mt-4 grid gap-4 border-t border-line pt-4 text-sm sm:grid-cols-3">
               <div>Change surface mapped</div>
               <div><span className="block text-2xl font-semibold">8</span> components affected</div>
               <div><span className="block text-2xl font-semibold text-blocked">1</span> critical regression detected</div>
