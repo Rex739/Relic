@@ -25,8 +25,11 @@ export default function NewReviewPage() {
                 defaultValue="Apply a 7% regulatory surcharge only to commercial customers with monthly consumption above 10,000 kWh."
               />
             </label>
-            <fieldset>
-              <legend className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Risk sensitivity</legend>
+            <fieldset aria-describedby="review-policy-helper">
+              <legend className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Review policy</legend>
+              <p id="review-policy-helper" className="mt-2 text-sm leading-6 text-muted">
+                Strict — block unresolved billing and ledger risk.
+              </p>
               <div className="mt-3 grid gap-2 md:grid-cols-3">
                 {["Standard", "Strict", "Critical"].map((item) => (
                   <label key={item} className="flex items-center gap-3 border border-line bg-raised px-4 py-3">
