@@ -40,7 +40,7 @@ export function WorkspaceMobileHeader() {
   }, [open]);
 
   return (
-    <header className="border-b border-line bg-raised lg:hidden">
+    <header className="min-w-0 border-b border-line bg-raised lg:hidden">
       <div className="flex items-center justify-between gap-4 px-4 py-3">
         <Link href="/" className="focus-ring flex min-w-0 items-center gap-3" aria-label="Go to Relic home">
           <BrandMark theme="light" size={34} />
@@ -90,12 +90,12 @@ export function WorkspaceMobileHeader() {
               <div className="flex items-start justify-between gap-4">
                 <Link
                   href="/"
-                  className="focus-ring flex items-center gap-3"
+                  className="focus-ring flex min-w-0 items-center gap-3"
                   aria-label="Go to Relic home"
                   onClick={() => setOpen(false)}
                 >
                   <BrandMark theme="light" size={34} />
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xl font-semibold uppercase tracking-[0.18em]">RELIC</div>
                     <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">Workspace</div>
                   </div>

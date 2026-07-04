@@ -204,8 +204,8 @@ export function ReviewTabs() {
   return (
     <>
       <ReviewHeader review={review} visibleComplete={complete} />
-      <div className="border-b border-line px-5 lg:px-10">
-        <nav className="flex gap-6 overflow-x-auto" aria-label="Review sections">
+      <div className="min-w-0 border-b border-line px-5 lg:px-10">
+        <nav className="flex min-w-0 gap-6 overflow-x-auto overscroll-x-contain" aria-label="Review sections">
           {tabs.map((tab) => (
             <button
               key={tab}
@@ -228,9 +228,10 @@ export function ReviewTabs() {
           ))}
         </nav>
       </div>
-      <div className="p-5 lg:p-10">
+      <div className="min-w-0 p-5 lg:p-10">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
+            className="min-w-0"
             key={activeTab}
             initial={reduceMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
