@@ -1,0 +1,47 @@
+{
+  "name": "relic",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @relic/database db:generate",
+    "db:migrate": "pnpm --filter @relic/database db:migrate",
+    "ingest": "pnpm --filter @relic/indexer ingest",
+    "indexer:backfill": "pnpm --filter @relic/indexer backfill",
+    "indexer:sync": "pnpm --filter @relic/indexer sync",
+    "indexer:agent": "pnpm --filter @relic/indexer agent",
+    "indexer:reconcile": "pnpm --filter @relic/indexer reconcile",
+    "indexer:quality": "pnpm --filter @relic/indexer quality",
+    "corpus:bootstrap": "pnpm --filter @relic/indexer corpus:bootstrap",
+    "corpus:verify": "pnpm --filter @relic/indexer corpus:verify",
+    "corpus:observe": "pnpm --filter @relic/indexer corpus:observe",
+    "corpus:report": "pnpm --filter @relic/indexer corpus:report",
+    "supply:discover": "pnpm --filter @relic/indexer supply:discover",
+    "supply:materialize": "pnpm --filter @relic/indexer supply:materialize",
+    "supply:inspect": "pnpm --filter @relic/indexer supply:inspect",
+    "supply:activate": "pnpm --filter @relic/indexer supply:activate",
+    "supply:report": "pnpm --filter @relic/indexer supply:report",
+    "supply:onboard": "pnpm --filter @relic/indexer supply:onboard",
+    "commerce:live:health-factor": "pnpm --filter @relic/indexer commerce:live:health-factor"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.8.1",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.9.0",
+    "prettier": "3.9.6",
+    "turbo": "2.10.9",
+    "typescript": "6.0.2",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.10"
+  }
+}

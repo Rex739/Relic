@@ -1,0 +1,17 @@
+node_modules/
+.next/
+dist/
+coverage/
+.turbo/
+.pnpm-store/
+.env
+.env.local
+.wallets/
+.agent-data/
+agents/**/.wallets/
+agents/**/.agent-data/
+.env.*.local
+!.env.example
+*.log
+*.tsbuildinfo
+.DS_Store

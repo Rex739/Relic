@@ -1,0 +1,23 @@
+{
+  "name": "@relic/blockchain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src test",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@relic/domain": "workspace:*",
+    "viem": "2.55.13",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
+  }
+}

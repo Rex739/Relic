@@ -1,0 +1,2 @@
+DROP INDEX "metadata_history_observation_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "metadata_history_observation_unique" ON "metadata_history" USING btree ("agent_id",md5("metadata_uri"),"content_hash","observed_block");

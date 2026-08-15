@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1786549000944,
+      "tag": "0000_marketplace_kernel",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786661852566,
+      "tag": "0001_shallow_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786670791747,
+      "tag": "0002_outstanding_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786671378156,
+      "tag": "0003_wealthy_loners",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786703319407,
+      "tag": "0004_perfect_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786704325401,
+      "tag": "0005_talented_jimmy_woo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786738648698,
+      "tag": "0006_sticky_darkstar",
+      "breakpoints": true
+    }
+  ]
+}

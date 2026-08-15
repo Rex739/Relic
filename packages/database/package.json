@@ -1,0 +1,30 @@
+{
+  "name": "@relic/database",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src drizzle.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts",
+    "onboarding:report": "tsx src/phase05-report.ts"
+  },
+  "dependencies": {
+    "@relic/blockchain": "workspace:*",
+    "@relic/domain": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "@types/node": "26.2.0",
+    "drizzle-kit": "0.31.10",
+    "tsx": "4.23.12"
+  }
+}
