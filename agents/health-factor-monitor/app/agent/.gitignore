@@ -1,0 +1,9 @@
+# Defense in depth if this layer is ever copied outside the Relic monorepo.
+.studio/
+.env
+.env.local
+.env.*.local
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/

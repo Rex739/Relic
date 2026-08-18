@@ -1,0 +1,39 @@
+[project]
+name = "RelicHealthMonitor-agent"
+
+[stack]
+# bag 0.0.5 has no TypeScript framework recipe. main.py is a compatibility
+# launcher for the canonical @bnbagent/sdk implementation in ../../src.
+runtime = "agentcore"
+protocol = "A2A"
+
+[network]
+default = "bsc-testnet"
+
+[wallet]
+kind = "evm-local"
+signer = "local"
+keystore_dir = "../../.studio/wallets"
+# address is intentionally absent until the human operator runs bag wallet new.
+
+[payments.erc8183]
+currency = "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"
+price = "0"
+min_price = "0"
+max_price = "0"
+quote_ttl_seconds = 900
+default_estimated_completion_seconds = 600
+poll_interval_seconds = 15
+auto_settle = false
+
+[storage]
+kind = "local"
+
+[deploy]
+destination = "self"
+
+[relic]
+category = "health-factor-monitoring"
+supply_type = "relic_reference"
+operator = "Relic"
+read_only = true

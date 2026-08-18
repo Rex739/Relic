@@ -15,6 +15,37 @@ keystore password locally. Wallet files (`.wallets/`) and deliverables
 result is explicitly labelled `fixture`; production uses `VenusCoreReader`,
 whose result is explicitly labelled `onchain` with its observed block.
 
-Agent Studio CLI `bag 0.0.5` did not expose a TypeScript scaffold flag when
-inspected on 2026-08-14, so this follows the current first-class TypeScript SDK
-provider primitives rather than generating an obsolete Python/ADK service.
+Agent Studio CLI `bag 0.0.5` does not expose a TypeScript scaffold flag. Its
+self-hosted AgentCore scaffold is Python/ADK and uses a single `app/agent`
+layer. Relic therefore keeps this TypeScript SDK implementation as the source
+of truth and adds a minimal Studio launch adapter under `app/agent`; it does
+not add an obsolete `app/service` layer.
+
+## Agent Studio workspace
+
+Run Studio commands from this directory or `app/agent`:
+
+```text
+health-factor-monitor/
+├── .studio/                 # ignored local security state
+│   └── wallets/             # empty until the human runs bag wallet new
+├── app/
+│   └── agent/
+│       ├── main.py          # Studio-to-TypeScript launch adapter
+│       ├── pyproject.toml
+│       └── studio.toml
+├── src/                     # canonical TypeScript seller implementation
+└── test/
+```
+
+`app/agent/studio.toml` uses BSC Testnet, the official testnet U token, and
+`price = min_price = max_price = "0"`; every negotiated service price is
+therefore clamped to exactly zero. Studio 0.0.5 warns that a zero
+`max_price` is "unset", although zero is intentional for this reference
+seller.
+
+There is no `agentcore/agentcore.json` yet. The native `agentcore` CLI creates
+and owns that deployment descriptor, and it is not installed on this machine.
+Local TypeScript tests and direct seller development do not require it.
+
+No wallet, identity, endpoint, or transaction is created by this structure.
