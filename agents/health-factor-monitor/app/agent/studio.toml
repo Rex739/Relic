@@ -15,6 +15,7 @@ kind = "evm-local"
 signer = "local"
 keystore_dir = "../../.studio/wallets"
 # address is intentionally absent until the human operator runs bag wallet new.
+address = "0x323F064B777745703Fa8eB56109A763503AeE4Dd"
 
 [payments.erc8183]
 currency = "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"

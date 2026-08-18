@@ -23,15 +23,33 @@ type SdkClient = Pick<
   | "claimRefund"
   | "paymentToken"
 > & {
+  publicClient: { getBlockNumber(): Promise<bigint> };
   router: { address: string };
   policy: { address: string; disputeWindow(): Promise<bigint> };
-  commerce: { address: string };
+  commerce: {
+    address: string;
+    getJobSubmittedEvents(
+      fromBlock: bigint,
+      toBlock: bigint | "latest",
+      jobId: bigint,
+    ): Promise<
+      Array<{
+        jobId: bigint;
+        provider: `0x${string}`;
+        deliverable: `0x${string}`;
+        blockNumber: bigint | null;
+        transactionHash: `0x${string}` | null;
+      }>
+    >;
+  };
 };
 
 export interface CommerceWriteEvidence {
   operation: string;
   transactionHash: `0x${string}`;
   jobId?: string;
+  blockNumber?: string;
+  blockHash?: `0x${string}`;
 }
 
 export class SdkErc8183CommerceProvider implements CommerceProvider {
@@ -164,27 +182,33 @@ export class SdkErc8183CommerceProvider implements CommerceProvider {
       operation: "createJob",
       transactionHash: result.transactionHash,
       jobId: result.jobId.toString(),
+      ...(result.receipt === null
+        ? {}
+        : {
+            blockNumber: result.receipt.blockNumber.toString(),
+            blockHash: result.receipt.blockHash,
+          }),
     });
     return result.jobId;
   }
 
   async registerJob(jobId: bigint) {
     const result = await this.client.registerJob(jobId);
-    return this.#record("registerJob", result.transactionHash, jobId);
+    return this.#record("registerJob", result, jobId);
   }
 
   async setBudget(jobId: bigint, amount: bigint) {
     if (amount !== 0n)
       throw new Error("Reference activation must remain zero-price");
     const result = await this.client.setBudget(jobId, 0n);
-    return this.#record("setBudget(0)", result.transactionHash, jobId);
+    return this.#record("setBudget(0)", result, jobId);
   }
 
   async fundJob(jobId: bigint, expectedBudget: bigint) {
     if (expectedBudget !== 0n)
       throw new Error("Reference activation must remain zero-price");
     const result = await this.client.fund(jobId, 0n);
-    return this.#record("fund(0)", result.transactionHash, jobId);
+    return this.#record("fund(0)", result, jobId);
   }
 
   async getJob(jobId: bigint): Promise<{ id: bigint; state: Erc8183JobState }> {
@@ -202,6 +226,16 @@ export class SdkErc8183CommerceProvider implements CommerceProvider {
     };
   }
 
+  async submissionEvidence(jobId: bigint) {
+    const head = await this.client.publicClient.getBlockNumber();
+    const events = await this.client.commerce.getJobSubmittedEvents(
+      head > 5_000n ? head - 5_000n : 0n,
+      "latest",
+      jobId,
+    );
+    return events.at(-1) ?? null;
+  }
+
   async submit(jobId: bigint, deliverable: `0x${string}`) {
     const result = await this.client.submit(jobId, deliverable, {
       deliverable_url: new URL(
@@ -209,31 +243,44 @@ export class SdkErc8183CommerceProvider implements CommerceProvider {
         this.sellerUrl,
       ).toString(),
     });
-    return this.#record("submit", result.transactionHash, jobId);
+    return this.#record("submit", result, jobId);
   }
 
   async settle(jobId: bigint, evidence: `0x${string}`) {
     const result = await this.client.settle(jobId, evidence);
-    return this.#record("settle", result.transactionHash, jobId);
+    return this.#record("settle", result, jobId);
   }
 
   async reject(jobId: bigint, reason: `0x${string}`) {
     const result = await this.client.cancelOpen(jobId, reason);
-    return this.#record("reject", result.transactionHash, jobId);
+    return this.#record("reject", result, jobId);
   }
 
   async claimRefund(jobId: bigint) {
     const result = await this.client.claimRefund(jobId);
-    return this.#record("claimRefund", result.transactionHash, jobId);
+    return this.#record("claimRefund", result, jobId);
   }
 
-  #record(operation: string, transactionHash: `0x${string}`, jobId: bigint) {
+  #record(
+    operation: string,
+    result: {
+      transactionHash: `0x${string}`;
+      receipt?: { blockNumber: bigint; blockHash: `0x${string}` } | null;
+    },
+    jobId: bigint,
+  ) {
     this.#evidence.push({
       operation,
-      transactionHash,
+      transactionHash: result.transactionHash,
       jobId: jobId.toString(),
+      ...(result.receipt == null
+        ? {}
+        : {
+            blockNumber: result.receipt.blockNumber.toString(),
+            blockHash: result.receipt.blockHash,
+          }),
     });
-    return transactionHash;
+    return result.transactionHash;
   }
 }
 

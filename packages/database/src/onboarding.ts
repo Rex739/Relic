@@ -99,6 +99,15 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     return row === undefined ? null : asSubmission(row);
   }
 
+  async findSubmissionByCandidateId(candidateId: string) {
+    const [row] = await this.database
+      .select()
+      .from(agentSubmissions)
+      .where(eq(agentSubmissions.candidateId, candidateId))
+      .limit(1);
+    return row === undefined ? null : asSubmission(row);
+  }
+
   async findOwnershipContext(chainId: number, externalAgentId: string) {
     const [row] = await this.database
       .select({

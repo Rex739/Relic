@@ -487,7 +487,9 @@ export class DrizzleSupplyStore {
     serviceId: string;
     chainId: number;
     commerceAddress?: string | null;
+    clientAddress?: string | null;
     providerAddress?: string | null;
+    evaluatorAddress?: string | null;
     budget?: string | null;
     currencyToken?: string | null;
     descriptionHash?: string | null;
@@ -502,7 +504,9 @@ export class DrizzleSupplyStore {
           chainId: input.chainId,
           status: "PREPARED",
           commerceAddress: input.commerceAddress,
+          clientAddress: input.clientAddress,
           providerAddress: input.providerAddress,
+          evaluatorAddress: input.evaluatorAddress,
           budget: input.budget,
           currencyToken: input.currencyToken,
           descriptionHash: input.descriptionHash,
@@ -617,6 +621,46 @@ export class DrizzleSupplyStore {
       .limit(limit);
   }
 
+  async referenceCommerceCandidates(limit = 10) {
+    return this.database
+      .select({
+        service: marketplaceServices,
+        candidate: launchCandidates,
+        identity: agentIdentities,
+      })
+      .from(marketplaceServices)
+      .innerJoin(
+        launchCandidates,
+        and(
+          eq(launchCandidates.agentId, marketplaceServices.agentId),
+          eq(launchCandidates.categorySlug, marketplaceServices.categorySlug),
+        ),
+      )
+      .innerJoin(
+        agentIdentities,
+        eq(agentIdentities.agentId, marketplaceServices.agentId),
+      )
+      .where(
+        and(
+          eq(marketplaceServices.interfaceProtocol, "erc8183"),
+          eq(marketplaceServices.availability, "available"),
+          inArray(marketplaceServices.verificationLevel, [
+            "PAYMENT_UNDERSTOOD",
+            "INVOCATION_VERIFIED",
+            "COMMERCE_VERIFIED",
+          ]),
+          eq(launchCandidates.supplyType, "relic_reference"),
+          inArray(launchCandidates.status, [
+            "SERVICE_OBSERVED",
+            "INVOCATION_VERIFIED",
+            "ACTIONABLE",
+          ]),
+        ),
+      )
+      .orderBy(asc(marketplaceServices.id))
+      .limit(limit);
+  }
+
   async transitionActivation(input: {
     activationId: string;
     status: ActivationStatus;
@@ -624,6 +668,10 @@ export class DrizzleSupplyStore {
     transactionHash?: string | null;
     blockNumber?: bigint | null;
     resultReference?: string | null;
+    commerceAddress?: string | null;
+    clientAddress?: string | null;
+    providerAddress?: string | null;
+    evaluatorAddress?: string | null;
     failure?: Record<string, unknown> | null;
     evidence: Record<string, unknown>;
   }) {
@@ -634,6 +682,10 @@ export class DrizzleSupplyStore {
           status: input.status,
           externalJobId: input.externalJobId,
           resultReference: input.resultReference,
+          commerceAddress: input.commerceAddress,
+          clientAddress: input.clientAddress,
+          providerAddress: input.providerAddress,
+          evaluatorAddress: input.evaluatorAddress,
           failure: input.failure,
           updatedAt: new Date(),
         })
