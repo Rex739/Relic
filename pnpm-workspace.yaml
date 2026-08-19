@@ -3,6 +3,8 @@ packages:
   - agents/*
   - packages/*
 
+enableGlobalVirtualStore: false
+
 allowBuilds:
   esbuild: true
 

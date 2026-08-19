@@ -41,6 +41,9 @@ importers:
       '@bnbagent/sdk':
         specifier: 0.5.0
         version: 0.5.0(typescript@6.0.2)(zod@4.4.3)
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
       viem:
         specifier: 2.55.13
         version: 2.55.13(typescript@6.0.2)(zod@4.4.3)

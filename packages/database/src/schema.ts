@@ -1262,3 +1262,18 @@ export const reputationInventory = pgTable(
     ),
   ],
 );
+
+export const referenceAgentArtifacts = pgTable(
+  "reference_agent_artifacts",
+  {
+    agentSlug: text("agent_slug").notNull(),
+    jobId: bigint("job_id", { mode: "bigint" }).notNull(),
+    filename: text("filename").notNull(),
+    content: jsonb("content").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentSlug, table.jobId] }),
+    index("reference_agent_artifacts_updated_idx").on(table.updatedAt),
+  ],
+);

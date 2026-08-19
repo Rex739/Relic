@@ -10,10 +10,13 @@ read-only RPC calls, and submits a structured deliverable. It cannot transfer,
 repay, supply, approve, or sign arbitrary DeFi transactions.
 
 Live startup is intentionally blocked unless a human provides the encrypted
-keystore password locally. Wallet files (`.wallets/`) and deliverables
-(`.agent-data/`) must remain untracked. Deterministic tests inject a reader whose
-result is explicitly labelled `fixture`; production uses `VenusCoreReader`,
-whose result is explicitly labelled `onchain` with its observed block.
+keystore password and the exact existing keystore file. The runtime refuses
+`PRIVATE_KEY` and refuses to let the SDK create a wallet when the configured
+keystore is absent. Wallet files remain untracked. Production deliverable
+manifests use the existing Postgres/Supabase backend rather than ephemeral
+`.agent-data`. Deterministic tests inject a reader whose result is explicitly
+labelled `fixture`; production uses `VenusCoreReader`, whose result is explicitly
+labelled `onchain` with its observed block.
 
 Agent Studio CLI `bag 0.0.5` does not expose a TypeScript scaffold flag. Its
 self-hosted AgentCore scaffold is Python/ADK and uses a single `app/agent`
