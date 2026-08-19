@@ -263,4 +263,73 @@ describe("Marketplace Kernel migration", () => {
       signature_digest: "signature-digest",
     });
   });
+
+  it("secures the Relic public schema without exposing Data API policies", async () => {
+    const database = new PGlite();
+    databases.push(database);
+    await database.exec(`
+      create role anon;
+      create role authenticated;
+      create role service_role bypassrls;
+    `);
+    for (const name of [
+      "0000_marketplace_kernel.sql",
+      "0001_shallow_blue_marvel.sql",
+      "0002_outstanding_cannonball.sql",
+      "0003_wealthy_loners.sql",
+      "0004_perfect_captain_britain.sql",
+      "0005_talented_jimmy_woo.sql",
+      "0006_sticky_darkstar.sql",
+      "0007_woozy_magma.sql",
+      "0008_secure_public_schema.sql",
+    ])
+      await database.exec(
+        await readFile(
+          new URL(`../migrations/${name}`, import.meta.url),
+          "utf8",
+        ),
+      );
+
+    const state = await database.query<{
+      table_count: number;
+      rls_enabled_count: number;
+      policy_count: number;
+      anon_can_read_artifacts: boolean;
+      authenticated_can_write_artifacts: boolean;
+    }>(`
+      select
+        (select count(*)::int
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relkind in ('r', 'p')) table_count,
+        (select count(*)::int
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relkind in ('r', 'p') and c.relrowsecurity) rls_enabled_count,
+        (select count(*)::int from pg_policies where schemaname = 'public') policy_count,
+        has_table_privilege('anon', 'public.reference_agent_artifacts', 'select') anon_can_read_artifacts,
+        has_table_privilege('authenticated', 'public.reference_agent_artifacts', 'insert') authenticated_can_write_artifacts
+    `);
+    expect(state.rows[0]).toEqual({
+      table_count: 43,
+      rls_enabled_count: 43,
+      policy_count: 0,
+      anon_can_read_artifacts: false,
+      authenticated_can_write_artifacts: false,
+    });
+
+    await database.exec(`
+      create table future_relic_table (id integer primary key);
+    `);
+    const futureAccess = await database.query<{
+      anon_can_read: boolean;
+      authenticated_can_write: boolean;
+    }>(`
+      select
+        has_table_privilege('anon', 'public.future_relic_table', 'select') anon_can_read,
+        has_table_privilege('authenticated', 'public.future_relic_table', 'insert') authenticated_can_write
+    `);
+    expect(futureAccess.rows[0]).toEqual({
+      anon_can_read: false,
+      authenticated_can_write: false,
+    });
+  });
 });
