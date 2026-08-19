@@ -192,7 +192,14 @@ export async function inspectMarketplaceService(
         ? "MCP initialize only; no tool invocation"
         : "credential-free metadata/status inspection; no paid invocation",
   };
-  if (!response.ok)
+  const expectedPaymentChallenge =
+    (protocol === "x402" || protocol === "b402") && response.status === 402;
+  if (
+    !response.ok ||
+    (response.status !== null &&
+      response.status >= 400 &&
+      !expectedPaymentChallenge)
+  )
     return {
       fromLevel: service.verificationLevel,
       toLevel: service.verificationLevel,
@@ -218,7 +225,7 @@ export async function inspectMarketplaceService(
       headerValue(response, "x-payment-required"),
     ].join(" ");
     if (
-      response.status === 402 &&
+      expectedPaymentChallenge &&
       (/payment|x402|b402/i.test(challenge) || hasPaymentTerms(parsed))
     )
       toLevel = "PAYMENT_UNDERSTOOD";

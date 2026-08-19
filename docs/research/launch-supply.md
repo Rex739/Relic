@@ -1,4 +1,86 @@
-# Relic Phase 04 launch-supply research
+# Relic launch-supply research
+
+## Phase 06 continuation — stopped at the zero-cost boundary
+
+Live work on **2026-08-18** reused the Phase 04/05 canonical pipeline. It did
+not create reference-agent rows or manually promote candidates. 8004scan's
+semantic endpoint still returned `502/BACKEND_ERROR`, but its documented
+paginated `/agents?search=...` keyword filter worked. Relic added that bounded
+fallback and searched exact category terms before considering new reference
+sellers.
+
+The pass persisted 39 category candidates, directly verified their BSC
+ERC-8004 identities, materialized their canonical registration-file services,
+and inspected each declaration once under the existing SSRF, credential,
+redirect, timeout, header, and body-size controls.
+
+The quality-adjusted current inventory is:
+
+| Category                 | Indexed candidates | Identity verified | Currently credible service | Invocation verified | Commerce verified | Actionable | Supply origin                    |
+| ------------------------ | -----------------: | ----------------: | -------------------------: | ------------------: | ----------------: | ---------: | -------------------------------- |
+| Rebalancing              |                  4 |                 4 |                          1 |                   1 |                 0 |          0 | 4 third-party                    |
+| Grid trading             |                  7 |                 7 |                          1 |                   1 |                 0 |          0 | 7 third-party                    |
+| Yield optimisation       |                 25 |                25 |                          1 |                   1 |                 0 |          0 | 25 third-party                   |
+| Health-factor monitoring |                  3 |                 3 |                          1 |        1 historical |      1 historical |          0 | 2 third-party, 1 Relic reference |
+
+“Currently credible service” is deliberately narrower than a successful HTTP
+response. It requires explicit category capability, a protocol document that
+matches the declaration, and a currently available endpoint. Generic trading,
+lending, swap, market-data, and web pages are not counted. Historical Phase 05
+commerce remains evidence, but the stopped Quick Tunnel is now persisted as
+unavailable and its reference candidate is `STALE`, not falsely current.
+
+### Real external services found
+
+| Category                 | ERC-8004 agent                   | Interface                      | Endpoint                                                             | Real verification                                                           | Current blocker                                                     |
+| ------------------------ | -------------------------------- | ------------------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Rebalancing              | BNB LP Range Rebalancer `265375` | A2A 0.3 + ERC-8183 negotiation | `https://bnb-lp.172-104-171-139.nip.io/`                             | Signed quote accepted; candidate/service `INVOCATION_VERIFIED`              | `0.1 U` mainnet price plus self-paid BNB gas                        |
+| Grid trading             | BNB Grid Trader `269233`         | A2A 0.3 + ERC-8183 negotiation | `https://bnb-grid.172-104-171-139.nip.io/`                           | Signed quote accepted; candidate/service `INVOCATION_VERIFIED`              | `0.1 U` mainnet price plus self-paid BNB gas                        |
+| Yield optimisation       | BNB Yield Optimizer `265876`     | ERC-8183 HTTP                  | `https://bnb-yield.172-104-171-139.nip.io/erc8183`                   | Status and matching quote accepted; candidate/service `INVOCATION_VERIFIED` | `1 U` mainnet price plus self-paid BNB gas                          |
+| Health-factor monitoring | Health Factor Monitor `269228`   | A2A 0.3                        | `https://agents.chainhelix.io/healthmon/.well-known/agent-card.json` | Identity and schema understood; endpoint available                          | Card advertises a localhost task URL, so safe invocation is blocked |
+
+The two A2A quotes include provider signatures, request/response hashes,
+negotiation hashes, BSC mainnet chain ID, and the official mainnet commerce
+address. Relic persists those selected fields and a response SHA-256 digest,
+not arbitrary response bodies. The yield quote is matched against its public
+status provider, price, token, network, and chain.
+
+No job was created, no payment was sent, and no transaction was attempted for
+any Phase 06 third-party seller. These services remain
+`INVOCATION_VERIFIED`, not `COMMERCE_VERIFIED` or `ACTIONABLE`.
+
+### Supply-quality findings
+
+- 8004scan keyword filtering found useful agents that the earlier 200-row
+  prefix sample could not reveal; the small sample was not representative.
+- Most yield results were generic TermiX A2A declarations, research tools, or
+  trading agents. A common template advertised literal `{agentId}` URLs. Those
+  routes returned ordinary 4xx responses or lacked endpoints and are not
+  counted as credible yield supply.
+- A service-inspector defect treated ordinary 4xx responses as observable
+  protocol success. The inspector now permits 402 only for x402/B402 payment
+  challenges and treats other 4xx responses as failures. Historical
+  observations remain append-only, while current availability prevents them
+  entering the launch catalog.
+- Discovery source (`8004scan-keyword-filter`) remains separate from supply
+  origin (`third_party`). Direct registry reads, not 8004scan's verification
+  badge, establish onchain identity facts.
+
+### Stop boundary
+
+Category parity cannot be completed within the authorized `$0` budget using
+the external sellers found. BNB Agent SDK mainnet ERC-8183 writes are not
+paymaster-sponsored. Completing any of the three quoted commerce lifecycles
+requires both the quoted `$U` amount and native BNB for mainnet gas.
+
+The free alternative is a Relic-operated BSC-testnet reference seller for each
+remaining gap, but Phase 06 explicitly requires a wallet/custody decision and
+human-created encrypted wallet password before that path starts. No new wallet,
+password, reference seller, deployment, or mainnet write was created
+automatically.
+
+Phase 06 is therefore **not complete**. Real money spent during this
+continuation: **$0**.
 
 Research and controlled live run: **2026-08-14**. This report distinguishes real persisted records from deterministic test fixtures. The counts below are from the configured Supabase development database; test fixtures are excluded.
 

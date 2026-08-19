@@ -4,7 +4,16 @@ import type {
   ServiceVerificationLevel,
   SupplyType,
 } from "@relic/domain";
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  notExists,
+  sql,
+} from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
@@ -36,11 +45,12 @@ export class DrizzleSupplyStore {
     chainId: number;
     categorySlug: string;
     query: string;
+    provider: string;
   }) {
     const [row] = await this.database
       .insert(targetedDiscoveryRuns)
       .values({
-        provider: "8004scan-semantic-search",
+        provider: input.provider,
         chainId: input.chainId,
         categorySlug: input.categorySlug,
         query: input.query,
@@ -130,6 +140,7 @@ export class DrizzleSupplyStore {
     raw: unknown;
     confidence: "high" | "medium" | "research-lead";
     matchedEvidence: Record<string, unknown>;
+    discoverySource: string;
   }) {
     return this.database.transaction(async (transaction) => {
       const existing = await transaction
@@ -151,7 +162,7 @@ export class DrizzleSupplyStore {
             categorySlug: input.categorySlug,
             status: "REVIEW_PENDING",
             confidence: input.confidence,
-            source: "8004scan-semantic-search",
+            source: input.discoverySource,
             evidence: {
               query: input.query,
               rank: input.rank,
@@ -167,7 +178,7 @@ export class DrizzleSupplyStore {
             candidateId,
             fromStatus: null,
             toStatus: "DISCOVERED",
-            evidence: { source: "8004scan-semantic-search" },
+            evidence: { source: input.discoverySource },
           },
           {
             candidateId,
@@ -425,10 +436,23 @@ export class DrizzleSupplyStore {
       .where(
         and(
           eq(marketplaceServices.verificationLevel, "DECLARED"),
+          notExists(
+            this.database
+              .select({ id: serviceVerificationObservations.id })
+              .from(serviceVerificationObservations)
+              .where(
+                eq(
+                  serviceVerificationObservations.serviceId,
+                  marketplaceServices.id,
+                ),
+              ),
+          ),
           inArray(launchCandidates.status, [
             "SERVICE_IDENTIFIED",
             "IDENTITY_VERIFIED",
             "REVIEW_PENDING",
+            "SERVICE_OBSERVED",
+            "INVOCATION_VERIFIED",
           ]),
         ),
       )
@@ -548,6 +572,30 @@ export class DrizzleSupplyStore {
         ),
       )
       .where(eq(activations.id, id))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async findServiceCandidate(serviceId: string) {
+    const [row] = await this.database
+      .select({
+        service: marketplaceServices,
+        candidate: launchCandidates,
+        identity: agentIdentities,
+      })
+      .from(marketplaceServices)
+      .innerJoin(
+        launchCandidates,
+        and(
+          eq(launchCandidates.agentId, marketplaceServices.agentId),
+          eq(launchCandidates.categorySlug, marketplaceServices.categorySlug),
+        ),
+      )
+      .innerJoin(
+        agentIdentities,
+        eq(agentIdentities.agentId, marketplaceServices.agentId),
+      )
+      .where(eq(marketplaceServices.id, serviceId))
       .limit(1);
     return row ?? null;
   }

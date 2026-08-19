@@ -107,6 +107,7 @@ export interface TargetedDiscoveryStore {
     chainId: number;
     categorySlug: string;
     query: string;
+    provider: string;
   }): Promise<string>;
   recordDiscovery(input: {
     runId: string;
@@ -118,6 +119,7 @@ export interface TargetedDiscoveryStore {
     raw: unknown;
     confidence: "high" | "medium" | "research-lead";
     matchedEvidence: Record<string, unknown>;
+    discoverySource: string;
   }): Promise<string>;
   finishDiscoveryRun(input: {
     runId: string;
@@ -143,13 +145,20 @@ export async function discoverCategorySupply(
     registryAddress: string;
     limit: number;
     query?: string;
+    mode?: "semantic" | "keyword";
   },
 ) {
   const query = options.query ?? TARGETED_DISCOVERY_QUERIES[options.category];
+  const mode = options.mode ?? "semantic";
+  const discoverySource =
+    mode === "semantic"
+      ? "8004scan-semantic-search"
+      : "8004scan-keyword-filter";
   const runId = await supplyStore.startDiscoveryRun({
     chainId: options.chainId,
     categorySlug: options.category,
     query,
+    provider: discoverySource,
   });
   let returned = 0;
   let accepted = 0;
@@ -160,11 +169,18 @@ export async function discoverCategorySupply(
     resetAt: string | null;
   };
   try {
-    const result = await provider.searchAgents({
-      query,
-      chainId: options.chainId,
-      limit: options.limit,
-    });
+    const result =
+      mode === "semantic"
+        ? await provider.searchAgents({
+            query,
+            chainId: options.chainId,
+            limit: options.limit,
+          })
+        : await provider.searchAgentsKeyword({
+            query,
+            chainId: options.chainId,
+            limit: options.limit,
+          });
     returned = result.agents.length;
     rateLimit = result.rateLimit;
     for (const [index, raw] of result.agents.entries()) {
@@ -194,7 +210,8 @@ export async function discoverCategorySupply(
           query,
           raw,
           confidence: evidence.confidence,
-          matchedEvidence: { matched: evidence.matched },
+          matchedEvidence: { matched: evidence.matched, discoveryMode: mode },
+          discoverySource,
         });
         accepted += 1;
       } catch {

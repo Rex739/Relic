@@ -30,6 +30,8 @@
     "supply:inspect": "pnpm --filter @relic/indexer supply:inspect",
     "supply:activate": "pnpm --filter @relic/indexer supply:activate",
     "supply:report": "pnpm --filter @relic/indexer supply:report",
+    "supply:invoke:a2a": "pnpm --filter @relic/indexer supply:invoke:a2a",
+    "supply:invoke:erc8183": "pnpm --filter @relic/indexer supply:invoke:erc8183",
     "supply:onboard": "pnpm --filter @relic/indexer supply:onboard",
     "commerce:live:health-factor": "pnpm --filter @relic/indexer commerce:live:health-factor"
   },

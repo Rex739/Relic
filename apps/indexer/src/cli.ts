@@ -97,6 +97,8 @@ try {
         "Targeted discovery is bounded to 25 results per category",
       );
     const requestedCategory = flag("category");
+    const requestedQuery = flag("query");
+    const discoveryMode = booleanFlag("keyword") ? "keyword" : "semantic";
     const categories = Object.keys(
       TARGETED_DISCOVERY_QUERIES,
     ) as LaunchCategory[];
@@ -138,6 +140,10 @@ try {
               chainId,
               registryAddress,
               limit,
+              mode: discoveryMode,
+              ...(requestedQuery === undefined
+                ? {}
+                : { query: requestedQuery }),
             },
           )),
         });

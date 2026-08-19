@@ -50,6 +50,24 @@ describe("8004scan paginated provider", () => {
     expect(request).toContain("chainId=56");
   });
 
+  it("uses the documented paginated keyword filter as a distinct path", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(pageResponse());
+    const result = await new Scan8004Provider({
+      fetch: fetchMock,
+    }).searchAgentsKeyword({
+      query: "LP range rebalancer",
+      chainId: 56,
+      limit: 25,
+    });
+    expect(result.agents).toHaveLength(1);
+    const request = fetchMock.mock.calls[0]?.[0];
+    expect(typeof request).toBe("string");
+    if (typeof request !== "string") throw new Error("Expected a URL string");
+    expect(request).toContain("search=LP+range+rebalancer");
+    expect(request).toContain("chainId=56");
+    expect(request).not.toContain("agents/search");
+  });
+
   it("uses API key auth, pagination, and exposes rate-limit state", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       pageResponse({

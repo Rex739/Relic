@@ -189,6 +189,42 @@ export class Scan8004Provider {
     };
   }
 
+  async searchAgentsKeyword(options: {
+    query: string;
+    chainId: number;
+    limit: number;
+    page?: number;
+  }): Promise<ScanAgentSearchResult> {
+    if (options.query.trim() === "")
+      throw new Error("8004scan keyword query cannot be empty");
+    if (
+      !Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 100
+    )
+      throw new Error("8004scan keyword limit must be between 1 and 100");
+    const query = new URLSearchParams({
+      chainId: String(options.chainId),
+      isTestnet: "false",
+      page: String(options.page ?? 1),
+      limit: String(options.limit),
+      search: options.query,
+      sortBy: "created_at",
+      sortOrder: "desc",
+    });
+    const response = await this.#request(`/agents?${query.toString()}`);
+    if (!response.ok)
+      throw new Error(
+        `8004scan keyword search failed with HTTP ${response.status}`,
+      );
+    const parsed = listResponseSchema.parse(await response.json());
+    return {
+      agents: parsed.data,
+      query: options.query,
+      rateLimit: this.#lastRateLimit,
+    };
+  }
+
   async getAgent(chainId: number, agentId: string): Promise<ScanAgent | null> {
     const response = await this.#request(
       `/agents/${encodeURIComponent(String(chainId))}/${encodeURIComponent(agentId)}`,

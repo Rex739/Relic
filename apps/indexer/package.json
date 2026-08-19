@@ -21,6 +21,8 @@
     "supply:inspect": "tsx src/cli.ts supply-inspect",
     "supply:activate": "tsx src/cli.ts supply-activate",
     "supply:report": "tsx src/cli.ts supply-report",
+    "supply:invoke:a2a": "tsx src/external-a2a-invocation.ts",
+    "supply:invoke:erc8183": "tsx src/external-erc8183-invocation.ts",
     "supply:onboard": "tsx src/cli.ts supply-onboard",
     "commerce:live:health-factor": "tsx src/live-health-commerce.ts",
     "lint": "eslint src test",
@@ -33,7 +35,8 @@
     "@relic/config": "workspace:*",
     "@relic/database": "workspace:*",
     "@relic/domain": "workspace:*",
-    "viem": "2.55.13"
+    "viem": "2.55.13",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "26.2.0",

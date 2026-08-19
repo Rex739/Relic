@@ -110,4 +110,23 @@ describe("protocol-aware service inspection", () => {
     };
     expect(requestOptions.headers).toBeUndefined();
   });
+
+  it("does not promote a protocol endpoint that only returns an ordinary 4xx", async () => {
+    const request = vi.fn().mockResolvedValue(
+      response({
+        status: 404,
+        body: JSON.stringify({ detail: "Not Found" }),
+      }),
+    );
+    const result = await inspectMarketplaceService(
+      { ...service, interfaceProtocol: "a2a" },
+      request,
+    );
+    expect(result).toMatchObject({
+      result: "failed",
+      toLevel: "DECLARED",
+      availability: "degraded",
+      httpStatus: 404,
+    });
+  });
 });
