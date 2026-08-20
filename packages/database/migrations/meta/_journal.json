@@ -57,6 +57,27 @@
       "when": 1787116497087,
       "tag": "0007_woozy_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787133792705,
+      "tag": "0008_secure_public_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787249001187,
+      "tag": "0009_phase07_corpus_scale",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787251700816,
+      "tag": "0010_rapid_barracuda",
+      "breakpoints": true
     }
   ]
 }

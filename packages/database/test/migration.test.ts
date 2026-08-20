@@ -282,6 +282,8 @@ describe("Marketplace Kernel migration", () => {
       "0006_sticky_darkstar.sql",
       "0007_woozy_magma.sql",
       "0008_secure_public_schema.sql",
+      "0009_phase07_corpus_scale.sql",
+      "0010_rapid_barracuda.sql",
     ])
       await database.exec(
         await readFile(
@@ -315,6 +317,40 @@ describe("Marketplace Kernel migration", () => {
       anon_can_read_artifacts: false,
       authenticated_can_write_artifacts: false,
     });
+
+    await database.exec(`
+      insert into corpus_import_checkpoints
+        (provider, chain_id, registry_address, page_size)
+      values ('8004scan', 56, '0xregistry', 100);
+      insert into corpus_import_runs
+        (id, provider, chain_id, registry_address, start_page, page_size, status, started_at)
+      values ('01945b1e-7e80-7000-8000-000000000099', '8004scan', 56, '0xregistry', 1, 100, 'running', now());
+    `);
+    const phase07 = await database.query<{
+      access_mode: string;
+      operational_mode: string;
+      request_budget: number;
+      request_count: number;
+    }>(`
+      select access_mode, operational_mode, request_budget, request_count
+      from corpus_import_runs
+      where id='01945b1e-7e80-7000-8000-000000000099'
+    `);
+    expect(phase07.rows[0]).toEqual({
+      access_mode: "anonymous",
+      operational_mode: "anonymous",
+      request_budget: 1,
+      request_count: 0,
+    });
+    const enrichmentColumns = await database.query<{ column_name: string }>(`
+      select column_name from information_schema.columns
+      where table_schema='public' and table_name='corpus_source_records'
+        and column_name in ('enrichment_rule_version', 'enriched_at', 'enrichment_error')
+      order by column_name
+    `);
+    expect(
+      enrichmentColumns.rows.map(({ column_name }) => column_name),
+    ).toEqual(["enriched_at", "enrichment_error", "enrichment_rule_version"]);
 
     await database.exec(`
       create table future_relic_table (id integer primary key);

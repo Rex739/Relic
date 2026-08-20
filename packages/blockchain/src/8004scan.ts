@@ -59,6 +59,32 @@ export interface ScanRateLimit {
   resetAt: string | null;
 }
 
+export type ScanAccessMode = "anonymous" | "authenticated";
+export type ScanOperationalMode =
+  "anonymous" | "authenticated" | "pro_authenticated" | "rate_limited_degraded";
+
+export interface ScanRequestObservation {
+  accessMode: ScanAccessMode;
+  operationalMode: ScanOperationalMode;
+  requestNumber: number;
+  status: number | null;
+  rateLimit: ScanRateLimit;
+}
+
+export class ScanRequestBudgetError extends Error {
+  constructor(readonly budget: number) {
+    super(`8004scan request budget of ${budget} has been exhausted`);
+    this.name = "ScanRequestBudgetError";
+  }
+}
+
+export class ScanRateLimitError extends Error {
+  constructor(readonly rateLimit: ScanRateLimit) {
+    super("8004scan rate limit reached; resume after the advertised reset");
+    this.name = "ScanRateLimitError";
+  }
+}
+
 export interface ScanAgentPage {
   agents: unknown[];
   page: number;
@@ -66,6 +92,11 @@ export interface ScanAgentPage {
   total: number;
   hasMore: boolean;
   rateLimit: ScanRateLimit;
+  timings: {
+    fetchMs: number;
+    jsonParseMs: number;
+    responseValidationMs: number;
+  };
 }
 
 export interface ScanAgentSearchResult {
@@ -82,6 +113,8 @@ export interface Scan8004Options {
   fetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
+  requestBudget?: number;
+  onRequest?: (observation: ScanRequestObservation) => void | Promise<void>;
 }
 
 const integerHeader = (value: string | null) => {
@@ -98,6 +131,11 @@ export class Scan8004Provider {
   readonly #fetch: typeof fetch;
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #now: () => number;
+  readonly #requestBudget: number;
+  readonly #onRequest:
+    ((observation: ScanRequestObservation) => void | Promise<void>) | undefined;
+  #requestCount = 0;
+  #rateLimited = false;
   #notBefore = 0;
   #lastRateLimit: ScanRateLimit = {
     limit: null,
@@ -109,13 +147,34 @@ export class Scan8004Provider {
     this.#apiKey = options.apiKey;
     this.#baseUrl = options.baseUrl ?? "https://8004scan.io/api/v1/public";
     this.#timeoutMs = options.timeoutMs ?? 15_000;
-    this.#maxRetries = options.maxRetries ?? 2;
+    this.#maxRetries =
+      options.maxRetries ?? (options.apiKey === undefined ? 0 : 2);
     this.#fetch = options.fetch ?? fetch;
     this.#sleep =
       options.sleep ??
       ((milliseconds) =>
         new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.#now = options.now ?? Date.now;
+    this.#requestBudget = options.requestBudget ?? Number.MAX_SAFE_INTEGER;
+    if (!Number.isInteger(this.#requestBudget) || this.#requestBudget < 1)
+      throw new Error("8004scan request budget must be a positive integer");
+    this.#onRequest = options.onRequest;
+  }
+
+  get accessMode(): ScanAccessMode {
+    return this.#apiKey === undefined ? "anonymous" : "authenticated";
+  }
+
+  get operationalMode(): ScanOperationalMode {
+    if (this.#rateLimited) return "rate_limited_degraded";
+    if (this.#apiKey === undefined) return "anonymous";
+    return (this.#lastRateLimit.limit ?? 0) >= 500
+      ? "pro_authenticated"
+      : "authenticated";
+  }
+
+  get requestCount(): number {
+    return this.#requestCount;
   }
 
   get lastRateLimit(): ScanRateLimit {
@@ -129,6 +188,14 @@ export class Scan8004Provider {
     sortBy?: "created_at" | "token_id";
     sortOrder?: "asc" | "desc";
   }): Promise<ScanAgentPage> {
+    if (!Number.isInteger(options.page) || options.page < 1)
+      throw new Error("8004scan page must be a positive integer");
+    if (
+      !Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 100
+    )
+      throw new Error("8004scan page size must be between 1 and 100");
     const query = new URLSearchParams({
       chainId: String(options.chainId),
       isTestnet: "false",
@@ -137,10 +204,17 @@ export class Scan8004Provider {
       sortBy: options.sortBy ?? "token_id",
       sortOrder: options.sortOrder ?? "asc",
     });
+    const fetchStartedAt = performance.now();
     const response = await this.#request(`/agents?${query.toString()}`);
+    const fetchMs = performance.now() - fetchStartedAt;
     if (!response.ok)
       throw new Error(`8004scan request failed with HTTP ${response.status}`);
-    const parsed = listResponseSchema.parse(await response.json());
+    const jsonStartedAt = performance.now();
+    const body: unknown = await response.json();
+    const jsonParseMs = performance.now() - jsonStartedAt;
+    const validationStartedAt = performance.now();
+    const parsed = listResponseSchema.parse(body);
+    const responseValidationMs = performance.now() - validationStartedAt;
     return {
       agents: parsed.data,
       page: parsed.meta.pagination.page,
@@ -148,6 +222,7 @@ export class Scan8004Provider {
       total: parsed.meta.pagination.total,
       hasMore: parsed.meta.pagination.hasMore,
       rateLimit: this.#lastRateLimit,
+      timings: { fetchMs, jsonParseMs, responseValidationMs },
     };
   }
 
@@ -238,8 +313,11 @@ export class Scan8004Provider {
   async #request(path: string): Promise<Response> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.#maxRetries; attempt += 1) {
+      if (this.#requestCount >= this.#requestBudget)
+        throw new ScanRequestBudgetError(this.#requestBudget);
       const throttleMs = Math.max(0, this.#notBefore - this.#now());
       if (throttleMs > 0) await this.#sleep(throttleMs);
+      this.#requestCount += 1;
       try {
         const response = await this.#fetch(`${this.#baseUrl}${path}`, {
           headers:
@@ -249,6 +327,12 @@ export class Scan8004Provider {
           signal: AbortSignal.timeout(this.#timeoutMs),
         });
         this.#captureRateLimit(response.headers);
+        if (response.status === 429) {
+          this.#rateLimited = true;
+          await this.#observeRequest(response.status);
+          throw new ScanRateLimitError(this.#lastRateLimit);
+        }
+        await this.#observeRequest(response.status);
         if (response.status !== 429 && response.status < 500) return response;
         lastError = new Error(
           `8004scan request failed with HTTP ${response.status}`,
@@ -256,11 +340,24 @@ export class Scan8004Provider {
         if (attempt < this.#maxRetries)
           await this.#sleep(this.#retryDelay(response, attempt));
       } catch (error) {
+        if (error instanceof ScanRateLimitError) throw error;
         lastError = error;
+        if (!(error instanceof ScanRequestBudgetError))
+          await this.#observeRequest(null);
         if (attempt < this.#maxRetries) await this.#sleep(500 * 2 ** attempt);
       }
     }
     throw lastError;
+  }
+
+  async #observeRequest(status: number | null): Promise<void> {
+    await this.#onRequest?.({
+      accessMode: this.accessMode,
+      operationalMode: this.operationalMode,
+      requestNumber: this.#requestCount,
+      status,
+      rateLimit: this.#lastRateLimit,
+    });
   }
 
   #captureRateLimit(headers: Headers): void {

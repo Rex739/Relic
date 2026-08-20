@@ -18,6 +18,19 @@ onchain transaction.
 - Liveness path: `GET /health`
 - Readiness path: `GET /ready`
 
+The durable BSC Testnet seller endpoint is
+`https://p01--relic--b28z25yb24gx.code.run/erc8183`. ERC-8004 agent `1840`
+publishes this exact URI on chain. On **2026-08-20**, public checks of
+`/health`, `/ready`, `/erc8183/health`, and `/erc8183/status` all returned HTTP
+200; the status response reported chain ID `97`, the configured seller
+address, zero service price, and read-only operation.
+
+The endpoint-only metadata update confirmed in block `126223200` as
+transaction
+`0xf022a0706f439ed8c86efd535d564e75261ed73086f345ef86e3e38d00d1462a`.
+Its effective gas price was zero. A registry read-back reproduced the complete
+preserved identity metadata with only the expired Quick Tunnel URL replaced.
+
 The multi-stage image pins Node `22.22.0` by image-index digest and pnpm
 `11.16.0`, installs only the
 health-factor seller's dependency closure, compiles its production TypeScript,
@@ -50,7 +63,7 @@ Non-secret values:
 | `WALLET_ADDRESS`                | Public address matching the injected keystore filename |
 | `WALLET_KEYSTORE_DIR`           | Directory containing the injected secret file          |
 | `ERC8183_SERVICE_PRICE`         | Exactly `0`                                            |
-| `ERC8183_AGENT_URL`             | Final public HTTPS URL ending in `/erc8183`            |
+| `ERC8183_AGENT_URL`             | `https://p01--relic--b28z25yb24gx.code.run/erc8183`    |
 | `ERC8183_POLICY_ADDRESS`        | `0xd6a4217588f6b1f5657a92a3e94e6422ad771cea`           |
 | `ERC8183_FUNDED_POLL_INTERVAL`  | Poll interval in seconds; defaults to `15`             |
 | `VENUS_BSC_TESTNET_COMPTROLLER` | `0x94d1820b2D1c7c7452A163983Dc888CEC546b77D`           |

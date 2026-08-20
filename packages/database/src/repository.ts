@@ -15,6 +15,9 @@ import {
   agents,
   agentServices,
   agentTaxonomy,
+  corpusImportCheckpoints,
+  corpusImportRuns,
+  corpusSourceRecords,
   factEvidence,
   taxonomyTerms,
   indexerCheckpoints,
@@ -281,6 +284,122 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         checkpoint[0] === undefined
           ? null
           : (checkpoint[0].safeBlock - checkpoint[0].indexedBlock).toString(),
+    };
+  }
+
+  public async corpusStatus(chainId: number): Promise<Record<string, unknown>> {
+    const [checkpoint, latestRun, persisted, verification, enrichment] =
+      await Promise.all([
+        this.database
+          .select()
+          .from(corpusImportCheckpoints)
+          .where(
+            and(
+              eq(corpusImportCheckpoints.provider, "8004scan"),
+              eq(corpusImportCheckpoints.chainId, chainId),
+            ),
+          )
+          .orderBy(desc(corpusImportCheckpoints.updatedAt))
+          .limit(1),
+        this.database
+          .select()
+          .from(corpusImportRuns)
+          .where(
+            and(
+              eq(corpusImportRuns.provider, "8004scan"),
+              eq(corpusImportRuns.chainId, chainId),
+            ),
+          )
+          .orderBy(desc(corpusImportRuns.startedAt))
+          .limit(1),
+        this.database
+          .select({
+            count: sql<number>`count(distinct ${corpusSourceRecords.agentId})`,
+          })
+          .from(corpusSourceRecords)
+          .where(
+            and(
+              eq(corpusSourceRecords.provider, "8004scan"),
+              eq(corpusSourceRecords.chainId, chainId),
+            ),
+          ),
+        this.database.execute<{ status: string; count: number }>(sql`
+        select coalesce(vq.status::text, 'unverified') as status,
+               count(*)::int as count
+        from corpus_source_records csr
+        left join verification_queue vq on vq.agent_id = csr.agent_id
+        where csr.provider = '8004scan' and csr.chain_id = ${chainId}
+        group by coalesce(vq.status::text, 'unverified')
+      `),
+        this.database.execute<{ rule_version: string; count: number }>(sql`
+        select coalesce(csr.enrichment_rule_version, 'pending') as rule_version,
+               count(*)::int as count
+        from corpus_source_records csr
+        where csr.provider = '8004scan' and csr.chain_id = ${chainId}
+        group by coalesce(csr.enrichment_rule_version, 'pending')
+      `),
+      ]);
+    const state = checkpoint[0];
+    const run = latestRun[0];
+    const totalReported = state?.totalReported ?? null;
+    const pageSize = state?.pageSize ?? null;
+    const pagesExpected =
+      totalReported === null || pageSize === null
+        ? null
+        : Math.ceil(totalReported / pageSize);
+    const pagesCompleted = state === undefined ? 0 : state.nextPage - 1;
+    return {
+      provider: "8004scan",
+      chainId,
+      readyForFullIngestion: true,
+      fullIngestionComplete: state?.completedAt !== null && state !== undefined,
+      persistedAgents: Number(persisted[0]?.count ?? 0),
+      totalReported,
+      coveragePercent:
+        totalReported === null || totalReported === 0
+          ? null
+          : Number(
+              (
+                (Number(persisted[0]?.count ?? 0) / totalReported) *
+                100
+              ).toFixed(4),
+            ),
+      checkpoint: {
+        status: state?.status ?? "idle",
+        nextPage: state?.nextPage ?? 1,
+        pageSize,
+        pagesCompleted,
+        pagesExpected,
+        accessMode: state?.accessMode ?? "anonymous",
+        operationalMode: state?.operationalMode ?? "anonymous",
+        rateLimit: state?.rateLimit ?? null,
+        rateLimitRemaining: state?.rateLimitRemaining ?? null,
+        rateLimitResetAt: state?.rateLimitResetAt?.toISOString() ?? null,
+        completedAt: state?.completedAt?.toISOString() ?? null,
+        updatedAt: state?.updatedAt?.toISOString() ?? null,
+      },
+      latestRun:
+        run === undefined
+          ? null
+          : {
+              id: run.id,
+              status: run.status,
+              accessMode: run.accessMode,
+              operationalMode: run.operationalMode,
+              requestBudget: run.requestBudget,
+              requestCount: run.requestCount,
+              startPage: run.startPage,
+              endPage: run.endPage,
+              degradedReason: run.degradedReason,
+              startedAt: run.startedAt.toISOString(),
+              finishedAt: run.finishedAt?.toISOString() ?? null,
+            },
+      verificationQueue: Object.fromEntries(
+        verification.map((row) => [row.status, Number(row.count)]),
+      ),
+      enrichment: Object.fromEntries(
+        enrichment.map((row) => [row.rule_version, Number(row.count)]),
+      ),
     };
   }
 

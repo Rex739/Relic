@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { ScanAgent } from "@relic/blockchain";
 
-export const CORPUS_RULE_VERSION = "bsc-corpus-v1";
+export const CORPUS_RULE_VERSION = "bsc-corpus-v2";
 
 export type ReadinessState =
   "NOT_READY" | "PARTIAL" | "DISCOVERABLE" | "ACTIONABLE";
@@ -65,6 +65,7 @@ export function normalizeServiceType(raw: string): string {
   if (value === "oasf") return "oasf";
   if (value === "email") return "email";
   if (value === "x402") return "x402";
+  if (/^(erc-?8183|eip-?8183)$/.test(value)) return "erc8183";
   return value === "" ? "unknown" : `other:${value}`;
 }
 
@@ -93,7 +94,10 @@ export function normalizeCapabilities(values: readonly string[]): string[] {
 
 function rawServices(rawMetadata: unknown): ServiceDeclarationInput[] {
   if (rawMetadata === null || typeof rawMetadata !== "object") return [];
-  const services = (rawMetadata as Record<string, unknown>).services;
+  const metadata = rawMetadata as Record<string, unknown>;
+  const services = Array.isArray(metadata.services)
+    ? metadata.services
+    : metadata.endpoints;
   if (!Array.isArray(services)) return [];
   return services.map((value, index) => {
     const record =
@@ -160,6 +164,15 @@ export function classifyAgent(
     "name" | "description" | "supported_protocols" | "raw_metadata"
   >,
 ): ClassificationMatch[] {
+  const rawCapabilities =
+    agent.raw_metadata !== null &&
+    typeof agent.raw_metadata === "object" &&
+    Array.isArray((agent.raw_metadata as Record<string, unknown>).capabilities)
+      ? (
+          (agent.raw_metadata as Record<string, unknown>)
+            .capabilities as unknown[]
+        ).filter((value): value is string => typeof value === "string")
+      : [];
   const structured = [
     ...agent.supported_protocols.map((value) => ({
       source: "supported_protocols",
@@ -168,6 +181,10 @@ export function classifyAgent(
     ...rawServices(agent.raw_metadata).map((service) => ({
       source: "raw_metadata.services",
       value: service.rawName,
+    })),
+    ...rawCapabilities.map((value) => ({
+      source: "raw_metadata.capabilities",
+      value,
     })),
   ];
   const unstructured = [
@@ -213,7 +230,7 @@ export function profileQuality(input: {
   const now = (input.now ?? new Date()).getTime();
   const meaningfulDescription = compact(input.agent.description).length >= 40;
   const usableInterface = declarations.some((item) =>
-    ["a2a", "mcp", "http-api", "oasf"].includes(item.normalizedType),
+    ["a2a", "mcp", "http-api", "oasf", "erc8183"].includes(item.normalizedType),
   );
   const facts: QualityFacts = {
     hasName: compact(input.agent.name).length > 0,

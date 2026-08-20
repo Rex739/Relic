@@ -1,7 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { ScanAgent, ScanRateLimit } from "@relic/blockchain";
-import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import type {
+  ScanAccessMode,
+  ScanAgent,
+  ScanOperationalMode,
+  ScanRateLimit,
+} from "@relic/blockchain";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
@@ -57,8 +73,44 @@ export interface CorpusCounters {
   rejected: number;
 }
 
+export interface CorpusDiscoveryRecord {
+  agent: ScanAgent;
+  raw: unknown;
+  fetchedAt: Date;
+}
+
+export interface CorpusMalformedRecord {
+  raw: unknown;
+  page: number;
+  index: number;
+  error: unknown;
+}
+
+export interface CorpusEnrichmentRecord {
+  agent: ScanAgent;
+  derived: CorpusDerivedData;
+  fetchedAt: Date;
+}
+
+export interface CorpusPersistenceMetrics {
+  persisted: number;
+  malformed: number;
+  statements: number;
+  transactionCount: number;
+  durationMs: number;
+}
+
 const sha256 = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const stableAgentUuid = (value: string) => {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${(
+    (Number.parseInt(hex.slice(16, 18), 16) & 0x3f) |
+    0x80
+  )
+    .toString(16)
+    .padStart(2, "0")}${hex.slice(18, 20)}-${hex.slice(20)}`;
+};
 const addressPattern = /^0x[a-fA-F0-9]{40}$/;
 const errorMessage = (error: unknown) =>
   error instanceof Error
@@ -103,11 +155,54 @@ export class DrizzleCorpusStore {
     return created;
   }
 
+  async repageCheckpoint(input: {
+    chainId: number;
+    registryAddress: string;
+    previousNextPage: number;
+    previousPageSize: number;
+    nextPageSize: number;
+  }) {
+    const processedOffset =
+      (input.previousNextPage - 1) * input.previousPageSize;
+    const nextPage = Math.floor(processedOffset / input.nextPageSize) + 1;
+    const [updated] = await this.database
+      .update(corpusImportCheckpoints)
+      .set({
+        nextPage,
+        pageSize: input.nextPageSize,
+        status: "partial",
+        error: {
+          message: `Page size changed from ${input.previousPageSize} to ${input.nextPageSize}; resuming with a safe overlap`,
+          previousNextPage: input.previousNextPage,
+          processedOffset,
+        },
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(corpusImportCheckpoints.provider, this.provider),
+          eq(corpusImportCheckpoints.chainId, input.chainId),
+          eq(
+            corpusImportCheckpoints.registryAddress,
+            input.registryAddress.toLowerCase(),
+          ),
+          eq(corpusImportCheckpoints.nextPage, input.previousNextPage),
+          eq(corpusImportCheckpoints.pageSize, input.previousPageSize),
+        ),
+      )
+      .returning();
+    if (updated === undefined)
+      throw new Error("Corpus checkpoint changed during page-size transition");
+    return updated;
+  }
+
   async startRun(input: {
     chainId: number;
     registryAddress: string;
     startPage: number;
     pageSize: number;
+    accessMode: ScanAccessMode;
+    requestBudget: number;
   }): Promise<string> {
     const id = randomUUID();
     await this.database.insert(corpusImportRuns).values({
@@ -117,12 +212,21 @@ export class DrizzleCorpusStore {
       registryAddress: input.registryAddress.toLowerCase(),
       startPage: input.startPage,
       pageSize: input.pageSize,
+      accessMode: input.accessMode,
+      operationalMode: input.accessMode,
+      requestBudget: input.requestBudget,
       status: "running",
       startedAt: new Date(),
     });
     await this.database
       .update(corpusImportCheckpoints)
-      .set({ status: "running", error: null, updatedAt: new Date() })
+      .set({
+        status: "running",
+        accessMode: input.accessMode,
+        operationalMode: input.accessMode,
+        error: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(corpusImportCheckpoints.provider, this.provider),
@@ -134,6 +238,629 @@ export class DrizzleCorpusStore {
         ),
       );
     return id;
+  }
+
+  async anonymousRequestsSince(since: Date): Promise<number> {
+    const [row] = await this.database
+      .select({
+        count: sql<number>`coalesce(sum(${corpusImportRuns.requestCount}), 0)`,
+      })
+      .from(corpusImportRuns)
+      .where(
+        and(
+          eq(corpusImportRuns.provider, this.provider),
+          eq(corpusImportRuns.accessMode, "anonymous"),
+          gte(corpusImportRuns.startedAt, since),
+        ),
+      );
+    return Number(row?.count ?? 0);
+  }
+
+  async recoverRunningImports(input: {
+    chainId: number;
+    registryAddress: string;
+    reason: string;
+  }): Promise<number> {
+    const now = new Date();
+    return this.database.transaction(async (transaction) => {
+      const recovered = await transaction
+        .update(corpusImportRuns)
+        .set({
+          status: "failed",
+          requestCount: sql`greatest(${corpusImportRuns.requestCount}, 1)`,
+          degradedReason: "interrupted_before_page_commit",
+          error: { message: input.reason },
+          finishedAt: now,
+        })
+        .where(
+          and(
+            eq(corpusImportRuns.provider, this.provider),
+            eq(corpusImportRuns.chainId, input.chainId),
+            eq(
+              corpusImportRuns.registryAddress,
+              input.registryAddress.toLowerCase(),
+            ),
+            eq(corpusImportRuns.status, "running"),
+          ),
+        )
+        .returning({ id: corpusImportRuns.id });
+      if (recovered.length > 0)
+        await transaction
+          .update(corpusImportCheckpoints)
+          .set({
+            status: "partial",
+            error: { message: input.reason },
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(corpusImportCheckpoints.provider, this.provider),
+              eq(corpusImportCheckpoints.chainId, input.chainId),
+              eq(
+                corpusImportCheckpoints.registryAddress,
+                input.registryAddress.toLowerCase(),
+              ),
+            ),
+          );
+      return recovered.length;
+    });
+  }
+
+  async recordProviderRequest(input: {
+    chainId: number;
+    registryAddress: string;
+    accessMode: ScanAccessMode;
+    operationalMode: ScanOperationalMode;
+    requestCount: number;
+    status: number | null;
+    rateLimit: ScanRateLimit;
+  }): Promise<void> {
+    await this.database
+      .update(corpusImportRuns)
+      .set({
+        accessMode: input.accessMode,
+        operationalMode: input.operationalMode,
+        requestCount: input.requestCount,
+        rateLimit: input.rateLimit.limit,
+        rateLimitRemaining: input.rateLimit.remaining,
+        rateLimitResetAt:
+          input.rateLimit.resetAt === null
+            ? null
+            : new Date(input.rateLimit.resetAt),
+        degradedReason:
+          input.operationalMode === "rate_limited_degraded"
+            ? `8004scan returned HTTP ${input.status ?? "unknown"}`
+            : null,
+      })
+      .where(
+        and(
+          eq(corpusImportRuns.provider, this.provider),
+          eq(corpusImportRuns.chainId, input.chainId),
+          eq(
+            corpusImportRuns.registryAddress,
+            input.registryAddress.toLowerCase(),
+          ),
+          eq(corpusImportRuns.status, "running"),
+        ),
+      );
+  }
+
+  async persistDiscoveryPage(input: {
+    records: CorpusDiscoveryRecord[];
+    malformed: CorpusMalformedRecord[];
+  }): Promise<CorpusPersistenceMetrics> {
+    const startedAt = performance.now();
+    if (input.records.length === 0 && input.malformed.length === 0)
+      return {
+        persisted: 0,
+        malformed: 0,
+        statements: 0,
+        transactionCount: 0,
+        durationMs: 0,
+      };
+    let statements = 0;
+    await this.database.transaction(async (transaction) => {
+      const externalIds = input.records.map(({ agent }) => agent.token_id);
+      const first = input.records[0]?.agent;
+      const existing =
+        first === undefined
+          ? []
+          : await transaction
+              .select({
+                agentId: agentIdentities.agentId,
+                externalAgentId: agentIdentities.externalAgentId,
+              })
+              .from(agentIdentities)
+              .where(
+                and(
+                  eq(agentIdentities.namespace, "eip155"),
+                  eq(agentIdentities.chainId, first.chain_id),
+                  eq(
+                    agentIdentities.registryAddress,
+                    first.contract_address.toLowerCase(),
+                  ),
+                  inArray(agentIdentities.externalAgentId, externalIds),
+                ),
+              );
+      if (first !== undefined) statements += 1;
+      const existingIds = new Map(
+        existing.map((row) => [row.externalAgentId, row.agentId]),
+      );
+      const prepared = input.records.map(({ agent, raw, fetchedAt }) => {
+        if (!/^\d+$/.test(agent.token_id)) throw new Error("Invalid token_id");
+        if (!addressPattern.test(agent.contract_address))
+          throw new Error("Invalid contract_address");
+        if (
+          agent.owner_address == null ||
+          !addressPattern.test(agent.owner_address)
+        )
+          throw new Error("Missing or invalid owner_address");
+        const registryAddress = agent.contract_address.toLowerCase();
+        const sourceCreatedAt = new Date(agent.created_at ?? fetchedAt);
+        return {
+          agent,
+          raw,
+          fetchedAt,
+          registryAddress,
+          ownerAddress: agent.owner_address.toLowerCase(),
+          sourceCreatedAt: Number.isNaN(sourceCreatedAt.getTime())
+            ? fetchedAt
+            : sourceCreatedAt,
+          internalId:
+            existingIds.get(agent.token_id) ??
+            stableAgentUuid(
+              `${this.provider}:eip155:${agent.chain_id}:${registryAddress}:${agent.token_id}`,
+            ),
+          contentHash: sha256(raw),
+        };
+      });
+      if (prepared.length > 0) {
+        await transaction
+          .insert(agents)
+          .values(
+            prepared.map((row) => ({
+              id: row.internalId,
+              name: row.agent.name ?? null,
+              description: row.agent.description ?? null,
+              imageUrl: row.agent.image_url ?? null,
+              metadataUri: "",
+              createdAt: row.sourceCreatedAt,
+              updatedAt: row.fetchedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: agents.id,
+            set: {
+              name: sql`coalesce(${agents.name}, excluded.name)`,
+              description: sql`coalesce(${agents.description}, excluded.description)`,
+              imageUrl: sql`coalesce(${agents.imageUrl}, excluded.image_url)`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
+        statements += 1;
+        await transaction
+          .insert(agentIdentities)
+          .values(
+            prepared.map((row) => ({
+              agentId: row.internalId,
+              standard: "erc-8004",
+              namespace: "eip155",
+              chainId: row.agent.chain_id,
+              registryAddress: row.registryAddress,
+              externalAgentId: row.agent.token_id,
+              ownerAddress: row.ownerAddress,
+              registrationStatus: "unknown",
+              registeredAt: row.sourceCreatedAt,
+              updatedAt: row.fetchedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [
+              agentIdentities.namespace,
+              agentIdentities.chainId,
+              agentIdentities.registryAddress,
+              agentIdentities.externalAgentId,
+            ],
+            set: {
+              ownerAddress: sql`excluded.owner_address`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
+        statements += 1;
+        await transaction
+          .insert(corpusSourceRecords)
+          .values(
+            prepared.map((row) => ({
+              provider: this.provider,
+              sourceRecordId: row.agent.id,
+              agentId: row.internalId,
+              chainId: row.agent.chain_id,
+              registryAddress: row.registryAddress,
+              externalAgentId: row.agent.token_id,
+              sourceUpdatedAt:
+                row.agent.updated_at == null
+                  ? null
+                  : new Date(row.agent.updated_at),
+              payload: row.raw,
+              contentHash: row.contentHash,
+              fetchedAt: row.fetchedAt,
+              updatedAt: row.fetchedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: [
+              corpusSourceRecords.provider,
+              corpusSourceRecords.sourceRecordId,
+            ],
+            set: {
+              agentId: sql`excluded.agent_id`,
+              payload: sql`excluded.payload`,
+              sourceUpdatedAt: sql`excluded.source_updated_at`,
+              fetchedAt: sql`excluded.fetched_at`,
+              enrichmentRuleVersion: sql`case when ${corpusSourceRecords.contentHash} = excluded.content_hash then ${corpusSourceRecords.enrichmentRuleVersion} else null end`,
+              enrichedAt: sql`case when ${corpusSourceRecords.contentHash} = excluded.content_hash then ${corpusSourceRecords.enrichedAt} else null end`,
+              enrichmentError: sql`case when ${corpusSourceRecords.contentHash} = excluded.content_hash then ${corpusSourceRecords.enrichmentError} else null end`,
+              contentHash: sql`excluded.content_hash`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
+        statements += 1;
+      }
+      if (input.malformed.length > 0) {
+        await transaction.insert(ingestionRecords).values(
+          input.malformed.map((record) => ({
+            provider: this.provider,
+            sourceKey: `page:${record.page}:record:${record.index}`,
+            fetchedAt: new Date(),
+            payload: record.raw,
+            status: "failed" as const,
+            error: { message: errorMessage(record.error) },
+          })),
+        );
+        statements += 1;
+      }
+    });
+    return {
+      persisted: input.records.length,
+      malformed: input.malformed.length,
+      statements,
+      transactionCount: 1,
+      durationMs: performance.now() - startedAt,
+    };
+  }
+
+  async persistEnrichmentBatch(
+    records: CorpusEnrichmentRecord[],
+  ): Promise<CorpusPersistenceMetrics> {
+    const startedAt = performance.now();
+    if (records.length === 0)
+      return {
+        persisted: 0,
+        malformed: 0,
+        statements: 0,
+        transactionCount: 0,
+        durationMs: 0,
+      };
+    let statements = 0;
+    await this.database.transaction(async (transaction) => {
+      const first = records[0]!.agent;
+      const identities = await transaction
+        .select({
+          agentId: agentIdentities.agentId,
+          externalAgentId: agentIdentities.externalAgentId,
+          metadataUri: agents.metadataUri,
+          verificationStatus: verificationQueue.status,
+        })
+        .from(agentIdentities)
+        .innerJoin(agents, eq(agents.id, agentIdentities.agentId))
+        .leftJoin(
+          verificationQueue,
+          eq(verificationQueue.agentId, agentIdentities.agentId),
+        )
+        .where(
+          and(
+            eq(agentIdentities.namespace, "eip155"),
+            eq(agentIdentities.chainId, first.chain_id),
+            eq(
+              agentIdentities.registryAddress,
+              first.contract_address.toLowerCase(),
+            ),
+            inArray(
+              agentIdentities.externalAgentId,
+              records.map(({ agent }) => agent.token_id),
+            ),
+          ),
+        );
+      statements += 1;
+      const identityByExternalId = new Map(
+        identities.map((row) => [row.externalAgentId, row]),
+      );
+      if (identityByExternalId.size !== records.length)
+        throw new Error(
+          "Offline enrichment requires every record to have a durably persisted discovery identity",
+        );
+      const agentIds = identities.map(({ agentId }) => agentId);
+      const resolvedRows = await transaction
+        .select({ agentId: metadataHistory.agentId })
+        .from(metadataHistory)
+        .where(
+          and(
+            inArray(metadataHistory.agentId, agentIds),
+            eq(metadataHistory.resolutionStatus, "resolved"),
+          ),
+        );
+      statements += 1;
+      const resolvedIds = new Set(resolvedRows.map(({ agentId }) => agentId));
+      await transaction
+        .delete(factEvidence)
+        .where(
+          and(
+            inArray(factEvidence.agentId, agentIds),
+            eq(factEvidence.provenance, "secondary_unverified"),
+            eq(factEvidence.source, this.provider),
+          ),
+        );
+      await transaction
+        .delete(serviceDeclarations)
+        .where(
+          and(
+            inArray(serviceDeclarations.agentId, agentIds),
+            eq(serviceDeclarations.source, this.provider),
+          ),
+        );
+      await transaction
+        .delete(classificationEvidence)
+        .where(
+          and(
+            inArray(classificationEvidence.agentId, agentIds),
+            eq(
+              classificationEvidence.ruleVersion,
+              records[0]!.derived.quality.ruleVersion,
+            ),
+          ),
+        );
+      statements += 3;
+      const sourceFacts = records.flatMap(({ agent, fetchedAt }) => {
+        const identity = identityByExternalId.get(agent.token_id)!;
+        const sourceUri = `https://8004scan.io/agents/${agent.chain_id}/${agent.token_id}`;
+        return [
+          ["identity.ownerAddress", agent.owner_address?.toLowerCase()],
+          ["identity.registryAddress", agent.contract_address.toLowerCase()],
+          ["identity.agentId", agent.token_id],
+          ["profile.name", agent.name],
+          ["profile.description", agent.description],
+          ["profile.imageUrl", agent.image_url],
+        ]
+          .filter(([, value]) => value != null)
+          .map(([fieldPath, value]) => ({
+            agentId: identity.agentId,
+            subjectType: String(fieldPath).split(".")[0]!,
+            fieldPath: String(fieldPath),
+            provenance: "secondary_unverified" as const,
+            source: this.provider,
+            sourceUri,
+            observedAt: fetchedAt,
+            details: { value },
+          }));
+      });
+      if (sourceFacts.length > 0) {
+        await transaction.insert(factEvidence).values(sourceFacts);
+        statements += 1;
+      }
+      const services = records.flatMap(({ agent, derived, fetchedAt }) => {
+        const agentId = identityByExternalId.get(agent.token_id)!.agentId;
+        return derived.services.map((service) => ({
+          agentId,
+          source: this.provider,
+          rawName: service.rawName,
+          normalizedType: service.normalizedType,
+          endpoint: service.endpoint,
+          malformed: service.malformed,
+          provenance: "secondary_unverified" as const,
+          raw: service.raw,
+          observedAt: fetchedAt,
+        }));
+      });
+      if (services.length > 0) {
+        await transaction.insert(serviceDeclarations).values(services);
+        statements += 1;
+      }
+      const classifications = records.flatMap(
+        ({ agent, derived, fetchedAt }) => {
+          const agentId = identityByExternalId.get(agent.token_id)!.agentId;
+          return derived.classifications.map((match) => ({
+            agentId,
+            categorySlug: match.categorySlug,
+            confidence: match.confidence,
+            evidenceType: match.evidenceType,
+            matchedSource: match.matchedSource,
+            matchedValue: match.matchedValue,
+            ruleVersion: derived.quality.ruleVersion,
+            observedAt: fetchedAt,
+          }));
+        },
+      );
+      if (classifications.length > 0) {
+        await transaction
+          .insert(classificationEvidence)
+          .values(classifications);
+        statements += 1;
+      }
+      const capabilitySlugs = [
+        ...new Set(records.flatMap(({ derived }) => derived.capabilities)),
+      ];
+      if (capabilitySlugs.length > 0) {
+        await transaction
+          .insert(taxonomyTerms)
+          .values(
+            capabilitySlugs.map((slug) => ({
+              kind: "capability" as const,
+              slug,
+              label: slug
+                .split("-")
+                .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                .join(" "),
+            })),
+          )
+          .onConflictDoNothing();
+        statements += 1;
+      }
+      const taxonomySlugs = [
+        ...new Set([
+          ...capabilitySlugs,
+          ...records.flatMap(({ derived }) =>
+            derived.classifications.map(({ categorySlug }) => categorySlug),
+          ),
+        ]),
+      ];
+      if (taxonomySlugs.length > 0) {
+        const terms = await transaction
+          .select({
+            id: taxonomyTerms.id,
+            kind: taxonomyTerms.kind,
+            slug: taxonomyTerms.slug,
+          })
+          .from(taxonomyTerms)
+          .where(inArray(taxonomyTerms.slug, taxonomySlugs));
+        statements += 1;
+        const termByKindAndSlug = new Map(
+          terms.map((term) => [`${term.kind}:${term.slug}`, term.id]),
+        );
+        const taxonomyRows = records.flatMap(({ agent, derived }) => {
+          const agentId = identityByExternalId.get(agent.token_id)!.agentId;
+          return [
+            ...derived.capabilities.map((slug) => ({
+              kind: "capability",
+              slug,
+            })),
+            ...derived.classifications.map(({ categorySlug: slug }) => ({
+              kind: "category",
+              slug,
+            })),
+          ].flatMap(({ kind, slug }) => {
+            const termId = termByKindAndSlug.get(`${kind}:${slug}`);
+            return termId === undefined ? [] : [{ agentId, termId }];
+          });
+        });
+        if (taxonomyRows.length > 0) {
+          await transaction
+            .insert(agentTaxonomy)
+            .values(taxonomyRows)
+            .onConflictDoNothing();
+          statements += 1;
+        }
+      }
+      const qualityRows = records.map(({ agent, derived, fetchedAt }) => {
+        const identity = identityByExternalId.get(agent.token_id)!;
+        const facts: Record<string, boolean> = {
+          ...derived.quality.facts,
+          hasVerifiableOwner:
+            identity.verificationStatus === "verified" ||
+            identity.verificationStatus === "partial",
+          hasMetadataUri: identity.metadataUri.trim().length > 0,
+          metadataResolves: resolvedIds.has(identity.agentId),
+        };
+        return {
+          agentId: identity.agentId,
+          completenessPercent: Math.round(
+            (Object.values(facts).filter(Boolean).length /
+              Object.values(facts).length) *
+              100,
+          ),
+          readiness: derived.quality.readiness,
+          facts,
+          ruleVersion: derived.quality.ruleVersion,
+          profiledAt: fetchedAt,
+          updatedAt: fetchedAt,
+        };
+      });
+      await transaction
+        .insert(agentQualityProfiles)
+        .values(qualityRows)
+        .onConflictDoUpdate({
+          target: agentQualityProfiles.agentId,
+          set: {
+            completenessPercent: sql`excluded.completeness_percent`,
+            readiness: sql`excluded.readiness`,
+            facts: sql`excluded.facts`,
+            ruleVersion: sql`excluded.rule_version`,
+            profiledAt: sql`excluded.profiled_at`,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        });
+      statements += 1;
+      await transaction
+        .insert(reputationInventory)
+        .values(
+          records.map(({ agent, fetchedAt }) => ({
+            agentId: identityByExternalId.get(agent.token_id)!.agentId,
+            source: this.provider,
+            feedbackCount: agent.total_feedbacks ?? 0,
+            averageScore: agent.average_score ?? null,
+            starCount: agent.star_count ?? 0,
+            sourceScore: agent.total_score ?? null,
+            raw: {
+              total_feedbacks: agent.total_feedbacks ?? 0,
+              average_score: agent.average_score ?? null,
+              star_count: agent.star_count ?? 0,
+              total_score: agent.total_score ?? null,
+              health_score: agent.health_score ?? null,
+            },
+            observedAt: fetchedAt,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [reputationInventory.agentId, reputationInventory.source],
+          set: {
+            feedbackCount: sql`excluded.feedback_count`,
+            averageScore: sql`excluded.average_score`,
+            starCount: sql`excluded.star_count`,
+            sourceScore: sql`excluded.source_score`,
+            raw: sql`excluded.raw`,
+            observedAt: sql`excluded.observed_at`,
+          },
+        });
+      statements += 1;
+      await transaction
+        .insert(verificationQueue)
+        .values(
+          records.map(({ agent, derived }) => ({
+            agentId: identityByExternalId.get(agent.token_id)!.agentId,
+            status: "unverified" as const,
+            priority: derived.priority,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: verificationQueue.agentId,
+          set: {
+            priority: sql`greatest(${verificationQueue.priority}, excluded.priority)`,
+            updatedAt: sql`now()`,
+          },
+        });
+      statements += 1;
+      await transaction
+        .update(corpusSourceRecords)
+        .set({
+          enrichmentRuleVersion: records[0]!.derived.quality.ruleVersion,
+          enrichedAt: new Date(),
+          enrichmentError: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(corpusSourceRecords.provider, this.provider),
+            inArray(corpusSourceRecords.agentId, agentIds),
+          ),
+        );
+      statements += 1;
+    });
+    return {
+      persisted: records.length,
+      malformed: 0,
+      statements,
+      transactionCount: 1,
+      durationMs: performance.now() - startedAt,
+    };
   }
 
   async persistAgent(input: {
@@ -478,6 +1205,55 @@ export class DrizzleCorpusStore {
     });
   }
 
+  async sourceRecordsForReclassification(input: {
+    chainId: number;
+    registryAddress: string;
+    limit: number;
+  }) {
+    return this.database
+      .select({ payload: corpusSourceRecords.payload })
+      .from(corpusSourceRecords)
+      .where(
+        and(
+          eq(corpusSourceRecords.provider, this.provider),
+          eq(corpusSourceRecords.chainId, input.chainId),
+          eq(
+            corpusSourceRecords.registryAddress,
+            input.registryAddress.toLowerCase(),
+          ),
+        ),
+      )
+      .orderBy(sql`(${corpusSourceRecords.externalAgentId})::numeric`)
+      .limit(input.limit);
+  }
+
+  async sourceRecordsForEnrichment(input: {
+    chainId: number;
+    registryAddress: string;
+    ruleVersion: string;
+    limit: number;
+  }) {
+    return this.database
+      .select({ payload: corpusSourceRecords.payload })
+      .from(corpusSourceRecords)
+      .where(
+        and(
+          eq(corpusSourceRecords.provider, this.provider),
+          eq(corpusSourceRecords.chainId, input.chainId),
+          eq(
+            corpusSourceRecords.registryAddress,
+            input.registryAddress.toLowerCase(),
+          ),
+          or(
+            isNull(corpusSourceRecords.enrichmentRuleVersion),
+            sql`${corpusSourceRecords.enrichmentRuleVersion} <> ${input.ruleVersion}`,
+          ),
+        ),
+      )
+      .orderBy(sql`(${corpusSourceRecords.externalAgentId})::numeric`)
+      .limit(input.limit);
+  }
+
   async completePage(input: {
     runId: string;
     chainId: number;
@@ -487,8 +1263,12 @@ export class DrizzleCorpusStore {
     total: number;
     counters: CorpusCounters;
     rateLimit: ScanRateLimit;
+    accessMode: ScanAccessMode;
+    operationalMode: ScanOperationalMode;
+    requestCount: number;
     advanceCheckpoint: boolean;
   }) {
+    const startedAt = performance.now();
     const now = new Date();
     await this.database.transaction(async (transaction) => {
       if (input.advanceCheckpoint)
@@ -499,6 +1279,14 @@ export class DrizzleCorpusStore {
             pageSize: input.pageSize,
             totalReported: input.total,
             status: "partial",
+            accessMode: input.accessMode,
+            operationalMode: input.operationalMode,
+            rateLimit: input.rateLimit.limit,
+            rateLimitRemaining: input.rateLimit.remaining,
+            rateLimitResetAt:
+              input.rateLimit.resetAt === null
+                ? null
+                : new Date(input.rateLimit.resetAt),
             lastSuccessfulRunAt: now,
             updatedAt: now,
           })
@@ -524,9 +1312,20 @@ export class DrizzleCorpusStore {
             input.rateLimit.resetAt === null
               ? null
               : new Date(input.rateLimit.resetAt),
+          operationalMode: input.operationalMode,
+          requestCount: input.requestCount,
+          degradedReason:
+            input.operationalMode === "rate_limited_degraded"
+              ? "8004scan rate limit reached"
+              : null,
         })
         .where(eq(corpusImportRuns.id, input.runId));
     });
+    return {
+      statements: input.advanceCheckpoint ? 2 : 1,
+      transactionCount: 1,
+      durationMs: performance.now() - startedAt,
+    };
   }
 
   async finishRun(input: {
@@ -535,6 +1334,10 @@ export class DrizzleCorpusStore {
     registryAddress: string;
     status: "succeeded" | "partial" | "failed";
     counters: CorpusCounters;
+    accessMode: ScanAccessMode;
+    operationalMode: ScanOperationalMode;
+    requestCount: number;
+    rateLimit: ScanRateLimit;
     error?: unknown;
   }) {
     const now = new Date();
@@ -546,6 +1349,19 @@ export class DrizzleCorpusStore {
         .set({
           status: input.status,
           counters: input.counters,
+          accessMode: input.accessMode,
+          operationalMode: input.operationalMode,
+          requestCount: input.requestCount,
+          rateLimit: input.rateLimit.limit,
+          rateLimitRemaining: input.rateLimit.remaining,
+          rateLimitResetAt:
+            input.rateLimit.resetAt === null
+              ? null
+              : new Date(input.rateLimit.resetAt),
+          degradedReason:
+            input.operationalMode === "rate_limited_degraded"
+              ? "8004scan rate limit reached"
+              : null,
           error,
           finishedAt: now,
         })
@@ -554,6 +1370,15 @@ export class DrizzleCorpusStore {
         .update(corpusImportCheckpoints)
         .set({
           status: input.status,
+          accessMode: input.accessMode,
+          operationalMode: input.operationalMode,
+          completedAt: input.status === "succeeded" ? now : null,
+          rateLimit: input.rateLimit.limit,
+          rateLimitRemaining: input.rateLimit.remaining,
+          rateLimitResetAt:
+            input.rateLimit.resetAt === null
+              ? null
+              : new Date(input.rateLimit.resetAt),
           error,
           ...(input.status === "succeeded" ? { lastSuccessfulRunAt: now } : {}),
           updatedAt: now,

@@ -19,6 +19,8 @@ coverage
 **/.env.*
 .studio
 **/.studio
+.deployment-secrets
+**/.deployment-secrets
 .wallets
 **/.wallets
 .agent-data

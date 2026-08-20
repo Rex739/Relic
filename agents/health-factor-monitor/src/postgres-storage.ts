@@ -1,4 +1,4 @@
-import { StorageProvider } from "@bnbagent/sdk/storage";
+import type { StorageProvider } from "@bnbagent/sdk/storage";
 import postgres, { type Sql } from "postgres";
 
 const jobIdFromLocation = (location: string): string => {
@@ -10,13 +10,12 @@ const jobIdFromLocation = (location: string): string => {
   return BigInt(match[1]).toString();
 };
 
-export class PostgresArtifactStorage extends StorageProvider {
-  override readonly usesFileUrl = true;
+export class PostgresArtifactStorage implements StorageProvider {
+  readonly usesFileUrl = true;
   readonly #agentSlug: string;
   readonly #sql: Sql;
 
   constructor(databaseUrl: string, agentSlug: string) {
-    super();
     this.#agentSlug = agentSlug;
     this.#sql = postgres(databaseUrl, {
       max: 2,

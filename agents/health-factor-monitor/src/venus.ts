@@ -1,11 +1,31 @@
-import { createPublicClient, getAddress, http, type Address } from "viem";
-import { bsc, bscTestnet } from "viem/chains";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  type Address,
+  type Chain,
+} from "viem";
 
 import type {
   HealthFactorInput,
   PositionReader,
   PositionSnapshot,
 } from "./analysis.js";
+
+const bsc = {
+  id: 56,
+  name: "BNB Smart Chain",
+  nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+  rpcUrls: { default: { http: [] } },
+} as const satisfies Chain;
+
+const bscTestnet = {
+  id: 97,
+  name: "BNB Smart Chain Testnet",
+  nativeCurrency: { name: "Testnet BNB", symbol: "tBNB", decimals: 18 },
+  rpcUrls: { default: { http: [] } },
+  testnet: true,
+} as const satisfies Chain;
 
 const comptrollerAbi = [
   {

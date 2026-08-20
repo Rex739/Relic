@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "tsx src/service.ts",
     "build": "tsc -p tsconfig.build.json",
+    "erc8004:update-endpoint": "tsx scripts/update-erc8004-endpoint.ts",
+    "keystore:testnet-deployment": "tsx scripts/create-testnet-deployment-keystore.ts",
     "start": "node dist/service.js",
-    "lint": "eslint src test",
+    "lint": "eslint scripts src test",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

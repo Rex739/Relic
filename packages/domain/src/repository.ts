@@ -84,6 +84,7 @@ export interface AgentReadRepository {
   ): Promise<AgentDetail | null>;
   listCategories?(): Promise<Array<{ slug: string; label: string }>>;
   dataQuality?(): Promise<Record<string, unknown>>;
+  corpusStatus?(chainId: number): Promise<Record<string, unknown>>;
   listAgentServices?(
     agentId: string,
     query?: ServiceListQuery,

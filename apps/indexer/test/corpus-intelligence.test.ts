@@ -29,6 +29,7 @@ describe("deterministic corpus intelligence", () => {
       ]),
     ).toEqual(["yield-optimisation"]);
     expect(normalizeServiceType("Model Context Protocol")).toBe("mcp");
+    expect(normalizeServiceType("ERC-8183")).toBe("erc8183");
     const declarations = extractServiceDeclarations({
       ...baseAgent,
       supported_protocols: ["MCP", "Something New"],
@@ -41,6 +42,37 @@ describe("deterministic corpus intelligence", () => {
         }),
       ]),
     );
+  });
+
+  it("supports current services and legacy endpoints metadata deterministically", () => {
+    const current = extractServiceDeclarations({
+      ...baseAgent,
+      raw_metadata: {
+        services: [
+          { name: "ERC8183", endpoint: "https://seller.example/erc8183" },
+        ],
+        endpoints: [{ name: "MCP", endpoint: "https://legacy.example" }],
+      },
+    });
+    expect(current).toEqual([
+      expect.objectContaining({
+        normalizedType: "erc8183",
+        endpoint: "https://seller.example/erc8183",
+      }),
+    ]);
+    expect(
+      extractServiceDeclarations({
+        ...baseAgent,
+        raw_metadata: {
+          endpoints: [{ name: "MCP", endpoint: "https://legacy.example" }],
+        },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        normalizedType: "mcp",
+        endpoint: "https://legacy.example",
+      }),
+    ]);
   });
 
   it("classifies only explicit evidence and otherwise leaves agents uncategorized", () => {

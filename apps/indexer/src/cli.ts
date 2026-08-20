@@ -22,7 +22,7 @@ import { normalizeRegistryAgent } from "@relic/domain";
 import { getAddress } from "viem";
 
 import { RelicIndexer } from "./engine.js";
-import { bootstrapCorpus } from "./corpus-bootstrap.js";
+import { bootstrapCorpus, deriveScanAgent } from "./corpus-bootstrap.js";
 import { verifyCorpus } from "./corpus-verification.js";
 import { CORPUS_RULE_VERSION } from "./corpus-intelligence.js";
 import { observeEndpoint } from "./endpoint-observer.js";
@@ -294,36 +294,123 @@ try {
       materialized,
     });
   } else if (command === "corpus-bootstrap") {
-    const pageSize = positiveIntegerFlag("page-size", 50)!;
+    const pageSize = positiveIntegerFlag("page-size", 100)!;
     if (pageSize > 100) throw new Error("--page-size cannot exceed 100");
-    const maxPages = positiveIntegerFlag("max-pages", 1)!;
-    const concurrency = positiveIntegerFlag("concurrency", 3)!;
-    if (concurrency > 3)
+    const fullCorpus = booleanFlag("full-corpus");
+    const maxPages = positiveIntegerFlag(
+      "max-pages",
+      fullCorpus ? 100_000 : 1,
+    )!;
+    const requestBudget = positiveIntegerFlag(
+      "request-budget",
+      fullCorpus ? 100_000 : maxPages,
+    )!;
+    if (maxPages > requestBudget)
+      throw new Error("--max-pages cannot exceed --request-budget");
+    const concurrency = positiveIntegerFlag("concurrency", 1)!;
+    if (concurrency !== 1)
       throw new Error(
-        "--concurrency cannot exceed the configured database pool of 3",
+        "Discovery ingest is page-batched; --concurrency must remain 1",
       );
     const startPage = positiveIntegerFlag("start-page");
+    const apiKey = environment["8004SCAN_API_KEY"];
+    if (fullCorpus && apiKey === undefined)
+      throw new Error(
+        "--full-corpus requires 8004SCAN_API_KEY; anonymous mode is smoke-test only",
+      );
+    if (fullCorpus && startPage !== undefined)
+      throw new Error(
+        "--full-corpus resumes from the durable checkpoint and does not accept --start-page",
+      );
+    if (apiKey === undefined && (maxPages > 10 || requestBudget > 10))
+      throw new Error(
+        "Anonymous corpus runs are bounded to 10 requests; use a smaller smoke batch",
+      );
+    const corpusStore = new DrizzleCorpusStore(connection.db);
+    const recovered = await corpusStore.recoverRunningImports({
+      chainId,
+      registryAddress,
+      reason: "Recovered interrupted corpus import before a new run",
+    });
+    if (recovered > 0)
+      log({ event: "corpus_import_runs_recovered", recovered });
+    if (apiKey === undefined) {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const usedToday = await corpusStore.anonymousRequestsSince(today);
+      if (usedToday + requestBudget > 100)
+        throw new Error(
+          "The local anonymous daily request ledger would exceed 8004scan's 100-request allowance",
+        );
+      log({
+        event: "corpus_anonymous_budget",
+        usedToday,
+        requested: requestBudget,
+        localRemainingAfterRun: 100 - usedToday - requestBudget,
+      });
+    }
     const secondary = new Scan8004Provider(
-      environment["8004SCAN_API_KEY"] === undefined
-        ? {}
-        : { apiKey: environment["8004SCAN_API_KEY"] },
+      apiKey === undefined
+        ? {
+            maxRetries: 0,
+            requestBudget,
+            onRequest: (observation) =>
+              corpusStore.recordProviderRequest({
+                chainId,
+                registryAddress,
+                ...observation,
+                requestCount: observation.requestNumber,
+              }),
+          }
+        : {
+            apiKey,
+            maxRetries: 2,
+            requestBudget,
+            onRequest: (observation) =>
+              corpusStore.recordProviderRequest({
+                chainId,
+                registryAddress,
+                ...observation,
+                requestCount: observation.requestNumber,
+              }),
+          },
     );
-    const result = await bootstrapCorpus(
-      secondary,
-      new DrizzleCorpusStore(connection.db),
-      {
-        chainId,
-        registryAddress,
-        pageSize,
-        maxPages,
-        concurrency,
-        ...(startPage === undefined ? {} : { startPage }),
-        logger: log,
-      },
-    );
+    log({
+      event: "corpus_bootstrap_mode",
+      accessMode: secondary.accessMode,
+      operationalMode: secondary.operationalMode,
+      requestBudget,
+      fullCorpus,
+    });
+    const result = await bootstrapCorpus(secondary, corpusStore, {
+      chainId,
+      registryAddress,
+      pageSize,
+      maxPages,
+      concurrency,
+      requestBudget,
+      requirePro: fullCorpus,
+      ...(startPage === undefined ? {} : { startPage }),
+      logger: log,
+    });
     log({ event: "corpus_bootstrap_complete", ...result });
+  } else if (command === "corpus-recover") {
+    const recovered = await new DrizzleCorpusStore(
+      connection.db,
+    ).recoverRunningImports({
+      chainId,
+      registryAddress,
+      reason: "Operator recovered interrupted corpus import",
+    });
+    log({
+      event: "corpus_import_runs_recovered",
+      recovered,
+      networkRequests: 0,
+    });
   } else if (command === "corpus-verify") {
     const limit = positiveIntegerFlag("limit", 5)!;
+    if (limit > 100)
+      throw new Error("Direct corpus verification is bounded to 100 per run");
     const corpusStore = new DrizzleCorpusStore(connection.db);
     const requeued = booleanFlag("retry-failed")
       ? await corpusStore.requeueFailedVerifications()
@@ -334,6 +421,72 @@ try {
       logger: log,
     });
     log({ event: "corpus_verification_complete", requeued, ...result });
+  } else if (command === "corpus-reclassify" || command === "corpus-enrich") {
+    const limit = positiveIntegerFlag("limit", 1_000)!;
+    if (limit > 10_000)
+      throw new Error("Persisted corpus reclassification is bounded to 10000");
+    const corpusStore = new DrizzleCorpusStore(connection.db);
+    const rows =
+      command === "corpus-enrich"
+        ? await corpusStore.sourceRecordsForEnrichment({
+            chainId,
+            registryAddress,
+            ruleVersion: CORPUS_RULE_VERSION,
+            limit,
+          })
+        : await corpusStore.sourceRecordsForReclassification({
+            chainId,
+            registryAddress,
+            limit,
+          });
+    let updated = 0;
+    let rejected = 0;
+    const parser = new Scan8004Provider({
+      fetch: () => {
+        throw new Error("Reclassification must not make network requests");
+      },
+    });
+    let databaseStatements = 0;
+    let databaseTransactions = 0;
+    let persistenceMs = 0;
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      const batch = [];
+      for (const [chunkIndex, row] of rows
+        .slice(offset, offset + 100)
+        .entries()) {
+        const index = offset + chunkIndex;
+        try {
+          const agent = parser.parseAgent(row.payload);
+          batch.push({
+            agent,
+            fetchedAt: new Date(),
+            derived: deriveScanAgent(agent),
+          });
+        } catch (error) {
+          rejected += 1;
+          await corpusStore.recordMalformed(row.payload, 0, index, error);
+        }
+      }
+      const result = await corpusStore.persistEnrichmentBatch(batch);
+      updated += result.persisted;
+      databaseStatements += result.statements;
+      databaseTransactions += result.transactionCount;
+      persistenceMs += result.durationMs;
+    }
+    log({
+      event:
+        command === "corpus-enrich"
+          ? "corpus_enrichment_complete"
+          : "corpus_reclassification_complete",
+      ruleVersion: CORPUS_RULE_VERSION,
+      source: "persisted-8004scan-records",
+      networkRequests: 0,
+      updated,
+      rejected,
+      databaseStatements,
+      databaseTransactions,
+      persistenceMs,
+    });
   } else if (command === "corpus-observe-endpoints") {
     const limit = positiveIntegerFlag("limit", 5)!;
     if (limit > 25)
@@ -365,6 +518,11 @@ try {
       event: "corpus_report",
       duplicateSignals,
       report: await new DrizzleCorpusAnalytics(connection.db).report(chainId),
+    });
+  } else if (command === "corpus-status") {
+    log({
+      event: "corpus_status",
+      status: await repository.corpusStatus(chainId),
     });
   } else if (command === "backfill" || command === "sync") {
     const scanner = new Erc8004EventScanner({

@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
+    "corpus:benchmark": "tsx src/corpus-benchmark.ts",
     "onboarding:report": "tsx src/phase05-report.ts"
   },
   "dependencies": {

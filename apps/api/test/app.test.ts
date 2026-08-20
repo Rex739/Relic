@@ -28,6 +28,35 @@ describe("Relic API", () => {
     });
   });
 
+  it("reports explicit corpus readiness and forwards the validated chain", async () => {
+    let chain = 0;
+    const statusApp = createApp({
+      list: () => Promise.resolve({ items: [], nextCursor: null }),
+      findById: () => Promise.resolve(null),
+      corpusStatus: (chainId) => {
+        chain = chainId;
+        return Promise.resolve({
+          chainId,
+          readyForFullIngestion: true,
+          fullIngestionComplete: false,
+          checkpoint: { operationalMode: "anonymous" },
+        });
+      },
+    });
+    const response = await statusApp.request(
+      "/internal/corpus-status?chainId=56",
+    );
+    expect(response.status).toBe(200);
+    expect(chain).toBe(56);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        readyForFullIngestion: true,
+        fullIngestionComplete: false,
+        checkpoint: { operationalMode: "anonymous" },
+      },
+    });
+  });
+
   it("returns a validated paginated agent response", async () => {
     const response = await app.request("/v1/agents?limit=10");
     expect(response.status).toBe(200);

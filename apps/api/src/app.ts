@@ -82,6 +82,25 @@ const dataQualityRoute = createRoute({
     ),
   },
 });
+const corpusStatusRoute = createRoute({
+  method: "get",
+  path: "/internal/corpus-status",
+  request: {
+    query: z.object({
+      chainId: z.coerce
+        .number()
+        .int()
+        .refine((value) => value === 56 || value === 97)
+        .default(56),
+    }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.record(z.string(), z.unknown()) }),
+      "Corpus ingestion and verification readiness",
+    ),
+  },
+});
 const listAgentServicesRoute = createRoute({
   method: "get",
   path: "/v1/agents/{id}/services",
@@ -332,6 +351,23 @@ export function createApp(
       repository.dataQuality === undefined
         ? {}
         : await repository.dataQuality();
+    return context.json({ data }, 200);
+  });
+
+  app.openapi(corpusStatusRoute, async (context) => {
+    const { chainId } = z
+      .object({
+        chainId: z.coerce
+          .number()
+          .int()
+          .refine((value) => value === 56 || value === 97)
+          .default(56),
+      })
+      .parse(context.req.query());
+    const data =
+      repository.corpusStatus === undefined
+        ? { chainId, readyForFullIngestion: false }
+        : await repository.corpusStatus(chainId);
     return context.json({ data }, 200);
   });
 

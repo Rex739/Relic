@@ -35,16 +35,36 @@ class MemoryStore implements BootstrapStore {
   checkpoint() {
     return Promise.resolve({ nextPage: this.nextPage, pageSize: 2 });
   }
+  repageCheckpoint(input: Parameters<BootstrapStore["repageCheckpoint"]>[0]) {
+    this.nextPage =
+      Math.floor(
+        ((input.previousNextPage - 1) * input.previousPageSize) /
+          input.nextPageSize,
+      ) + 1;
+    return Promise.resolve({
+      nextPage: this.nextPage,
+      pageSize: input.nextPageSize,
+    });
+  }
   startRun() {
     return Promise.resolve("01945b1e-7e80-7000-8000-000000000001");
+  }
+  persistDiscoveryPage(
+    input: Parameters<BootstrapStore["persistDiscoveryPage"]>[0],
+  ) {
+    input.records.forEach(({ agent }) => this.sourceIds.add(agent.id));
+    this.rejected += input.malformed.length;
+    return Promise.resolve({
+      persisted: input.records.length,
+      malformed: input.malformed.length,
+      statements: 4,
+      transactionCount: 1,
+      durationMs: 1,
+    });
   }
   persistAgent(input: Parameters<BootstrapStore["persistAgent"]>[0]) {
     this.sourceIds.add(input.agent.id);
     return Promise.resolve(input.agent.id);
-  }
-  recordMalformed() {
-    this.rejected += 1;
-    return Promise.resolve();
   }
   completePage(input: {
     page: number;
@@ -53,7 +73,11 @@ class MemoryStore implements BootstrapStore {
   }) {
     this.completedPages.push(input.page);
     if (input.advanceCheckpoint) this.nextPage = input.page + 1;
-    return Promise.resolve();
+    return Promise.resolve({
+      statements: 2,
+      transactionCount: 1,
+      durationMs: 1,
+    });
   }
   finishRun() {
     return Promise.resolve();
@@ -73,6 +97,7 @@ describe("resumable corpus bootstrap", () => {
       registryAddress: registry,
       pageSize: 2,
       maxPages: 2,
+      requestBudget: 2,
     });
     expect(result).toMatchObject({
       startPage: 3,
@@ -100,21 +125,54 @@ describe("resumable corpus bootstrap", () => {
         registryAddress: registry,
         pageSize: 2,
         maxPages: 1,
+        requestBudget: 1,
         startPage: 1,
       });
     expect(store.sourceIds).toEqual(new Set(["scan-1"]));
     expect(store.nextPage).toBe(3);
   });
 
-  it("refuses a page-size change during implicit resume", async () => {
-    const provider = new Scan8004Provider({ fetch: vi.fn<typeof fetch>() });
-    await expect(
-      bootstrapCorpus(provider, new MemoryStore(), {
+  it("changes page size with a safe overlap instead of creating a gap", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(5, [valid("5")], false));
+    const store = new MemoryStore();
+    const result = await bootstrapCorpus(
+      new Scan8004Provider({ fetch: fetchMock }),
+      store,
+      {
         chainId: 56,
         registryAddress: registry,
         pageSize: 1,
         maxPages: 1,
+        requestBudget: 1,
+      },
+    );
+    expect(result.startPage).toBe(5);
+    expect(store.nextPage).toBe(6);
+  });
+
+  it("fails closed before persistence when full mode does not observe Pro", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(3, [valid("3")], false));
+    const provider = new Scan8004Provider({
+      apiKey: "non-pro-fixture-key",
+      fetch: fetchMock,
+      requestBudget: 1,
+    });
+    const store = new MemoryStore();
+    await expect(
+      bootstrapCorpus(provider, store, {
+        chainId: 56,
+        registryAddress: registry,
+        pageSize: 2,
+        maxPages: 1,
+        requestBudget: 1,
+        requirePro: true,
       }),
-    ).rejects.toThrow("Resume page size must remain 2");
+    ).rejects.toThrow(/requires an API key observed at the 8004scan Pro tier/);
+    expect(store.sourceIds.size).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

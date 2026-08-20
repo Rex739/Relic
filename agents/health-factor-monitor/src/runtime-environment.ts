@@ -1,5 +1,3 @@
-import { getAddress } from "viem";
-
 export interface ReferenceRuntimeEnvironment {
   agentUrl: string;
   databaseUrl: string;
@@ -21,6 +19,16 @@ const positiveInteger = (value: string, name: string, maximum: number) => {
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum)
     throw new Error(`${name} must be an integer between 1 and ${maximum}`);
   return parsed;
+};
+
+const evmAddress = (
+  environment: NodeJS.ProcessEnv,
+  name: string,
+): `0x${string}` => {
+  const value = required(environment, name);
+  if (!/^0x[0-9a-fA-F]{40}$/u.test(value))
+    throw new Error(`${name} must be a 20-byte 0x-prefixed EVM address`);
+  return value as `0x${string}`;
 };
 
 export function parseReferenceRuntimeEnvironment(
@@ -60,7 +68,7 @@ export function parseReferenceRuntimeEnvironment(
     ),
     keystoreDirectory: required(environment, "WALLET_KEYSTORE_DIR"),
     port: positiveInteger(environment.PORT ?? "8003", "PORT", 65_535),
-    walletAddress: getAddress(required(environment, "WALLET_ADDRESS")),
+    walletAddress: evmAddress(environment, "WALLET_ADDRESS"),
     walletPassword: required(environment, "WALLET_PASSWORD"),
   };
 }

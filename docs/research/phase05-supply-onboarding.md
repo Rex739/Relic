@@ -104,10 +104,13 @@ Pooler database. The final report at `2026-08-18T10:24:17.665Z` returned:
 The one reference submission is `9e60fc3f-9102-41d8-933a-04c3428abf90` for
 ERC-8004 agent `1840`; its canonical Relic agent is
 `eef59aff-1922-41ce-8af5-ff02c9f31bb6`. Ownership was verified at
-`2026-08-18T09:54:02.521Z`. The public service
-`834ec638-cffd-4b7e-82a9-d729d259b7b9` is `COMMERCE_VERIFIED`, and candidate
+`2026-08-18T09:54:02.521Z`. The historical Quick Tunnel service
+`834ec638-cffd-4b7e-82a9-d729d259b7b9` retains its real
+`COMMERCE_VERIFIED` evidence but is unavailable. The durable Northflank
+service `9437a3ef-562b-416e-beee-4244d269354f` is available and
+`INVOCATION_VERIFIED`. Candidate
 `f762ba1e-11f0-4550-9d70-ac9e0604389b` and the submission are both
-`ACTIONABLE`. The second declared service is a deliberately retained local
+`ACTIONABLE`. The remaining declared service is a deliberately retained local
 loopback declaration; SSRF protection correctly marks it unavailable and it
 was not used for commerce.
 
@@ -166,9 +169,31 @@ read-only Venus BSC-testnet observation at block `125780618`, not a fixture. The
 controlled wallet had no entered collateral or borrowing, so Venus returned
 zero liquidity and zero shortfall; the empty position was reported factually.
 
-The public service check used an ephemeral Cloudflare Quick Tunnel. It was
-sufficient for this controlled activation but carries no uptime guarantee and
-is not a production-stable seller URL.
+The original public service check used an ephemeral Cloudflare Quick Tunnel.
+It was sufficient for this controlled activation but carried no uptime
+guarantee. On **2026-08-20**, the URI was replaced with the durable Northflank
+endpoint
+`https://p01--relic--b28z25yb24gx.code.run/erc8183` by sponsored BSC Testnet
+transaction
+`0xf022a0706f439ed8c86efd535d564e75261ed73086f345ef86e3e38d00d1462a`
+at block `126223200` (block hash
+`0xcfb3e8300c90bfa7fdefc60cc3548141726252c19df24bcafb3fe00b53f3ceab`).
+The effective gas price was zero.
+
+The registry read-back preserved the agent name, description, type,
+registration, image, and service name; only `services[0].endpoint` changed.
+All public health/status routes returned HTTP 200. Relic then refreshed the
+canonical ERC-8004 identity, materialized the new service as
+`9437a3ef-562b-416e-beee-4244d269354f`, inspected its payment terms, and
+verified a fresh signed zero-price negotiation using the seller's EIP-191
+signature. No job, payment, or additional blockchain transaction was created.
+
+The new service is `INVOCATION_VERIFIED` and available. The historical Quick
+Tunnel service retains the real job `542` commerce record but is unavailable;
+its commerce evidence was not copied onto the new service. Candidate
+`f762ba1e-11f0-4550-9d70-ac9e0604389b` is again `ACTIONABLE`, with the fresh
+endpoint verification and prior completed zero-cost commerce linked as
+explicit reconciliation evidence.
 
 ## Operational drift found during activation
 

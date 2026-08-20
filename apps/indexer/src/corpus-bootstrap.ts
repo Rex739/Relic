@@ -1,6 +1,8 @@
 import type {
   Scan8004Provider,
+  ScanAccessMode,
   ScanAgent,
+  ScanOperationalMode,
   ScanRateLimit,
 } from "@relic/blockchain";
 
@@ -23,12 +25,36 @@ export interface BootstrapStore {
     registryAddress: string,
     pageSize: number,
   ): Promise<BootstrapCheckpoint>;
+  repageCheckpoint(input: {
+    chainId: number;
+    registryAddress: string;
+    previousNextPage: number;
+    previousPageSize: number;
+    nextPageSize: number;
+  }): Promise<BootstrapCheckpoint>;
   startRun(input: {
     chainId: number;
     registryAddress: string;
     startPage: number;
     pageSize: number;
+    accessMode: ScanAccessMode;
+    requestBudget: number;
   }): Promise<string>;
+  persistDiscoveryPage(input: {
+    records: Array<{ agent: ScanAgent; raw: unknown; fetchedAt: Date }>;
+    malformed: Array<{
+      raw: unknown;
+      page: number;
+      index: number;
+      error: unknown;
+    }>;
+  }): Promise<{
+    persisted: number;
+    malformed: number;
+    statements: number;
+    transactionCount: number;
+    durationMs: number;
+  }>;
   persistAgent(input: {
     agent: ScanAgent;
     raw: unknown;
@@ -46,12 +72,6 @@ export interface BootstrapStore {
       priority: number;
     };
   }): Promise<string>;
-  recordMalformed(
-    raw: unknown,
-    page: number,
-    index: number,
-    error: unknown,
-  ): Promise<void>;
   completePage(input: {
     runId: string;
     chainId: number;
@@ -61,14 +81,25 @@ export interface BootstrapStore {
     total: number;
     counters: BootstrapCounters;
     rateLimit: ScanRateLimit;
+    accessMode: ScanAccessMode;
+    operationalMode: ScanOperationalMode;
+    requestCount: number;
     advanceCheckpoint: boolean;
-  }): Promise<void>;
+  }): Promise<{
+    statements: number;
+    transactionCount: number;
+    durationMs: number;
+  }>;
   finishRun(input: {
     runId: string;
     chainId: number;
     registryAddress: string;
     status: "succeeded" | "partial" | "failed";
     counters: BootstrapCounters;
+    accessMode: ScanAccessMode;
+    operationalMode: ScanOperationalMode;
+    requestCount: number;
+    rateLimit: ScanRateLimit;
     error?: unknown;
   }): Promise<void>;
 }
@@ -86,6 +117,21 @@ export interface BootstrapResult extends BootstrapCounters {
   endPage: number | null;
   totalReported: number | null;
   complete: boolean;
+  accessMode: ScanAccessMode;
+  operationalMode: ScanOperationalMode;
+  requestCount: number;
+  timings: BootstrapTimings;
+}
+
+export interface BootstrapTimings {
+  fetchMs: number;
+  jsonParseMs: number;
+  responseValidationMs: number;
+  agentNormalizationMs: number;
+  discoveryPersistenceMs: number;
+  checkpointMs: number;
+  databaseStatements: number;
+  databaseTransactions: number;
 }
 
 export function verificationPriority(
@@ -129,6 +175,8 @@ export async function bootstrapCorpus(
     maxPages: number;
     startPage?: number;
     concurrency?: number;
+    requestBudget: number;
+    requirePro?: boolean;
     logger?: (entry: Record<string, unknown>) => void;
   },
 ): Promise<BootstrapResult> {
@@ -137,30 +185,49 @@ export async function bootstrapCorpus(
     options.registryAddress,
     options.pageSize,
   );
-  const startPage = options.startPage ?? checkpoint.nextPage;
+  let effectiveCheckpoint = checkpoint;
   if (
     options.startPage === undefined &&
     checkpoint.nextPage > 1 &&
     checkpoint.pageSize !== undefined &&
     checkpoint.pageSize !== options.pageSize
   )
+    effectiveCheckpoint = await store.repageCheckpoint({
+      chainId: options.chainId,
+      registryAddress: options.registryAddress,
+      previousNextPage: checkpoint.nextPage,
+      previousPageSize: checkpoint.pageSize,
+      nextPageSize: options.pageSize,
+    });
+  const startPage = options.startPage ?? effectiveCheckpoint.nextPage;
+  const concurrency = options.concurrency ?? 1;
+  if (concurrency !== 1)
     throw new Error(
-      `Resume page size must remain ${checkpoint.pageSize}; use --start-page only for an explicit replay`,
+      "Discovery ingest uses one page transaction; --concurrency must be 1",
     );
-  const concurrency = options.concurrency ?? 3;
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8)
-    throw new Error("Corpus bootstrap concurrency must be between 1 and 8");
   const runId = await store.startRun({
     chainId: options.chainId,
     registryAddress: options.registryAddress,
     startPage,
     pageSize: options.pageSize,
+    accessMode: provider.accessMode,
+    requestBudget: options.requestBudget,
   });
   const counters: BootstrapCounters = {
     pages: 0,
     seen: 0,
     imported: 0,
     rejected: 0,
+  };
+  const timings: BootstrapTimings = {
+    fetchMs: 0,
+    jsonParseMs: 0,
+    responseValidationMs: 0,
+    agentNormalizationMs: 0,
+    discoveryPersistenceMs: 0,
+    checkpointMs: 0,
+    databaseStatements: 0,
+    databaseTransactions: 0,
   };
   let pageNumber = startPage;
   let endPage: number | null = null;
@@ -175,43 +242,61 @@ export async function bootstrapCorpus(
         sortBy: "token_id",
         sortOrder: "asc",
       });
+      if (
+        options.requirePro === true &&
+        provider.operationalMode !== "pro_authenticated"
+      )
+        throw new Error(
+          "Full-corpus ingestion requires an API key observed at the 8004scan Pro tier",
+        );
       totalReported = page.total;
       const fetchedAt = new Date();
-      for (let offset = 0; offset < page.agents.length; offset += concurrency) {
-        await Promise.all(
-          page.agents
-            .slice(offset, offset + concurrency)
-            .map(async (raw, chunkIndex) => {
-              const index = offset + chunkIndex;
-              counters.seen += 1;
-              try {
-                const agent = provider.parseAgent(raw);
-                if (
-                  agent.chain_id !== options.chainId ||
-                  agent.contract_address.toLowerCase() !==
-                    options.registryAddress.toLowerCase()
-                )
-                  throw new Error(
-                    "Record does not match the configured BSC registry",
-                  );
-                const derived = deriveScanAgent(agent);
-                await store.persistAgent({
-                  agent,
-                  raw,
-                  fetchedAt,
-                  derived,
-                });
-                counters.imported += 1;
-              } catch (error) {
-                counters.rejected += 1;
-                await store.recordMalformed(raw, pageNumber, index, error);
-              }
-            }),
-        );
-      }
+      timings.fetchMs += page.timings.fetchMs;
+      timings.jsonParseMs += page.timings.jsonParseMs;
+      timings.responseValidationMs += page.timings.responseValidationMs;
+      const normalizationStartedAt = performance.now();
+      const records: Array<{
+        agent: ScanAgent;
+        raw: unknown;
+        fetchedAt: Date;
+      }> = [];
+      const malformed: Array<{
+        raw: unknown;
+        page: number;
+        index: number;
+        error: unknown;
+      }> = [];
+      page.agents.forEach((raw, index) => {
+        counters.seen += 1;
+        try {
+          const agent = provider.parseAgent(raw);
+          if (
+            agent.chain_id !== options.chainId ||
+            agent.contract_address.toLowerCase() !==
+              options.registryAddress.toLowerCase()
+          )
+            throw new Error(
+              "Record does not match the configured BSC registry",
+            );
+          records.push({ agent, raw, fetchedAt });
+        } catch (error) {
+          malformed.push({ raw, page: pageNumber, index, error });
+        }
+      });
+      timings.agentNormalizationMs +=
+        performance.now() - normalizationStartedAt;
+      const persisted = await store.persistDiscoveryPage({
+        records,
+        malformed,
+      });
+      counters.imported += persisted.persisted;
+      counters.rejected += persisted.malformed;
+      timings.discoveryPersistenceMs += persisted.durationMs;
+      timings.databaseStatements += persisted.statements;
+      timings.databaseTransactions += persisted.transactionCount;
       counters.pages += 1;
       endPage = pageNumber;
-      await store.completePage({
+      const checkpoint = await store.completePage({
         runId,
         chainId: options.chainId,
         registryAddress: options.registryAddress,
@@ -220,8 +305,14 @@ export async function bootstrapCorpus(
         total: page.total,
         counters,
         rateLimit: page.rateLimit,
+        accessMode: provider.accessMode,
+        operationalMode: provider.operationalMode,
+        requestCount: provider.requestCount,
         advanceCheckpoint: options.startPage === undefined,
       });
+      timings.checkpointMs += checkpoint.durationMs;
+      timings.databaseStatements += checkpoint.statements;
+      timings.databaseTransactions += checkpoint.transactionCount;
       options.logger?.({
         event: "corpus_page_imported",
         runId,
@@ -231,6 +322,7 @@ export async function bootstrapCorpus(
         hasMore: page.hasMore,
         rateLimit: page.rateLimit,
         counters,
+        timings,
       });
       if (!page.hasMore) {
         complete = true;
@@ -244,6 +336,10 @@ export async function bootstrapCorpus(
       registryAddress: options.registryAddress,
       status: complete ? "succeeded" : "partial",
       counters,
+      accessMode: provider.accessMode,
+      operationalMode: provider.operationalMode,
+      requestCount: provider.requestCount,
+      rateLimit: provider.lastRateLimit,
     });
     return {
       runId,
@@ -252,6 +348,10 @@ export async function bootstrapCorpus(
       endPage,
       totalReported,
       complete,
+      accessMode: provider.accessMode,
+      operationalMode: provider.operationalMode,
+      requestCount: provider.requestCount,
+      timings,
     };
   } catch (error) {
     await store.finishRun({
@@ -260,6 +360,10 @@ export async function bootstrapCorpus(
       registryAddress: options.registryAddress,
       status: "failed",
       counters,
+      accessMode: provider.accessMode,
+      operationalMode: provider.operationalMode,
+      requestCount: provider.requestCount,
+      rateLimit: provider.lastRateLimit,
       error,
     });
     throw error;

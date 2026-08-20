@@ -16,3 +16,4 @@ agents/**/.agent-data/
 *.tsbuildinfo
 .DS_Store
 .studio/
+.deployment-secrets/

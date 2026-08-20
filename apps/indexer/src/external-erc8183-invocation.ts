@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
+import { verifyQuoteSignature } from "@bnbagent/sdk/erc8183";
 import { createDatabase, DrizzleSupplyStore } from "@relic/database";
+import { createPublicClient, getAddress, http } from "viem";
 import { z } from "zod";
 
 import { safeHttpRequest } from "./endpoint-observer.js";
@@ -10,7 +12,7 @@ const arg = (name: string) =>
     .find((value) => value.startsWith(`--${name}=`))
     ?.slice(name.length + 3);
 
-const statusSchema = z.object({
+const legacyStatusSchema = z.object({
   provider: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
   service_price: z.string().regex(/^\d+$/),
   token_symbol: z.string().min(1),
@@ -18,7 +20,17 @@ const statusSchema = z.object({
   chain_id: z.number().int().positive(),
 });
 
-const quoteSchema = z.object({
+const referenceStatusSchema = z.object({
+  agent_address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  commerce_address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  service_price: z.string().regex(/^\d+$/),
+  currency: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  chain_id: z.number().int().positive(),
+  capability: z.string().min(1),
+  read_only: z.literal(true),
+});
+
+const legacyQuoteSchema = z.object({
   provider: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
   price: z.string().regex(/^\d+$/),
   currency: z.string().min(1),
@@ -27,16 +39,59 @@ const quoteSchema = z.object({
   quoted_at: z.iso.datetime({ offset: true }),
 });
 
+const signedQuoteSchema = z
+  .object({
+    request: z.record(z.string(), z.unknown()),
+    response: z
+      .object({
+        accepted: z.literal(true),
+        terms: z
+          .object({
+            price: z.string().regex(/^\d+$/),
+            currency: z.string().min(1),
+          })
+          .passthrough(),
+        estimated_completion_seconds: z.number().int().nonnegative(),
+        negotiated_at: z.number().int().positive(),
+      })
+      .passthrough(),
+    negotiation_hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+    provider_sig: z.string().regex(/^0x[0-9a-fA-F]+$/),
+    chain_id: z.number().int().positive(),
+    verifying_contract: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  })
+  .passthrough();
+
 export function verifyErc8183Quote(statusValue: unknown, quoteValue: unknown) {
-  const status = statusSchema.parse(statusValue);
-  const quote = quoteSchema.parse(quoteValue);
-  if (status.provider.toLowerCase() !== quote.provider.toLowerCase())
-    throw new Error("ERC-8183 quote provider does not match status provider");
+  const status = z
+    .union([legacyStatusSchema, referenceStatusSchema])
+    .parse(statusValue);
+  const signed = signedQuoteSchema.safeParse(quoteValue);
+  const quote = signed.success
+    ? {
+        provider: "provider" in status ? status.provider : status.agent_address,
+        price: signed.data.response.terms.price,
+        currency: signed.data.response.terms.currency,
+        estimated_completion_seconds:
+          signed.data.response.estimated_completion_seconds,
+        quoted_at: new Date(
+          signed.data.response.negotiated_at * 1_000,
+        ).toISOString(),
+      }
+    : legacyQuoteSchema.parse(quoteValue);
+  const provider =
+    "provider" in status ? status.provider : status.agent_address;
+  const currency =
+    "token_symbol" in status ? status.token_symbol : status.currency;
+  if (provider.toLowerCase() !== quote.provider.toLowerCase())
+    throw new Error("ERC-8183 quote provider does not match status agent");
   if (status.service_price !== quote.price)
     throw new Error("ERC-8183 quote price does not match advertised price");
-  if (status.token_symbol !== quote.currency)
+  if (currency.toLowerCase() !== quote.currency.toLowerCase())
     throw new Error("ERC-8183 quote currency does not match advertised token");
-  return { status, quote };
+  if (signed.success && signed.data.chain_id !== status.chain_id)
+    throw new Error("ERC-8183 quote chain does not match status chain");
+  return { status, quote, signed: signed.success ? signed.data : null };
 }
 
 async function main() {
@@ -59,7 +114,10 @@ async function main() {
       throw new Error("Service must have a currently available endpoint");
     if (selected.candidate.status !== "SERVICE_OBSERVED")
       throw new Error("Candidate must be in SERVICE_OBSERVED state");
-    if (selected.candidate.categorySlug !== "yield-optimisation")
+    if (
+      selected.candidate.categorySlug !== "yield-optimisation" &&
+      selected.candidate.categorySlug !== "health-factor-monitoring"
+    )
       throw new Error("No bounded ERC-8183 template exists for this category");
 
     const base = new URL(selected.service.endpoint);
@@ -81,14 +139,19 @@ async function main() {
     if (!statusResponse.ok || statusResponse.status !== 200)
       throw new Error("ERC-8183 status endpoint is no longer available");
 
+    const healthFactor =
+      selected.candidate.categorySlug === "health-factor-monitoring";
     const request = {
-      task_description:
-        "Produce a read-only risk-adjusted BSC yield allocation; do not move capital.",
+      task_description: healthFactor
+        ? "Verify the Relic Health Factor Monitor seller endpoint with a read-only BSC Testnet health-factor request; do not create a job, move assets, request a buyer signature, or transact."
+        : "Produce a read-only risk-adjusted BSC yield allocation; do not move capital.",
       terms: {
-        deliverables:
-          "JSON ranked protocol allocations with observed APY/APR, constraints, and source timestamps",
-        quality_standards:
-          "Use current BSC protocol observations, explain risk adjustments, and do not execute transactions",
+        deliverables: healthFactor
+          ? "A zero-price negotiation response for read-only health-factor monitoring"
+          : "JSON ranked protocol allocations with observed APY/APR, constraints, and source timestamps",
+        quality_standards: healthFactor
+          ? "BSC Testnet only; no blockchain writes or payment"
+          : "Use current BSC protocol observations, explain risk adjustments, and do not execute transactions",
       },
     };
     const quoteResponse = await safeHttpRequest(negotiateUrl.toString(), {
@@ -111,6 +174,37 @@ async function main() {
       throw new Error(
         "ERC-8183 status chain does not match canonical identity",
       );
+    const provider = getAddress(verified.quote.provider);
+    if (provider !== getAddress(selected.identity.ownerAddress))
+      throw new Error("ERC-8183 status agent does not match identity owner");
+    let signatureMethod: "eip191" | "erc1271" | null = null;
+    if (verified.signed !== null) {
+      const rpcUrl =
+        verified.status.chain_id === 97
+          ? process.env.BSC_TESTNET_RPC_URL
+          : process.env.BSC_MAINNET_RPC_URL;
+      if (!rpcUrl)
+        throw new Error("RPC URL is required for quote verification");
+      if (
+        "commerce_address" in verified.status &&
+        getAddress(verified.signed.verifying_contract) !==
+          getAddress(verified.status.commerce_address)
+      )
+        throw new Error("ERC-8183 quote is bound to an unexpected contract");
+      const verdict = await verifyQuoteSignature({
+        envelope: verified.signed,
+        provider,
+        publicClient: createPublicClient({ transport: http(rpcUrl) }),
+        expectedVerifyingContract: getAddress(
+          verified.signed.verifying_contract,
+        ),
+      });
+      if (!verdict.valid)
+        throw new Error(
+          `ERC-8183 provider signature is invalid: ${verdict.reason}`,
+        );
+      signatureMethod = verdict.method;
+    }
 
     const evidence = {
       dataKind: "real-external-invocation",
@@ -120,13 +214,21 @@ async function main() {
       serviceId: selected.service.id,
       externalAgentId: selected.identity.externalAgentId,
       chainId: verified.status.chain_id,
-      network: verified.status.network,
+      network:
+        "network" in verified.status
+          ? verified.status.network
+          : verified.status.chain_id === 97
+            ? "bsc-testnet"
+            : "bsc-mainnet",
       provider: verified.quote.provider,
       accepted: true,
       price: verified.quote.price,
       currency: verified.quote.currency,
       quotedAt: verified.quote.quoted_at,
       estimatedCompletionSeconds: verified.quote.estimated_completion_seconds,
+      negotiationHash: verified.signed?.negotiation_hash ?? null,
+      providerSignatureVerified: signatureMethod !== null,
+      providerSignatureMethod: signatureMethod,
       responseSha256: createHash("sha256")
         .update(quoteResponse.body)
         .digest("hex"),

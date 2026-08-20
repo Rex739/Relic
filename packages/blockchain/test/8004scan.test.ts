@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { Scan8004Provider } from "../src/8004scan.js";
+import {
+  Scan8004Provider,
+  ScanRateLimitError,
+  ScanRequestBudgetError,
+} from "../src/8004scan.js";
 
 const agent = {
   id: "scan-1",
@@ -90,6 +94,7 @@ describe("8004scan paginated provider", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       "x-api-key": "fixture-key",
     });
+    expect(provider.accessMode).toBe("authenticated");
     const request = fetchMock.mock.calls[0]?.[0];
     expect(typeof request).toBe("string");
     if (typeof request !== "string") throw new Error("Expected a URL string");
@@ -118,5 +123,66 @@ describe("8004scan paginated provider", () => {
     await provider.listAgents({ chainId: 56, page: 1, limit: 1 });
     await provider.listAgents({ chainId: 56, page: 2, limit: 1 });
     expect(sleep).toHaveBeenCalledWith(1_000);
+  });
+
+  it("identifies an observed Pro key without exposing the credential", async () => {
+    const provider = new Scan8004Provider({
+      apiKey: "fixture-pro-key",
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(
+        pageResponse({
+          "x-ratelimit-limit": "500",
+          "x-ratelimit-remaining": "499",
+        }),
+      ),
+    });
+    await provider.listAgents({ chainId: 56, page: 1, limit: 1 });
+    expect(provider.operationalMode).toBe("pro_authenticated");
+  });
+
+  it("stops immediately on rate limiting and enters degraded mode", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: { code: "RATE_LIMIT_EXCEEDED" },
+        }),
+        {
+          status: 429,
+          headers: {
+            "x-ratelimit-limit": "10",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": "2026-08-20T19:00:00.000Z",
+          },
+        },
+      ),
+    );
+    const provider = new Scan8004Provider({ fetch: fetchMock, maxRetries: 3 });
+    await expect(
+      provider.listAgents({ chainId: 56, page: 1, limit: 1 }),
+    ).rejects.toBeInstanceOf(ScanRateLimitError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(provider.operationalMode).toBe("rate_limited_degraded");
+  });
+
+  it("enforces a local request budget before another API call", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(pageResponse());
+    const provider = new Scan8004Provider({
+      fetch: fetchMock,
+      requestBudget: 1,
+    });
+    await provider.listAgents({ chainId: 56, page: 1, limit: 1 });
+    await expect(
+      provider.listAgents({ chainId: 56, page: 2, limit: 1 }),
+    ).rejects.toBeInstanceOf(ScanRequestBudgetError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("enforces the official maximum page size without making a request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const provider = new Scan8004Provider({ fetch: fetchMock });
+    await expect(
+      provider.listAgents({ chainId: 56, page: 1, limit: 101 }),
+    ).rejects.toThrow("page size must be between 1 and 100");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
