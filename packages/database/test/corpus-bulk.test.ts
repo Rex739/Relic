@@ -30,7 +30,8 @@ beforeEach(async () => {
     .filter(
       (name) =>
         /^\d{4}_.+\.sql$/.test(name) &&
-        !name.startsWith("0008_secure_public_schema"),
+        !name.startsWith("0008_secure_public_schema") &&
+        !name.startsWith("0011_lean_nebula"),
     )
     .sort();
   for (const name of names)

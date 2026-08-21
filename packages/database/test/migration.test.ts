@@ -284,6 +284,7 @@ describe("Marketplace Kernel migration", () => {
       "0008_secure_public_schema.sql",
       "0009_phase07_corpus_scale.sql",
       "0010_rapid_barracuda.sql",
+      "0011_lean_nebula.sql",
     ])
       await database.exec(
         await readFile(
@@ -311,8 +312,8 @@ describe("Marketplace Kernel migration", () => {
         has_table_privilege('authenticated', 'public.reference_agent_artifacts', 'insert') authenticated_can_write_artifacts
     `);
     expect(state.rows[0]).toEqual({
-      table_count: 43,
-      rls_enabled_count: 43,
+      table_count: 47,
+      rls_enabled_count: 47,
       policy_count: 0,
       anon_can_read_artifacts: false,
       authenticated_can_write_artifacts: false,

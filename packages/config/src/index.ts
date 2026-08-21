@@ -38,6 +38,8 @@ const serverEnvironmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   NEXT_PUBLIC_API_URL: optionalUrl,
+  MANDATE_API_SECRET: z.string().min(32).optional(),
+  RELIC_DEVELOPMENT_PRINCIPAL_ID: z.uuid().optional(),
 });
 
 export type ServerEnvironment = z.infer<typeof serverEnvironmentSchema>;

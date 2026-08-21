@@ -1,8 +1,15 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { createHash, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 
 import {
   buildOwnershipMessage,
+  createMandateRequestSchema,
+  MandateValidationError,
   type AgentReadRepository,
   type OnboardingRepository,
 } from "@relic/domain";
@@ -14,12 +21,19 @@ import {
   healthResponseSchema,
   initialCategoryResponse,
   paginationQuerySchema,
+  publicCategoryCountsSchema,
+  publicMarketplaceDetailSchema,
+  publicMarketplaceListSchema,
+  publicMarketplaceQuerySchema,
+  publicMarketplaceAgentSchema,
   serviceDetailResponseSchema,
   serviceFilterQuerySchema,
   serviceListResponseSchema,
 } from "@relic/validation";
 import { z } from "zod";
 import { getAddress, isAddress, keccak256, recoverMessageAddress } from "viem";
+
+import type { MandateApplicationService } from "./mandates.js";
 
 const json = (schema: z.ZodType, description: string) => ({
   content: { "application/json": { schema } },
@@ -123,6 +137,182 @@ const getServiceRoute = createRoute({
     400: json(errorResponseSchema, "Invalid request"),
     404: json(errorResponseSchema, "Service not found"),
   },
+});
+const publicMarketplaceRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/agents",
+  request: { query: publicMarketplaceQuerySchema },
+  responses: {
+    200: json(
+      publicMarketplaceListSchema,
+      "Verified public marketplace agents",
+    ),
+    400: json(errorResponseSchema, "Invalid marketplace filters"),
+  },
+});
+const publicMarketplaceAgentRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/agents/{id}",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    200: json(
+      publicMarketplaceDetailSchema,
+      "Verified agent intelligence profile",
+    ),
+    404: json(errorResponseSchema, "Agent is not publicly eligible"),
+  },
+});
+const publicMarketplaceCategoriesRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/categories",
+  responses: {
+    200: json(
+      publicCategoryCountsSchema,
+      "Verified marketplace category counts",
+    ),
+  },
+});
+const publicMarketplaceCompareRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/compare",
+  request: {
+    query: z.object({
+      ids: z
+        .string()
+        .transform((value) => [...new Set(value.split(",").filter(Boolean))])
+        .pipe(z.array(z.uuid()).min(1).max(4)),
+    }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.array(publicMarketplaceAgentSchema) }),
+      "Verified agent comparison",
+    ),
+    400: json(errorResponseSchema, "Invalid comparison"),
+  },
+});
+const internalMarketplaceStatusRoute = createRoute({
+  method: "get",
+  path: "/internal/marketplace-status",
+  responses: {
+    200: json(
+      z.object({ data: z.record(z.string(), z.unknown()) }),
+      "Internal corpus and public supply funnel",
+    ),
+  },
+});
+const principalHeaders = z.object({
+  "x-relic-principal-id": z.uuid(),
+  "x-relic-mandate-timestamp": z.string().regex(/^\d+$/),
+  "x-relic-mandate-signature": z.string().regex(/^[0-9a-f]{64}$/),
+});
+const mandateParams = z.object({ id: z.uuid() });
+const mandateDataResponse = z.object({ data: z.any() });
+const mandateResponses = {
+  200: json(mandateDataResponse, "Mandate data"),
+  400: json(errorResponseSchema, "Invalid mandate request"),
+  404: json(errorResponseSchema, "Mandate or agent not found"),
+  409: json(errorResponseSchema, "Mandate safety check failed"),
+  503: json(errorResponseSchema, "Mandate service unavailable"),
+};
+const activationProfileRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/agents/{id}/activation-profile",
+  request: { params: mandateParams },
+  responses: mandateResponses,
+});
+const createMandateRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates",
+  request: {
+    headers: principalHeaders,
+    body: {
+      content: { "application/json": { schema: createMandateRequestSchema } },
+    },
+  },
+  responses: {
+    ...mandateResponses,
+    201: json(mandateDataResponse, "Mandate draft created"),
+  },
+});
+const getMandateRoute = createRoute({
+  method: "get",
+  path: "/v1/mandates/{id}",
+  request: { params: mandateParams, headers: principalHeaders },
+  responses: mandateResponses,
+});
+const myAgentsRoute = createRoute({
+  method: "get",
+  path: "/v1/my-agents",
+  request: { headers: principalHeaders },
+  responses: mandateResponses,
+});
+const editMandateRoute = createRoute({
+  method: "patch",
+  path: "/v1/mandates/{id}",
+  request: {
+    params: mandateParams,
+    headers: principalHeaders,
+    body: {
+      content: { "application/json": { schema: createMandateRequestSchema } },
+    },
+  },
+  responses: mandateResponses,
+});
+const mandateTransitionRoute = (action: string) =>
+  createRoute({
+    method: "post",
+    path: `/v1/mandates/{id}/${action}`,
+    request: {
+      params: mandateParams,
+      headers: principalHeaders,
+      ...(action === "activate"
+        ? {
+            body: {
+              content: {
+                "application/json": {
+                  schema: z.object({ explicitlyApproved: z.literal(true) }),
+                },
+              },
+            },
+          }
+        : {}),
+    },
+    responses: mandateResponses,
+  });
+const reviewMandateRoute = mandateTransitionRoute("review");
+const activateMandateRoute = mandateTransitionRoute("activate");
+const pauseMandateRoute = mandateTransitionRoute("pause");
+const resumeMandateRoute = mandateTransitionRoute("resume");
+const revokeMandateRoute = mandateTransitionRoute("revoke");
+const executionPreflightRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/execution-preflight",
+  request: {
+    params: mandateParams,
+    headers: principalHeaders,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              capability: z.string().min(1),
+              asset: z.string().min(1).optional(),
+              amount: z
+                .string()
+                .regex(/^\d+(?:\.\d+)?$/)
+                .optional(),
+              aggregateUsed: z
+                .string()
+                .regex(/^\d+(?:\.\d+)?$/)
+                .optional(),
+            })
+            .strict(),
+        },
+      },
+    },
+  },
+  responses: mandateResponses,
 });
 
 const submissionSchema = z.object({
@@ -241,6 +431,8 @@ const verifyOwnershipRoute = createRoute({
 export function createApp(
   repository: AgentReadRepository,
   onboarding?: OnboardingRepository,
+  mandateService?: MandateApplicationService,
+  options: { mandateApiSecret?: string } = {},
 ) {
   const app = new OpenAPIHono({
     defaultHook: (result, context) => {
@@ -263,6 +455,13 @@ export function createApp(
   });
 
   app.onError((error, context) => {
+    if (error instanceof MandateValidationError) {
+      const status = error.code === "mandate_not_found" ? 404 : 409;
+      return context.json(
+        { error: { code: error.code, message: error.message } },
+        status,
+      );
+    }
     console.error(error);
     return context.json(
       {
@@ -410,6 +609,247 @@ export function createApp(
       );
     return context.json(
       serviceDetailResponseSchema.parse({ data: service }),
+      200,
+    );
+  });
+
+  app.openapi(publicMarketplaceRoute, async (context) => {
+    const query = publicMarketplaceQuerySchema.parse(context.req.query());
+    const result =
+      repository.listPublicMarketplace === undefined
+        ? {
+            items: [],
+            page: query.page,
+            limit: query.limit,
+            total: 0,
+            totalPages: 0,
+          }
+        : await repository.listPublicMarketplace(query);
+    return context.json(
+      publicMarketplaceListSchema.parse({
+        data: result.items,
+        pagination: {
+          page: result.page,
+          limit: result.limit,
+          total: result.total,
+          totalPages: result.totalPages,
+        },
+      }),
+      200,
+    );
+  });
+
+  app.openapi(publicMarketplaceAgentRoute, async (context) => {
+    const id = z.uuid().parse(context.req.param("id"));
+    const agent =
+      repository.findPublicMarketplaceAgent === undefined
+        ? null
+        : await repository.findPublicMarketplaceAgent(id);
+    if (agent === null)
+      return context.json(
+        {
+          error: {
+            code: "marketplace_agent_not_found",
+            message:
+              "Agent is not currently eligible for the public marketplace",
+          },
+        },
+        404,
+      );
+    return context.json(publicMarketplaceDetailSchema.parse(agent), 200);
+  });
+
+  app.openapi(publicMarketplaceCategoriesRoute, async (context) => {
+    const data =
+      repository.listPublicCategories === undefined
+        ? []
+        : await repository.listPublicCategories();
+    return context.json(publicCategoryCountsSchema.parse({ data }), 200);
+  });
+
+  app.openapi(publicMarketplaceCompareRoute, async (context) => {
+    const { ids } = publicMarketplaceCompareRoute.request.query.parse(
+      context.req.query(),
+    );
+    const data =
+      repository.comparePublicMarketplaceAgents === undefined
+        ? []
+        : await repository.comparePublicMarketplaceAgents(ids);
+    return context.json(
+      { data: z.array(publicMarketplaceAgentSchema).parse(data) },
+      200,
+    );
+  });
+
+  app.openapi(internalMarketplaceStatusRoute, async (context) => {
+    const data =
+      repository.internalMarketplaceStatus === undefined
+        ? {}
+        : await repository.internalMarketplaceStatus();
+    return context.json({ data }, 200);
+  });
+
+  const requireMandates = () => {
+    if (mandateService === undefined)
+      throw new MandateValidationError(
+        "mandates_unavailable",
+        "Mandate activation is unavailable.",
+      );
+    return mandateService;
+  };
+  const principal = (context: {
+    req: {
+      header(name: string): string | undefined;
+      method: string;
+      path: string;
+    };
+  }) => {
+    const principalId = z
+      .uuid()
+      .parse(context.req.header("x-relic-principal-id"));
+    const timestamp = z.coerce
+      .number()
+      .int()
+      .parse(context.req.header("x-relic-mandate-timestamp"));
+    const signature = z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .parse(context.req.header("x-relic-mandate-signature"));
+    if (options.mandateApiSecret === undefined)
+      throw new MandateValidationError(
+        "mandate_auth_unavailable",
+        "Mandate authorization is unavailable.",
+      );
+    if (Math.abs(Date.now() - timestamp) > 60_000)
+      throw new MandateValidationError(
+        "mandate_auth_expired",
+        "Mandate authorization request expired.",
+      );
+    const expected = createHmac("sha256", options.mandateApiSecret)
+      .update(
+        `${timestamp}:${context.req.method.toUpperCase()}:${context.req.path}:${principalId}`,
+      )
+      .digest("hex");
+    if (
+      !timingSafeEqual(
+        Buffer.from(signature, "hex"),
+        Buffer.from(expected, "hex"),
+      )
+    )
+      throw new MandateValidationError(
+        "mandate_auth_invalid",
+        "Mandate authorization signature is invalid.",
+      );
+    return principalId;
+  };
+
+  app.openapi(activationProfileRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireMandates().activationProfile(id) },
+      200,
+    );
+  });
+
+  app.openapi(createMandateRoute, async (context) => {
+    const body = createMandateRequestSchema.parse(await context.req.json());
+    const data = await requireMandates().create(principal(context), body);
+    return context.json({ data }, 201);
+  });
+
+  app.openapi(getMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireMandates().get(principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(myAgentsRoute, async (context) =>
+    context.json(
+      { data: await requireMandates().list(principal(context)) },
+      200,
+    ),
+  );
+
+  app.openapi(editMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const body = createMandateRequestSchema.parse(await context.req.json());
+    return context.json(
+      { data: await requireMandates().edit(principal(context), id, body) },
+      200,
+    );
+  });
+
+  app.openapi(reviewMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireMandates().review(principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(activateMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const body = z
+      .object({ explicitlyApproved: z.literal(true) })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireMandates().activate(
+          principal(context),
+          id,
+          body.explicitlyApproved,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(pauseMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireMandates().pause(principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(resumeMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireMandates().resume(principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(revokeMandateRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireMandates().revoke(principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(executionPreflightRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const body = executionPreflightRoute.request.body.content[
+      "application/json"
+    ].schema.parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireMandates().executionPreflight(
+          principal(context),
+          id,
+          {
+            capability: body.capability,
+            ...(body.asset === undefined ? {} : { asset: body.asset }),
+            ...(body.amount === undefined ? {} : { amount: body.amount }),
+            ...(body.aggregateUsed === undefined
+              ? {}
+              : { aggregateUsed: body.aggregateUsed }),
+          },
+        ),
+      },
       200,
     );
   });

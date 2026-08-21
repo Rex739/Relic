@@ -4,6 +4,10 @@ import type {
   AgentListQuery,
   AgentListResult,
   AgentReadRepository,
+  PublicMarketplaceAgent,
+  PublicMarketplaceAgentDetail,
+  PublicMarketplaceQuery,
+  PublicMarketplaceResult,
   ServiceListQuery,
 } from "@relic/domain";
 import { and, asc, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
@@ -22,14 +26,532 @@ import {
   taxonomyTerms,
   indexerCheckpoints,
   metadataHistory,
+  marketplaceOutcomes,
   marketplaceServices,
   reconciliationRecords,
   serviceDeclarations,
   verificationQueue,
 } from "./schema.js";
 
+interface PublicMarketplaceRow extends Record<string, unknown> {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tier: "Working" | "Actionable";
+  chainId: number;
+  registryAddress: string;
+  externalAgentId: string;
+  supplyType: "third_party" | "partner" | "relic_reference";
+  capabilities: string[];
+  protocols: string[];
+  interfaces: string[];
+  pricingKnown: boolean;
+  executionEvidenceCount: number;
+  feedbackCount: number;
+  lastVerifiedAt: Date | string;
+  updatedAt: Date | string;
+  total: number;
+}
+
+function executedRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "rows" in result &&
+    Array.isArray(result.rows)
+  )
+    return result.rows as T[];
+  throw new TypeError("Database execution did not return rows");
+}
+
 export class DrizzleAgentRepository implements AgentReadRepository {
-  public constructor(private readonly database: RelicDatabase) {}
+  public constructor(
+    private readonly database: RelicDatabase,
+    private readonly options: {
+      now?: () => Date;
+      publicFreshnessDays?: number;
+    } = {},
+  ) {}
+
+  #publicFreshnessCutoff() {
+    const now = (this.options.now ?? (() => new Date()))();
+    return new Date(
+      now.getTime() -
+        (this.options.publicFreshnessDays ?? 7) * 24 * 60 * 60 * 1_000,
+    );
+  }
+
+  public async listPublicMarketplace(
+    query: PublicMarketplaceQuery,
+  ): Promise<PublicMarketplaceResult> {
+    const rows = await this.#publicMarketplaceRows(query);
+    const total = Number(rows[0]?.total ?? 0);
+    return {
+      items: rows.map((row) => this.#publicMarketplaceAgent(row)),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / query.limit),
+    };
+  }
+
+  public async comparePublicMarketplaceAgents(ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.#publicMarketplaceRows(
+      { page: 1, limit: ids.length },
+      ids,
+    );
+    const byId = new Map(
+      rows.map((row) => [row.id, this.#publicMarketplaceAgent(row)]),
+    );
+    return ids.flatMap((id) => {
+      const agent = byId.get(id);
+      return agent === undefined ? [] : [agent];
+    });
+  }
+
+  public async findPublicMarketplaceAgent(
+    id: string,
+  ): Promise<PublicMarketplaceAgentDetail | null> {
+    const [summary] = await this.#publicMarketplaceRows({ page: 1, limit: 1 }, [
+      id,
+    ]);
+    if (summary === undefined) return null;
+    const [identity, services, evidence, outcomes, classifications] =
+      await Promise.all([
+        this.database
+          .select({
+            ownerAddress: agentIdentities.ownerAddress,
+            metadataUri: agents.metadataUri,
+            registrationTransaction: agentIdentities.registrationTransaction,
+            registrationBlock: agentIdentities.registrationBlock,
+          })
+          .from(agentIdentities)
+          .innerJoin(agents, eq(agents.id, agentIdentities.agentId))
+          .where(eq(agentIdentities.agentId, id))
+          .limit(1),
+        this.database
+          .select()
+          .from(marketplaceServices)
+          .where(
+            and(
+              eq(marketplaceServices.agentId, id),
+              eq(marketplaceServices.availability, "available"),
+              inArray(marketplaceServices.verificationLevel, [
+                "INVOCATION_VERIFIED",
+                "COMMERCE_VERIFIED",
+              ]),
+              sql`${marketplaceServices.endpoint} is not null`,
+              sql`${marketplaceServices.lastVerifiedAt} >= ${this.#publicFreshnessCutoff().toISOString()}::timestamptz`,
+              sql`exists (
+                select 1 from service_verification_observations svo
+                where svo.service_id = ${marketplaceServices.id}
+                  and svo.to_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+                  and svo.result in ('success', 'succeeded', 'verified', 'passed')
+                  and not exists (
+                    select 1 from service_verification_observations newer
+                    where newer.service_id = svo.service_id
+                      and (newer.observed_at, newer.id) > (svo.observed_at, svo.id)
+                  )
+              )`,
+            ),
+          )
+          .orderBy(desc(marketplaceServices.lastVerifiedAt)),
+        this.database
+          .select({
+            fieldPath: factEvidence.fieldPath,
+            provenance: factEvidence.provenance,
+            source: factEvidence.source,
+            sourceUri: factEvidence.sourceUri,
+            observedAt: factEvidence.observedAt,
+          })
+          .from(factEvidence)
+          .where(eq(factEvidence.agentId, id))
+          .orderBy(desc(factEvidence.observedAt)),
+        this.database
+          .select({
+            invocationSuccessful: marketplaceOutcomes.invocationSuccessful,
+            commerceSuccessful: marketplaceOutcomes.commerceSuccessful,
+            executionDurationMs: marketplaceOutcomes.executionDurationMs,
+            responseStatus: marketplaceOutcomes.responseStatus,
+            settlementState: marketplaceOutcomes.settlementState,
+            observedCost: marketplaceOutcomes.observedCost,
+            observedAt: marketplaceOutcomes.createdAt,
+          })
+          .from(marketplaceOutcomes)
+          .where(eq(marketplaceOutcomes.agentId, id))
+          .orderBy(desc(marketplaceOutcomes.createdAt)),
+        this.database
+          .execute<{
+            matched_source: string;
+            matched_value: string;
+          }>(
+            sql`
+            select distinct ce.matched_source, ce.matched_value
+            from classification_evidence ce
+            where ce.agent_id = ${id}
+              and ce.category_slug = ${summary.category}
+            order by ce.matched_source, ce.matched_value
+          `,
+          )
+          .then((result) =>
+            executedRows<{
+              matched_source: string;
+              matched_value: string;
+            }>(result),
+          ),
+      ]);
+    const identityRow = identity[0];
+    if (identityRow === undefined) return null;
+    const base = this.#publicMarketplaceAgent(summary);
+    return {
+      ...base,
+      ownerAddress: identityRow.ownerAddress,
+      metadataUri: identityRow.metadataUri,
+      registrationTransaction: identityRow.registrationTransaction,
+      registrationBlock: identityRow.registrationBlock?.toString() ?? null,
+      services: services.map((service) => ({
+        id: service.id,
+        name: service.name,
+        description: service.description,
+        interface: service.interfaceProtocol,
+        endpoint: service.endpoint!,
+        availability: "available" as const,
+        verificationLevel: service.verificationLevel as
+          "INVOCATION_VERIFIED" | "COMMERCE_VERIFIED",
+        pricing: service.pricing,
+        protocolSupport: service.protocolSupport as Record<string, unknown>,
+        lastVerifiedAt: service.lastVerifiedAt!.toISOString(),
+        provenance: service.provenance,
+      })),
+      evidence: evidence.map((item) => ({
+        fieldPath: item.fieldPath,
+        label: item.fieldPath
+          .split(".")
+          .at(-1)!
+          .replace(/([A-Z])/g, " $1")
+          .replace(/^./, (value) => value.toUpperCase()),
+        provenance: item.provenance,
+        source: item.source,
+        sourceUri: item.sourceUri,
+        observedAt: item.observedAt.toISOString(),
+      })),
+      outcomes: outcomes.map((outcome) => ({
+        ...outcome,
+        observedAt: outcome.observedAt.toISOString(),
+      })),
+      surfacedBecause: classifications.map(
+        (item) => `${item.matched_source}: ${item.matched_value}`,
+      ),
+      checks: {
+        identityVerified: true,
+        endpointReachable: true,
+        protocolVerified: true,
+        invocationVerified: true,
+        commerceVerified: base.tier === "Actionable",
+        lastCheckedAt: base.lastVerifiedAt,
+      },
+    };
+  }
+
+  public async listPublicCategories() {
+    const agents = executedRows<PublicMarketplaceRow>(
+      await this.database.execute<PublicMarketplaceRow>(
+        this.#publicMarketplaceQuery({ page: 1, limit: 100 }, undefined, false),
+      ),
+    );
+    const categories = [
+      ["rebalancing", "Rebalancing"],
+      ["grid-trading", "Grid Trading"],
+      ["yield-optimisation", "Yield Optimisation"],
+      ["health-factor-monitoring", "Health Factor Monitoring"],
+    ] as const;
+    return categories.map(([slug, label]) => {
+      const categoryAgents = agents.filter((agent) => agent.category === slug);
+      return {
+        slug,
+        label,
+        working: categoryAgents.length,
+        actionable: categoryAgents.filter(
+          (agent) => agent.tier === "Actionable",
+        ).length,
+        protocols: [
+          ...new Set(categoryAgents.flatMap((agent) => agent.protocols)),
+        ].sort(),
+      };
+    });
+  }
+
+  public async internalMarketplaceStatus() {
+    const [row] = executedRows<{
+      discovered: number;
+      enriched: number;
+      pending_enrichment: number;
+      verification_queue: number;
+      directly_verified: number;
+      service_declared: number;
+      invocation_verified: number;
+      actionable: number;
+      stale_or_unreachable: number;
+      public_marketplace: number;
+    }>(
+      await this.database.execute(sql`
+      select
+        (select count(distinct agent_id)::int from corpus_source_records) discovered,
+        (select count(*)::int from corpus_source_records where enriched_at is not null) enriched,
+        (select count(*)::int from corpus_source_records where enriched_at is null) pending_enrichment,
+        (select count(*)::int from verification_queue where status in ('unverified', 'pending', 'failed')) verification_queue,
+        (select count(*)::int from verification_queue where status in ('verified', 'partial')) directly_verified,
+        (select count(distinct agent_id)::int from marketplace_services where verification_level <> 'DECLARED') service_declared,
+        (select count(distinct agent_id)::int from marketplace_services where verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')) invocation_verified,
+        (select count(distinct agent_id)::int from launch_candidates where status = 'ACTIONABLE') actionable,
+        (select count(distinct agent_id)::int from marketplace_services where availability in ('degraded', 'unavailable') or verification_level = 'DECLARED') stale_or_unreachable,
+        (select count(distinct id)::int from (${this.#publicMarketplaceQuery(
+          { page: 1, limit: 100 },
+          undefined,
+          false,
+        )}) public_rows) public_marketplace
+    `),
+    );
+    const categories = executedRows<{
+      category_slug: string;
+      count: number;
+    }>(
+      await this.database.execute(sql`
+      select category_slug, count(distinct agent_id)::int count
+      from launch_candidates
+      group by category_slug
+      order by category_slug
+    `),
+    );
+    return {
+      discovered: Number(row?.discovered ?? 0),
+      enriched: Number(row?.enriched ?? 0),
+      pendingEnrichment: Number(row?.pending_enrichment ?? 0),
+      verificationQueue: Number(row?.verification_queue ?? 0),
+      directlyVerified: Number(row?.directly_verified ?? 0),
+      serviceDeclared: Number(row?.service_declared ?? 0),
+      invocationVerified: Number(row?.invocation_verified ?? 0),
+      actionable: Number(row?.actionable ?? 0),
+      staleOrUnreachable: Number(row?.stale_or_unreachable ?? 0),
+      publicMarketplace: Number(row?.public_marketplace ?? 0),
+      categoryCandidates: Object.fromEntries(
+        categories.map((item) => [item.category_slug, Number(item.count)]),
+      ),
+    };
+  }
+
+  async #publicMarketplaceRows(
+    query: PublicMarketplaceQuery,
+    ids?: string[],
+  ): Promise<PublicMarketplaceRow[]> {
+    return executedRows<PublicMarketplaceRow>(
+      await this.database.execute<PublicMarketplaceRow>(
+        this.#publicMarketplaceQuery(query, ids, true),
+      ),
+    );
+  }
+
+  #publicMarketplaceQuery(
+    query: PublicMarketplaceQuery,
+    ids: string[] | undefined,
+    paginate: boolean,
+  ) {
+    const actionable = sql`(
+      lc.status = 'ACTIONABLE'
+      and exists (
+        select 1 from marketplace_outcomes mo
+        where mo.agent_id = a.id
+          and mo.invocation_successful = true
+          and mo.commerce_successful = true
+      )
+    )`;
+    const filters = [
+      sql`ms.verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')`,
+      sql`ms.availability = 'available'`,
+      sql`ms.endpoint is not null and ms.endpoint ~ '^https://'`,
+      sql`ms.last_verified_at >= ${this.#publicFreshnessCutoff().toISOString()}::timestamptz`,
+      sql`lc.status in ('INVOCATION_VERIFIED', 'ACTIONABLE')`,
+      sql`lc.stale_at is null`,
+      sql`ai.standard = 'erc-8004'`,
+      sql`ai.namespace = 'eip155'`,
+      sql`ai.chain_id in (56, 97)`,
+      sql`ai.registration_status in ('registered', 'transferred')`,
+      sql`ai.registry_address ~ '^0x[0-9a-fA-F]{40}$'`,
+      sql`ai.owner_address ~ '^0x[0-9a-fA-F]{40}$'`,
+      sql`ai.external_agent_id ~ '^[0-9]+$'`,
+      sql`a.name is not null and length(trim(a.name)) > 0`,
+      sql`a.description is not null and length(trim(a.description)) > 0`,
+      sql`length(trim(a.metadata_uri)) > 0`,
+      sql`length(trim(ai.owner_address)) > 0`,
+      sql`exists (
+        select 1 from service_verification_observations svo
+        where svo.service_id = ms.id
+          and svo.to_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+          and svo.result in ('success', 'succeeded', 'verified', 'passed')
+          and not exists (
+            select 1 from service_verification_observations newer
+            where newer.service_id = svo.service_id
+              and (newer.observed_at, newer.id) > (svo.observed_at, svo.id)
+          )
+      )`,
+      sql`not exists (
+        select 1 from reconciliation_records rr
+        where rr.agent_id = a.id
+          and rr.status in ('mismatch', 'unavailable_direct')
+          and not exists (
+            select 1 from reconciliation_records newer
+            where newer.agent_id = rr.agent_id
+              and newer.field_path = rr.field_path
+              and newer.reconciled_at > rr.reconciled_at
+          )
+      )`,
+    ];
+    if (ids !== undefined)
+      filters.push(
+        ids.length === 0
+          ? sql`false`
+          : sql`a.id in (${sql.join(
+              ids.map((id) => sql`${id}::uuid`),
+              sql`, `,
+            )})`,
+      );
+    if (query.text !== undefined)
+      filters.push(
+        sql`(a.name ilike ${`%${query.text}%`} or a.description ilike ${`%${query.text}%`} or coalesce(ms.capability, '') ilike ${`%${query.text}%`})`,
+      );
+    for (const requirement of query.requirements ?? [])
+      filters.push(sql`(
+        a.name ilike ${`%${requirement}%`}
+        or a.description ilike ${`%${requirement}%`}
+        or coalesce(ms.capability, '') ilike ${`%${requirement}%`}
+        or exists (
+          select 1 from classification_evidence ce
+          where ce.agent_id = a.id
+            and ce.category_slug = lc.category_slug
+            and ce.matched_value ilike ${`%${requirement}%`}
+        )
+      )`);
+    if (query.category !== undefined)
+      filters.push(sql`lc.category_slug = ${query.category}`);
+    if (query.protocol !== undefined)
+      filters.push(
+        sql`(lower(ms.interface_protocol) = lower(${query.protocol}) or ms.protocol_support @> jsonb_build_object(lower(${query.protocol}), true))`,
+      );
+    if (query.chainId !== undefined)
+      filters.push(sql`ai.chain_id = ${query.chainId}`);
+    if (query.interface !== undefined)
+      filters.push(sql`ms.interface_protocol = ${query.interface}`);
+    if (query.pricingKnown === true) filters.push(sql`ms.pricing is not null`);
+    if (query.pricingKnown === false) filters.push(sql`ms.pricing is null`);
+    if (query.hasReputation === true)
+      filters.push(sql`exists (
+        select 1 from reputation_inventory ri
+        where ri.agent_id = a.id and ri.feedback_count > 0
+      )`);
+    if (query.hasReputation === false)
+      filters.push(sql`not exists (
+        select 1 from reputation_inventory ri
+        where ri.agent_id = a.id and ri.feedback_count > 0
+      )`);
+    const tierFilter =
+      query.tier === "Proven"
+        ? sql`false`
+        : query.tier === "Actionable"
+          ? sql`ranked.tier = 'Actionable'`
+          : query.tier === "Working"
+            ? sql`ranked.tier = 'Working'`
+            : sql`true`;
+    const pagination = paginate
+      ? sql`limit ${query.limit} offset ${(query.page - 1) * query.limit}`
+      : sql``;
+    return sql`
+      with ranked as (
+        select
+          a.id,
+          a.name,
+          a.description,
+          lc.category_slug category,
+          case when ${actionable} then 'Actionable' else 'Working' end tier,
+          ai.chain_id "chainId",
+          ai.registry_address "registryAddress",
+          ai.external_agent_id "externalAgentId",
+          lc.supply_type::text "supplyType",
+          coalesce(array(
+            select distinct tt.slug
+            from agent_taxonomy at
+            join taxonomy_terms tt on tt.id = at.term_id
+            where at.agent_id = a.id and tt.kind = 'capability'
+            order by tt.slug
+          ), array[]::text[]) capabilities,
+          coalesce(array(
+            select distinct protocol from (
+              select ms.interface_protocol protocol
+              union
+              select supported.key protocol
+              from jsonb_each(ms.protocol_support) supported
+              where supported.value = 'true'::jsonb
+            ) protocols
+            where protocol is not null and protocol <> ''
+            order by protocol
+          ), array[]::text[]) protocols,
+          array[ms.interface_protocol]::text[] interfaces,
+          (ms.pricing is not null) "pricingKnown",
+          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "executionEvidenceCount",
+          coalesce((select max(ri.feedback_count)::int from reputation_inventory ri where ri.agent_id = a.id), 0) "feedbackCount",
+          ms.last_verified_at "lastVerifiedAt",
+          greatest(a.updated_at, ms.updated_at) "updatedAt",
+          row_number() over (
+            partition by a.id
+            order by case when ${actionable} then 1 else 0 end desc,
+                     ms.last_verified_at desc,
+                     ms.id
+          ) row_number
+        from marketplace_services ms
+        join agents a on a.id = ms.agent_id
+        join agent_identities ai on ai.agent_id = a.id
+        join launch_candidates lc
+          on lc.agent_id = a.id and lc.category_slug = ms.category_slug
+        where ${sql.join(filters, sql` and `)}
+      )
+      select ranked.*, count(*) over()::int total
+      from ranked
+      where ranked.row_number = 1 and ${tierFilter}
+      order by case ranked.tier when 'Actionable' then 1 else 0 end desc,
+               ranked."lastVerifiedAt" desc,
+               ranked.name,
+               ranked.id
+      ${pagination}
+    `;
+  }
+
+  #publicMarketplaceAgent(row: PublicMarketplaceRow): PublicMarketplaceAgent {
+    if (row.chainId !== 56 && row.chainId !== 97)
+      throw new Error(`Unsupported public marketplace chain ${row.chainId}`);
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      category: row.category,
+      tier: row.tier,
+      availability: "available",
+      chainId: row.chainId,
+      network: row.chainId === 56 ? "BNB Chain" : "BNB Chain Testnet",
+      registryAddress: row.registryAddress,
+      externalAgentId: row.externalAgentId,
+      supplyType: row.supplyType,
+      capabilities: row.capabilities,
+      protocols: row.protocols,
+      interfaces: row.interfaces,
+      pricingKnown: row.pricingKnown,
+      executionEvidenceCount: Number(row.executionEvidenceCount),
+      feedbackCount: Number(row.feedbackCount),
+      lastVerifiedAt: new Date(row.lastVerifiedAt).toISOString(),
+      updatedAt: new Date(row.updatedAt).toISOString(),
+    };
+  }
 
   public async list(query: AgentListQuery): Promise<AgentListResult> {
     const cursorCondition =

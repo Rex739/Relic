@@ -5,6 +5,7 @@ import type {
   MarketplaceService,
   OnboardingRepository,
   OwnershipChallenge,
+  PublicMarketplaceAgent,
 } from "@relic/domain";
 import { agentListResponseSchema } from "@relic/validation";
 import { privateKeyToAccount } from "viem/accounts";
@@ -17,6 +18,27 @@ const repository: AgentReadRepository = {
   findById: () => Promise.resolve(null),
 };
 const app = createApp(repository);
+const publicAgent: PublicMarketplaceAgent = {
+  id: "01945b1e-7e80-7000-8000-000000000099",
+  name: "Verified fixture",
+  description: "A fixture that represents an independently invoked agent.",
+  category: "rebalancing",
+  tier: "Working",
+  availability: "available",
+  chainId: 56,
+  network: "BNB Chain",
+  registryAddress: "0xregistry",
+  externalAgentId: "99",
+  supplyType: "third_party",
+  capabilities: ["rebalancing"],
+  protocols: ["a2a"],
+  interfaces: ["a2a"],
+  pricingKnown: false,
+  executionEvidenceCount: 1,
+  feedbackCount: 0,
+  lastVerifiedAt: "2026-08-20T00:00:00.000Z",
+  updatedAt: "2026-08-20T00:00:00.000Z",
+};
 
 describe("Relic API", () => {
   it("reports health", async () => {
@@ -102,6 +124,67 @@ describe("Relic API", () => {
       interface: "mcp",
       readiness: "DISCOVERABLE",
       verificationStatus: "verified",
+    });
+  });
+
+  it("uses a separate server-enforced public marketplace repository", async () => {
+    let captured: unknown;
+    const marketplace = createApp({
+      list: () => Promise.resolve({ items: [], nextCursor: null }),
+      findById: () => Promise.resolve(null),
+      listPublicMarketplace: (query) => {
+        captured = query;
+        return Promise.resolve({
+          items: [publicAgent],
+          page: query.page,
+          limit: query.limit,
+          total: 1,
+          totalPages: 1,
+        });
+      },
+    });
+    const response = await marketplace.request(
+      "/v1/marketplace/agents?category=rebalancing&protocol=a2a&tier=Working&chainId=56&page=1&limit=12",
+    );
+    expect(response.status).toBe(200);
+    expect(captured).toMatchObject({
+      category: "rebalancing",
+      protocol: "a2a",
+      tier: "Working",
+      chainId: 56,
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      data: [{ name: "Verified fixture", tier: "Working" }],
+      pagination: { total: 1 },
+    });
+  });
+
+  it("returns 404 for a corpus identity that is not publicly eligible", async () => {
+    const id = "01945b1e-7e80-7000-8000-000000000001";
+    const marketplace = createApp({
+      list: () => Promise.resolve({ items: [], nextCursor: null }),
+      findById: () => Promise.resolve({} as AgentDetail),
+      findPublicMarketplaceAgent: () => Promise.resolve(null),
+    });
+    const response = await marketplace.request(`/v1/marketplace/agents/${id}`);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "marketplace_agent_not_found" },
+    });
+  });
+
+  it("omits non-public IDs from comparison", async () => {
+    const marketplace = createApp({
+      list: () => Promise.resolve({ items: [], nextCursor: null }),
+      findById: () => Promise.resolve(null),
+      comparePublicMarketplaceAgents: () => Promise.resolve([publicAgent]),
+    });
+    const response = await marketplace.request(
+      `/v1/marketplace/compare?ids=${publicAgent.id},01945b1e-7e80-7000-8000-000000000001`,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: [{ id: publicAgent.id }],
     });
   });
 

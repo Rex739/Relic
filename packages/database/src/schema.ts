@@ -154,6 +154,30 @@ export const activationLifecycleState = pgEnum("activation_lifecycle_state", [
   "FAILED",
   "BLOCKED",
 ]);
+export const mandateStatus = pgEnum("mandate_status", [
+  "DRAFT",
+  "REVIEWED",
+  "ACTIVE",
+  "PAUSED",
+  "REVOKED",
+  "EXPIRED",
+  "FAILED_ACTIVATION",
+  "SUPERSEDED",
+]);
+export const mandateApprovalMode = pgEnum("mandate_approval_mode", [
+  "OBSERVE_ONLY",
+  "ASK_BEFORE_EXECUTION",
+  "PRE_AUTHORIZED",
+]);
+export const mandatePrincipalType = pgEnum("mandate_principal_type", [
+  "DEVELOPMENT_SESSION",
+  "ACCOUNT",
+  "WALLET",
+]);
+export const mandateAuthorizationBoundary = pgEnum(
+  "mandate_authorization_boundary",
+  ["POLICY_ONLY", "WALLET_AUTHORIZED"],
+);
 
 export const agents = pgTable(
   "agents",
@@ -1250,6 +1274,137 @@ export const activationTransitions = pgTable(
     index("activation_transition_time_idx").on(
       table.activationId,
       table.observedAt,
+    ),
+  ],
+);
+
+export const mandates = pgTable(
+  "mandates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    principalId: text("principal_id").notNull(),
+    principalType: mandatePrincipalType("principal_type").notNull(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    chainId: integer("chain_id").notNull(),
+    status: mandateStatus("status").notNull().default("DRAFT"),
+    authorizationBoundary: mandateAuthorizationBoundary(
+      "authorization_boundary",
+    )
+      .notNull()
+      .default("POLICY_ONLY"),
+    currentVersion: integer("current_version").notNull().default(1),
+    activeVersion: integer("active_version"),
+    attentionReason: text("attention_reason"),
+    ...timestamps,
+  },
+  (table) => [
+    index("mandate_principal_status_idx").on(table.principalId, table.status),
+    index("mandate_agent_status_idx").on(table.agentId, table.status),
+  ],
+);
+
+export const mandateVersions = pgTable(
+  "mandate_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    state: mandateStatus("state").notNull().default("DRAFT"),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => marketplaceServices.id, { onDelete: "restrict" }),
+    objective: text("objective").notNull(),
+    allowedCapabilities: jsonb("allowed_capabilities").notNull(),
+    deniedCapabilities: jsonb("denied_capabilities").notNull(),
+    allowedAssets: jsonb("allowed_assets").notNull(),
+    allowedProtocols: jsonb("allowed_protocols").notNull(),
+    allowedContracts: jsonb("allowed_contracts").notNull(),
+    perActionLimit: jsonb("per_action_limit"),
+    aggregateLimit: jsonb("aggregate_limit"),
+    executionFrequency: jsonb("execution_frequency"),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    approvalMode: mandateApprovalMode("approval_mode").notNull(),
+    riskConstraints: jsonb("risk_constraints").notNull(),
+    stopConditions: jsonb("stop_conditions").notNull(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("mandate_version_unique").on(table.mandateId, table.version),
+    index("mandate_version_state_idx").on(table.mandateId, table.state),
+    index("mandate_version_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+export const mandateEvidenceBindings = pgTable(
+  "mandate_evidence_bindings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mandateVersionId: uuid("mandate_version_id")
+      .notNull()
+      .references(() => mandateVersions.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    externalAgentId: text("external_agent_id").notNull(),
+    registryAddress: text("registry_address").notNull(),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => marketplaceServices.id, { onDelete: "restrict" }),
+    serviceEndpoint: text("service_endpoint").notNull(),
+    verificationTier: text("verification_tier").notNull(),
+    verificationTimestamp: timestamp("verification_timestamp", {
+      withTimezone: true,
+    }).notNull(),
+    chainId: integer("chain_id").notNull(),
+    capabilitySet: jsonb("capability_set").notNull(),
+    evidenceSnapshot: jsonb("evidence_snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("mandate_evidence_version_unique").on(table.mandateVersionId),
+    index("mandate_evidence_agent_service_idx").on(
+      table.agentId,
+      table.serviceId,
+    ),
+  ],
+);
+
+export const mandateEvents = pgTable(
+  "mandate_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "cascade" }),
+    mandateVersionId: uuid("mandate_version_id").references(
+      () => mandateVersions.id,
+      { onDelete: "set null" },
+    ),
+    eventType: text("event_type").notNull(),
+    securitySensitive: boolean("security_sensitive").notNull().default(false),
+    details: jsonb("details").notNull().default({}),
+    evidenceReferences: jsonb("evidence_references").notNull().default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("mandate_event_time_idx").on(table.mandateId, table.occurredAt),
+    index("mandate_event_security_idx").on(
+      table.securitySensitive,
+      table.occurredAt,
     ),
   ],
 );

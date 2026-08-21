@@ -3,11 +3,13 @@ import { getServerEnvironment } from "@relic/config";
 import {
   createDatabase,
   DrizzleAgentRepository,
+  DrizzleMandateStore,
   DrizzleOnboardingStore,
 } from "@relic/database";
 import type { AgentReadRepository } from "@relic/domain";
 
 import { createApp } from "./app.js";
+import { MandateApplicationService } from "./mandates.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -29,7 +31,23 @@ const repository =
     : new DrizzleAgentRepository(connection.db);
 const onboarding =
   connection === null ? undefined : new DrizzleOnboardingStore(connection.db);
-const app = createApp(repository, onboarding);
+const mandates =
+  connection === null
+    ? undefined
+    : new MandateApplicationService(
+        repository,
+        new DrizzleMandateStore(connection.db),
+      );
+const mandateApiSecret =
+  environment.MANDATE_API_SECRET ??
+  (environment.NODE_ENV === "production"
+    ? undefined
+    : "relic-local-development-mandate-secret-not-production");
+if (mandates !== undefined && mandateApiSecret === undefined)
+  throw new Error("MANDATE_API_SECRET is required when mandates are enabled");
+const app = createApp(repository, onboarding, mandates, {
+  ...(mandateApiSecret === undefined ? {} : { mandateApiSecret }),
+});
 
 serve({ fetch: app.fetch, port: environment.API_PORT }, (info) => {
   console.info(`Relic API listening on http://localhost:${info.port}`);

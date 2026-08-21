@@ -3,6 +3,7 @@ export * from "./corpus.js";
 export * from "./corpus-analytics.js";
 export * from "./indexer-store.js";
 export * from "./repository.js";
+export * from "./mandates.js";
 export * from "./supply.js";
 export * from "./onboarding.js";
 export * from "./reconciliation.js";

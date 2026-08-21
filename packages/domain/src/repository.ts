@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { provenanceKindSchema } from "./model.js";
 import type { MarketplaceService, ServiceListQuery } from "./supply.js";
+import type { PublicMarketplaceRepository } from "./marketplace.js";
 
 export const agentListItemSchema = z.object({
   id: z.uuid(),
@@ -75,7 +76,7 @@ export interface AgentListResult {
   readonly nextCursor: string | null;
 }
 
-export interface AgentReadRepository {
+export interface AgentReadRepository extends Partial<PublicMarketplaceRepository> {
   list(query: AgentListQuery): Promise<AgentListResult>;
   findById(id: string): Promise<AgentDetail | null>;
   findByChainIdentity?(
