@@ -34,6 +34,7 @@ const publicAgent: PublicMarketplaceAgent = {
   protocols: ["a2a"],
   interfaces: ["a2a"],
   pricingKnown: false,
+  hireable: false,
   executionEvidenceCount: 1,
   feedbackCount: 0,
   lastVerifiedAt: "2026-08-20T00:00:00.000Z",

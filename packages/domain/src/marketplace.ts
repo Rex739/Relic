@@ -30,6 +30,7 @@ export interface PublicMarketplaceAgent {
   protocols: string[];
   interfaces: string[];
   pricingKnown: boolean;
+  hireable: boolean;
   executionEvidenceCount: number;
   feedbackCount: number;
   lastVerifiedAt: string;

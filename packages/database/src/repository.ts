@@ -47,6 +47,7 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   protocols: string[];
   interfaces: string[];
   pricingKnown: boolean;
+  hireable: boolean;
   executionEvidenceCount: number;
   feedbackCount: number;
   lastVerifiedAt: Date | string;
@@ -499,6 +500,18 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           ), array[]::text[]) protocols,
           array[ms.interface_protocol]::text[] interfaces,
           (ms.pricing is not null) "pricingKnown",
+          (${actionable} and exists (
+            select 1
+            from agent_offers ao
+            join agent_offer_versions aov
+              on aov.offer_id = ao.id and aov.version = ao.current_version
+            where ao.agent_id = a.id
+              and ao.service_id = ms.id
+              and ao.status = 'ACTIVE'
+              and aov.effective_at <= now()
+              and (aov.expires_at is null or aov.expires_at > now())
+              and aov.chain_id = ai.chain_id
+          )) "hireable",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "executionEvidenceCount",
           coalesce((select max(ri.feedback_count)::int from reputation_inventory ri where ri.agent_id = a.id), 0) "feedbackCount",
           ms.last_verified_at "lastVerifiedAt",
@@ -546,6 +559,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       protocols: row.protocols,
       interfaces: row.interfaces,
       pricingKnown: row.pricingKnown,
+      hireable: row.hireable,
       executionEvidenceCount: Number(row.executionEvidenceCount),
       feedbackCount: Number(row.feedbackCount),
       lastVerifiedAt: new Date(row.lastVerifiedAt).toISOString(),

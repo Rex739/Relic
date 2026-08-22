@@ -11,6 +11,7 @@ import {
   createDatabase,
   DrizzleCorpusAnalytics,
   DrizzleCorpusStore,
+  DrizzleCommerceStore,
   DrizzleAgentRepository,
   DrizzleAgentWriter,
   DrizzleIndexerStore,
@@ -35,6 +36,7 @@ import {
 import { materializeLaunchServices } from "./service-catalog.js";
 import { inspectLaunchServices } from "./service-inspector.js";
 import { runSafeActivationAttempt } from "./activation.js";
+import { reconcileCommerceOperations } from "./commerce-operation-worker.js";
 
 const environment = getServerEnvironment();
 if (environment.DATABASE_URL === undefined)
@@ -523,6 +525,22 @@ try {
     log({
       event: "corpus_status",
       status: await repository.corpusStatus(chainId),
+    });
+  } else if (command === "commerce-operations") {
+    if (chainId !== 97 && !booleanFlag("allow-mainnet-read-only"))
+      throw new Error(
+        "Commerce operation reconciliation is restricted to BSC Testnet unless explicitly enabled for read-only Mainnet reconciliation",
+      );
+    log({
+      event: "commerce_operations_reconciled",
+      ...(await reconcileCommerceOperations({
+        store: new DrizzleCommerceStore(connection.db),
+        client,
+        workerId: `indexer-${process.pid}`,
+        confirmationDepth: environment.ERC8004_CONFIRMATION_DEPTH,
+        limit: positiveIntegerFlag("limit", 25)!,
+      })),
+      transactionSubmissionEnabled: false,
     });
   } else if (command === "backfill" || command === "sync") {
     const scanner = new Erc8004EventScanner({

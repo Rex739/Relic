@@ -7,6 +7,7 @@
     "dev": "tsx src/service.ts",
     "build": "tsc -p tsconfig.build.json",
     "erc8004:update-endpoint": "tsx scripts/update-erc8004-endpoint.ts",
+    "commerce:create-phase11-offer": "tsx scripts/create-phase11-offer.ts",
     "keystore:testnet-deployment": "tsx scripts/create-testnet-deployment-keystore.ts",
     "start": "node dist/service.js",
     "lint": "eslint scripts src test",

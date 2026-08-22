@@ -7,3 +7,6 @@ export * from "./commerce.js";
 export * from "./onboarding.js";
 export * from "./marketplace.js";
 export * from "./mandate.js";
+export * from "./execution.js";
+export * from "./money.js";
+export * from "./agent-commerce.js";

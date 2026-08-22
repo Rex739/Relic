@@ -5,6 +5,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -178,6 +179,124 @@ export const mandateAuthorizationBoundary = pgEnum(
   "mandate_authorization_boundary",
   ["POLICY_ONLY", "WALLET_AUTHORIZED"],
 );
+export const executionStatus = pgEnum("execution_status", [
+  "REQUESTED",
+  "EVALUATING",
+  "APPROVAL_REQUIRED",
+  "APPROVED",
+  "EXECUTING",
+  "SUCCEEDED",
+  "FAILED",
+  "DENIED",
+  "EXPIRED",
+  "CANCELLED",
+  "BLOCKED_STALE_AGENT",
+]);
+export const executionPolicyDecision = pgEnum("execution_policy_decision", [
+  "ALLOW",
+  "REQUIRE_APPROVAL",
+  "DENY",
+]);
+export const offerStatus = pgEnum("offer_status", [
+  "DRAFT",
+  "ACTIVE",
+  "PAUSED",
+  "DEACTIVATED",
+  "EXPIRED",
+]);
+export const offerBillingModel = pgEnum("offer_billing_model", [
+  "ONE_TIME",
+  "PER_EXECUTION",
+  "SUBSCRIPTION",
+]);
+export const commerceAgreementStatus = pgEnum("commerce_agreement_status", [
+  "DRAFT",
+  "TERMS_ACCEPTED",
+  "AUTHORIZATION_REQUIRED",
+  "AUTHORIZED",
+  "ACTIVE",
+  "SUSPENDED",
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "FAILED",
+]);
+export const authorizationType = pgEnum("authorization_type", [
+  "DEVELOPMENT_PRINCIPAL",
+  "WALLET_SIGNATURE",
+  "DELEGATED_AUTHORIZATION",
+  "SESSION_KEY",
+  "SMART_ACCOUNT_PERMISSION",
+]);
+export const authorizationVerificationStatus = pgEnum(
+  "authorization_verification_status",
+  ["PENDING", "VERIFIED", "REJECTED", "EXPIRED", "REVOKED"],
+);
+export const activationPurpose = pgEnum("activation_purpose", [
+  "VERIFICATION",
+  "USER_COMMERCE",
+]);
+export const activationReconciliationState = pgEnum(
+  "activation_reconciliation_state",
+  ["PENDING", "CURRENT", "STALE", "REORGED", "FAILED"],
+);
+export const commerceOperationType = pgEnum("commerce_operation_type", [
+  "PREPARE_JOB",
+  "CREATE_JOB",
+  "REGISTER_JOB",
+  "SET_BUDGET",
+  "FUND",
+  "SUBMIT_DELIVERY",
+  "SETTLE",
+  "REJECT",
+  "CLAIM_REFUND",
+  "CANCEL",
+]);
+export const commerceOperationState = pgEnum("commerce_operation_state", [
+  "CREATED",
+  "READY",
+  "AWAITING_SIGNATURE",
+  "SUBMITTED",
+  "PENDING",
+  "CONFIRMED",
+  "FINALIZED",
+  "FAILED",
+  "REPLACED",
+  "REORGED",
+  "CANCELLED",
+]);
+export const commerceValueMovementType = pgEnum(
+  "commerce_value_movement_type",
+  ["FUNDING", "ESCROW_LOCK", "PAYMENT", "REFUND", "FEE", "ESCROW_RELEASE"],
+);
+export const commerceFinalityState = pgEnum("commerce_finality_state", [
+  "UNCONFIRMED",
+  "CONFIRMED",
+  "FINALIZED",
+  "REORGED",
+]);
+export const commerceArtifactType = pgEnum("commerce_artifact_type", [
+  "NEGOTIATED_TERMS",
+  "ACCEPTED_TERMS",
+  "AUTHORIZATION",
+  "JOB_SPECIFICATION",
+  "DELIVERY",
+  "EVALUATION",
+  "SETTLEMENT",
+  "REJECTION",
+  "REFUND",
+]);
+export const settlementStatus = pgEnum("settlement_status", [
+  "PENDING",
+  "FUNDED",
+  "DELIVERED",
+  "EVALUATED",
+  "SETTLED",
+  "REJECTED",
+  "REFUNDED",
+  "FAILED",
+  "REORGED",
+]);
 
 export const agents = pgTable(
   "agents",
@@ -1146,6 +1265,20 @@ export const activations = pgTable(
       .notNull()
       .references(() => marketplaceServices.id, { onDelete: "restrict" }),
     chainId: integer("chain_id").notNull(),
+    purpose: activationPurpose("purpose").notNull().default("VERIFICATION"),
+    commerceAgreementId: uuid("commerce_agreement_id"),
+    executionRequestId: uuid("execution_request_id"),
+    mandateId: uuid("mandate_id"),
+    mandateVersion: integer("mandate_version"),
+    principalId: text("principal_id"),
+    acceptedTermsHash: text("accepted_terms_hash"),
+    pricingSnapshot: jsonb("pricing_snapshot"),
+    budgetBaseUnits: numeric("budget_base_units", { precision: 78, scale: 0 }),
+    paymentTokenDecimals: integer("payment_token_decimals"),
+    authorizationId: uuid("authorization_id"),
+    reconciliationState: activationReconciliationState("reconciliation_state")
+      .notNull()
+      .default("PENDING"),
     status: activationStatus("status").notNull().default("PREPARED"),
     lifecycleState: activationLifecycleState("lifecycle_state")
       .notNull()
@@ -1168,6 +1301,11 @@ export const activations = pgTable(
       table.chainId,
       table.commerceAddress,
       table.externalJobId,
+    ),
+    uniqueIndex("activation_execution_unique").on(table.executionRequestId),
+    index("activation_agreement_lifecycle_idx").on(
+      table.commerceAgreementId,
+      table.lifecycleState,
     ),
   ],
 );
@@ -1405,6 +1543,735 @@ export const mandateEvents = pgTable(
     index("mandate_event_security_idx").on(
       table.securitySensitive,
       table.occurredAt,
+    ),
+  ],
+);
+
+export const executionRequests = pgTable(
+  "execution_requests",
+  {
+    id: uuid("id").primaryKey(),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "cascade" }),
+    mandateVersion: integer("mandate_version").notNull(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    principalId: text("principal_id").notNull(),
+    chainId: integer("chain_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    rawRequest: jsonb("raw_request").notNull(),
+    normalizedAction: jsonb("normalized_action").notNull(),
+    normalizedHash: text("normalized_hash").notNull(),
+    status: executionStatus("status").notNull().default("REQUESTED"),
+    decision: executionPolicyDecision("decision"),
+    decisionReasons: jsonb("decision_reasons").notNull().default([]),
+    deadline: timestamp("deadline", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("execution_principal_idempotency_unique").on(
+      table.principalId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("execution_normalized_hash_unique").on(
+      table.principalId,
+      table.normalizedHash,
+    ),
+    index("execution_mandate_time_idx").on(table.mandateId, table.createdAt),
+    index("execution_status_time_idx").on(table.status, table.updatedAt),
+  ],
+);
+
+export const executionPolicyDecisions = pgTable(
+  "execution_policy_decisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    executionRequestId: uuid("execution_request_id")
+      .notNull()
+      .references(() => executionRequests.id, { onDelete: "cascade" }),
+    decision: executionPolicyDecision("decision").notNull(),
+    normalizedHash: text("normalized_hash").notNull(),
+    mandateVersion: integer("mandate_version").notNull(),
+    reasons: jsonb("reasons").notNull(),
+    evidence: jsonb("evidence").notNull().default({}),
+    evaluatedAt: timestamp("evaluated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("execution_policy_request_idx").on(table.executionRequestId),
+  ],
+);
+
+export const executionApprovals = pgTable(
+  "execution_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    executionRequestId: uuid("execution_request_id")
+      .notNull()
+      .references(() => executionRequests.id, { onDelete: "cascade" }),
+    principalId: text("principal_id").notNull(),
+    normalizedHash: text("normalized_hash").notNull(),
+    approved: boolean("approved").notNull(),
+    authorizationKind: text("authorization_kind")
+      .notNull()
+      .default("DEVELOPMENT_API"),
+    walletAuthorization: boolean("wallet_authorization")
+      .notNull()
+      .default(false),
+    approvedAt: timestamp("approved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("execution_approval_once_unique").on(table.executionRequestId),
+    index("execution_approval_hash_idx").on(table.normalizedHash),
+  ],
+);
+
+export const executionRuns = pgTable(
+  "executions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    executionRequestId: uuid("execution_request_id")
+      .notNull()
+      .references(() => executionRequests.id, { onDelete: "cascade" }),
+    attempt: integer("attempt").notNull().default(1),
+    executorKind: text("executor_kind").notNull(),
+    status: executionStatus("status").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("execution_run_attempt_unique").on(
+      table.executionRequestId,
+      table.attempt,
+    ),
+  ],
+);
+
+export const executionReceipts = pgTable(
+  "execution_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    executionRequestId: uuid("execution_request_id")
+      .notNull()
+      .references(() => executionRequests.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    outcome: jsonb("outcome").notNull(),
+    evidence: jsonb("evidence").notNull(),
+    cost: numeric("cost", { precision: 78, scale: 18 }),
+    transactionHash: text("transaction_hash"),
+    jobId: text("job_id"),
+    observedAt: timestamp("observed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("execution_receipt_request_unique").on(
+      table.executionRequestId,
+    ),
+  ],
+);
+
+export const budgetReservations = pgTable(
+  "budget_reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    executionRequestId: uuid("execution_request_id")
+      .notNull()
+      .references(() => executionRequests.id, { onDelete: "cascade" }),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "cascade" }),
+    mandateVersion: integer("mandate_version").notNull(),
+    asset: text("asset").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 18 }).notNull(),
+    state: text("state").notNull(),
+    releasedAmount: numeric("released_amount", { precision: 78, scale: 18 })
+      .notNull()
+      .default("0"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("budget_execution_unique").on(table.executionRequestId),
+    index("budget_mandate_state_idx").on(
+      table.mandateId,
+      table.mandateVersion,
+      table.state,
+    ),
+  ],
+);
+
+export const walletAuthChallenges = pgTable(
+  "wallet_auth_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    walletAddress: text("wallet_address").notNull(),
+    chainId: integer("chain_id").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    message: text("message").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("wallet_challenge_nonce_unique").on(table.nonceHash),
+    index("wallet_challenge_address_expiry_idx").on(
+      table.walletAddress,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const walletSessions = pgTable(
+  "wallet_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    principalId: text("principal_id").notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    chainId: integer("chain_id").notNull(),
+    sessionTokenHash: text("session_token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("wallet_session_token_unique").on(table.sessionTokenHash),
+    index("wallet_session_principal_expiry_idx").on(
+      table.principalId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const agentOffers = pgTable(
+  "agent_offers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorPrincipalId: text("operator_principal_id").notNull(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => marketplaceServices.id, { onDelete: "restrict" }),
+    status: offerStatus("status").notNull().default("DRAFT"),
+    currentVersion: integer("current_version").notNull().default(1),
+    ...timestamps,
+  },
+  (table) => [
+    index("agent_offer_agent_status_idx").on(table.agentId, table.status),
+    index("agent_offer_operator_status_idx").on(
+      table.operatorPrincipalId,
+      table.status,
+    ),
+  ],
+);
+
+export const agentOfferVersions = pgTable(
+  "agent_offer_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    offerId: uuid("offer_id")
+      .notNull()
+      .references(() => agentOffers.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    chainId: integer("chain_id").notNull(),
+    capability: text("capability").notNull(),
+    billingModel: offerBillingModel("billing_model").notNull(),
+    priceBaseUnits: numeric("price_base_units", {
+      precision: 78,
+      scale: 0,
+    }).notNull(),
+    paymentTokenAddress: text("payment_token_address").notNull(),
+    paymentTokenDecimals: integer("payment_token_decimals").notNull(),
+    currencySymbol: text("currency_symbol").notNull(),
+    termsContent: text("terms_content").notNull(),
+    termsHash: text("terms_hash").notNull(),
+    capabilitySnapshot: jsonb("capability_snapshot").notNull(),
+    limitationsSnapshot: jsonb("limitations_snapshot").notNull(),
+    evidenceReference: jsonb("evidence_reference").notNull(),
+    effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agent_offer_version_unique").on(table.offerId, table.version),
+    index("agent_offer_version_terms_idx").on(table.termsHash),
+  ],
+);
+
+export const agentOfferEvents = pgTable(
+  "agent_offer_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    offerId: uuid("offer_id")
+      .notNull()
+      .references(() => agentOffers.id, { onDelete: "restrict" }),
+    offerVersionId: uuid("offer_version_id").references(
+      () => agentOfferVersions.id,
+      { onDelete: "restrict" },
+    ),
+    eventType: text("event_type").notNull(),
+    actorPrincipalId: text("actor_principal_id").notNull(),
+    evidence: jsonb("evidence").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("agent_offer_event_time_idx").on(table.offerId, table.occurredAt),
+  ],
+);
+
+export const commerceAgreements = pgTable(
+  "commerce_agreements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    principalId: text("principal_id").notNull(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => marketplaceServices.id, { onDelete: "restrict" }),
+    offerId: uuid("offer_id")
+      .notNull()
+      .references(() => agentOffers.id, { onDelete: "restrict" }),
+    offerVersionId: uuid("offer_version_id")
+      .notNull()
+      .references(() => agentOfferVersions.id, { onDelete: "restrict" }),
+    mandateId: uuid("mandate_id").references(() => mandates.id, {
+      onDelete: "restrict",
+    }),
+    mandateVersion: integer("mandate_version"),
+    authorizationArtifactId: uuid("authorization_artifact_id"),
+    status: commerceAgreementStatus("status").notNull().default("DRAFT"),
+    currentVersion: integer("current_version").notNull().default(1),
+    chainId: integer("chain_id").notNull(),
+    termsHash: text("terms_hash").notNull(),
+    termsSnapshot: text("terms_snapshot").notNull(),
+    pricingSnapshot: jsonb("pricing_snapshot").notNull(),
+    amountBaseUnits: numeric("amount_base_units", {
+      precision: 78,
+      scale: 0,
+    }).notNull(),
+    paymentTokenAddress: text("payment_token_address").notNull(),
+    paymentTokenDecimals: integer("payment_token_decimals").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index("commerce_agreement_principal_status_idx").on(
+      table.principalId,
+      table.status,
+    ),
+    index("commerce_agreement_offer_idx").on(table.offerVersionId),
+    index("commerce_agreement_mandate_idx").on(table.mandateId),
+  ],
+);
+
+export const commerceAgreementVersions = pgTable(
+  "commerce_agreement_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    status: commerceAgreementStatus("status").notNull(),
+    offerVersionId: uuid("offer_version_id")
+      .notNull()
+      .references(() => agentOfferVersions.id, { onDelete: "restrict" }),
+    mandateId: uuid("mandate_id").references(() => mandates.id, {
+      onDelete: "restrict",
+    }),
+    mandateVersion: integer("mandate_version"),
+    termsHash: text("terms_hash").notNull(),
+    termsSnapshot: text("terms_snapshot").notNull(),
+    pricingSnapshot: jsonb("pricing_snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("commerce_agreement_version_unique").on(
+      table.agreementId,
+      table.version,
+    ),
+  ],
+);
+
+export const commerceAgreementEvents = pgTable(
+  "commerce_agreement_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    agreementVersionId: uuid("agreement_version_id").references(
+      () => commerceAgreementVersions.id,
+      { onDelete: "restrict" },
+    ),
+    fromStatus: commerceAgreementStatus("from_status"),
+    toStatus: commerceAgreementStatus("to_status").notNull(),
+    eventType: text("event_type").notNull(),
+    actorPrincipalId: text("actor_principal_id").notNull(),
+    evidence: jsonb("evidence").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("commerce_agreement_event_time_idx").on(
+      table.agreementId,
+      table.occurredAt,
+    ),
+  ],
+);
+
+export const authorizationChallenges = pgTable(
+  "authorization_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    principalId: text("principal_id").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    normalizedPayload: jsonb("normalized_payload").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("authorization_challenge_nonce_unique").on(table.nonceHash),
+    index("authorization_challenge_agreement_expiry_idx").on(
+      table.agreementId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const authorizationArtifacts = pgTable(
+  "authorization_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    principalId: text("principal_id").notNull(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "restrict" }),
+    mandateVersion: integer("mandate_version").notNull(),
+    executionRequestId: uuid("execution_request_id").references(
+      () => executionRequests.id,
+      { onDelete: "restrict" },
+    ),
+    authorizationType: authorizationType("authorization_type").notNull(),
+    signerAddress: text("signer_address"),
+    chainId: integer("chain_id").notNull(),
+    normalizedPayload: jsonb("normalized_payload").notNull(),
+    signature: text("signature"),
+    messageHash: text("message_hash").notNull(),
+    actionHash: text("action_hash"),
+    termsHash: text("terms_hash").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    verificationStatus: authorizationVerificationStatus("verification_status")
+      .notNull()
+      .default("PENDING"),
+    evidenceReference: jsonb("evidence_reference").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("authorization_nonce_unique").on(table.nonceHash),
+    index("authorization_agreement_status_idx").on(
+      table.agreementId,
+      table.verificationStatus,
+    ),
+    index("authorization_action_hash_idx").on(table.actionHash),
+  ],
+);
+
+export const authorizationEvents = pgTable(
+  "authorization_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    authorizationId: uuid("authorization_id")
+      .notNull()
+      .references(() => authorizationArtifacts.id, { onDelete: "restrict" }),
+    eventType: text("event_type").notNull(),
+    verificationStatus: authorizationVerificationStatus(
+      "verification_status",
+    ).notNull(),
+    evidence: jsonb("evidence").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("authorization_event_time_idx").on(
+      table.authorizationId,
+      table.occurredAt,
+    ),
+  ],
+);
+
+export const commerceOperations = pgTable(
+  "commerce_operations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    activationId: uuid("activation_id").references(() => activations.id, {
+      onDelete: "restrict",
+    }),
+    executionRequestId: uuid("execution_request_id").references(
+      () => executionRequests.id,
+      { onDelete: "restrict" },
+    ),
+    operationType: commerceOperationType("operation_type").notNull(),
+    state: commerceOperationState("state").notNull().default("CREATED"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    preparedPayloadHash: text("prepared_payload_hash"),
+    signerAddress: text("signer_address"),
+    nonce: bigint("nonce", { mode: "bigint" }),
+    transactionHash: text("transaction_hash"),
+    blockNumber: bigint("block_number", { mode: "bigint" }),
+    blockHash: text("block_hash"),
+    confirmationCount: integer("confirmation_count").notNull().default(0),
+    finalityState: commerceFinalityState("finality_state")
+      .notNull()
+      .default("UNCONFIRMED"),
+    replacementOperationId: uuid("replacement_operation_id"),
+    retryCount: integer("retry_count").notNull().default(0),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    failure: jsonb("failure"),
+    evidence: jsonb("evidence").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("commerce_operation_idempotency_unique").on(
+      table.agreementId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("commerce_operation_attempt_unique").on(
+      table.agreementId,
+      table.operationType,
+      table.attempt,
+    ),
+    index("commerce_operation_worker_idx").on(
+      table.state,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+    ),
+    index("commerce_operation_transaction_idx").on(table.transactionHash),
+  ],
+);
+
+export const commerceValueMovements = pgTable(
+  "commerce_value_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    activationId: uuid("activation_id").references(() => activations.id, {
+      onDelete: "restrict",
+    }),
+    executionRequestId: uuid("execution_request_id").references(
+      () => executionRequests.id,
+      { onDelete: "restrict" },
+    ),
+    sourceOperationId: uuid("source_operation_id").references(
+      () => commerceOperations.id,
+      { onDelete: "restrict" },
+    ),
+    movementType: commerceValueMovementType("movement_type").notNull(),
+    chainId: integer("chain_id").notNull(),
+    tokenAddress: text("token_address").notNull(),
+    tokenDecimals: integer("token_decimals").notNull(),
+    amountBaseUnits: numeric("amount_base_units", {
+      precision: 78,
+      scale: 0,
+    }).notNull(),
+    payerAddress: text("payer_address"),
+    payeeAddress: text("payee_address"),
+    transactionHash: text("transaction_hash"),
+    logIndex: integer("log_index"),
+    blockNumber: bigint("block_number", { mode: "bigint" }),
+    blockHash: text("block_hash"),
+    finalityState: commerceFinalityState("finality_state")
+      .notNull()
+      .default("UNCONFIRMED"),
+    provenance: provenanceKind("provenance").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("commerce_value_chain_event_unique").on(
+      table.chainId,
+      table.transactionHash,
+      table.logIndex,
+      table.movementType,
+    ),
+    index("commerce_value_agreement_type_idx").on(
+      table.agreementId,
+      table.movementType,
+    ),
+  ],
+);
+
+export const settlementRecords = pgTable(
+  "settlement_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    activationId: uuid("activation_id").references(() => activations.id, {
+      onDelete: "restrict",
+    }),
+    executionRequestId: uuid("execution_request_id").references(
+      () => executionRequests.id,
+      { onDelete: "restrict" },
+    ),
+    status: settlementStatus("status").notNull().default("PENDING"),
+    expectedAmountBaseUnits: numeric("expected_amount_base_units", {
+      precision: 78,
+      scale: 0,
+    }).notNull(),
+    fundedAmountBaseUnits: numeric("funded_amount_base_units", {
+      precision: 78,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    settledAmountBaseUnits: numeric("settled_amount_base_units", {
+      precision: 78,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    refundedAmountBaseUnits: numeric("refunded_amount_base_units", {
+      precision: 78,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    feeAmountBaseUnits: numeric("fee_amount_base_units", {
+      precision: 78,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    tokenAddress: text("token_address").notNull(),
+    tokenDecimals: integer("token_decimals").notNull(),
+    evidence: jsonb("evidence").notNull().default({}),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("settlement_agreement_activation_unique").on(
+      table.agreementId,
+      table.activationId,
+    ),
+    index("settlement_status_time_idx").on(table.status, table.updatedAt),
+  ],
+);
+
+export const commerceArtifacts = pgTable(
+  "commerce_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    activationId: uuid("activation_id").references(() => activations.id, {
+      onDelete: "restrict",
+    }),
+    executionRequestId: uuid("execution_request_id").references(
+      () => executionRequests.id,
+      { onDelete: "restrict" },
+    ),
+    artifactType: commerceArtifactType("artifact_type").notNull(),
+    source: text("source").notNull(),
+    contentHash: text("content_hash").notNull(),
+    contentReference: text("content_reference"),
+    safeContent: jsonb("safe_content"),
+    provenance: provenanceKind("provenance").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("commerce_artifact_content_unique").on(
+      table.agreementId,
+      table.artifactType,
+      table.contentHash,
+    ),
+    index("commerce_artifact_activation_idx").on(table.activationId),
+  ],
+);
+
+export const commerceReputationObservations = pgTable(
+  "commerce_reputation_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    agreementId: uuid("agreement_id").references(() => commerceAgreements.id, {
+      onDelete: "restrict",
+    }),
+    activationId: uuid("activation_id").references(() => activations.id, {
+      onDelete: "restrict",
+    }),
+    kind: text("kind").notNull(),
+    value: jsonb("value").notNull(),
+    provenance: provenanceKind("provenance").notNull(),
+    evidenceReference: jsonb("evidence_reference").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("commerce_reputation_agent_kind_time_idx").on(
+      table.agentId,
+      table.kind,
+      table.observedAt,
     ),
   ],
 );

@@ -139,6 +139,16 @@ export default async function ComparePage({
                 ))}
               </tr>
               <tr>
+                <th>Hiring</th>
+                {agents.map((agent) => (
+                  <td key={agent.id}>
+                    {agent.hireable
+                      ? "Hireable now"
+                      : "No active verified offer"}
+                  </td>
+                ))}
+              </tr>
+              <tr>
                 <th>Pricing</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>

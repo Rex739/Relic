@@ -15,5 +15,7 @@ agents/**/.agent-data/
 *.log
 *.tsbuildinfo
 .DS_Store
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
 .studio/
 .deployment-secrets/

@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { formatBaseUnits } from "@relic/domain";
 import {
   labelForCategory,
   marketplaceAgent,
   provenanceLabel,
   relativeTime,
 } from "../../../lib/marketplace";
+import { activeOffers } from "../../../lib/commerce";
 import { VerificationTier } from "../../_components/verification-tier";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +49,7 @@ export default async function AgentIntelligencePage({
       </main>
     );
   const agent = response.data;
+  const offers = await activeOffers(id);
   const evidenceGroups = ["Identity", "Metadata", "Service"].map((group) => ({
     group,
     items: agent.evidence.filter(
@@ -108,20 +111,25 @@ export default async function AgentIntelligencePage({
           <p>
             Last independently checked {relativeTime(agent.lastVerifiedAt)}.
           </p>
-          {agent.tier === "Actionable" ? (
+          {agent.tier === "Actionable" && offers.length > 0 ? (
             <div className="action-boundary actionable-boundary">
-              <span>Phase 09 preview</span>
-              <b>Eligible for activation</b>
+              <span>Verified offer available</span>
+              <b>Hireable on {agent.network}</b>
               <p>
-                Relic verified invocation and the commerce lifecycle. The next
-                step will configure a mandate, permissions and spending limits.
+                Review immutable commercial terms, configure a mandate, and
+                authorize each distinct boundary separately.
               </p>
-              <Link
-                href={`/agents/${agent.id}/activate`}
-                className="activate-link"
-              >
-                Activate agent <small>Define a mandate</small>
+              <Link href={`/agents/${agent.id}/hire`} className="activate-link">
+                Hire agent <small>Review verified offers</small>
               </Link>
+            </div>
+          ) : agent.tier === "Actionable" ? (
+            <div className="action-boundary">
+              <b>No active verified offer</b>
+              <p>
+                This service is Actionable, but its operator has not published
+                currently valid terms. Hiring is unavailable.
+              </p>
             </div>
           ) : (
             <div className="action-boundary">
@@ -137,6 +145,61 @@ export default async function AgentIntelligencePage({
 
       <div className="profile-layout">
         <div className="profile-main">
+          {offers.length > 0 ? (
+            <section className="profile-section commerce-offers">
+              <span className="overline">Verified offers</span>
+              <h2>Commercial terms published by the operator</h2>
+              <p>
+                Offer terms are operator-authored. Relic independently checks
+                the bound identity, service eligibility, and evidence freshness.
+              </p>
+              {offers.map((offer) => (
+                <article key={offer.id} className="offer-card">
+                  <div>
+                    <span>
+                      {offer.version.billingModel.replaceAll("_", " ")}
+                    </span>
+                    <h3>{offer.version.capability}</h3>
+                    <p>
+                      {offer.version.limitationsSnapshot.join(" · ") ||
+                        "No additional limitations published"}
+                    </p>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Price</dt>
+                      <dd>
+                        {formatBaseUnits(
+                          offer.version.price.amountBaseUnits,
+                          offer.version.price.decimals,
+                        )}{" "}
+                        {offer.version.price.symbol}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Network</dt>
+                      <dd>
+                        {offer.version.chainId === 97
+                          ? "BSC Testnet"
+                          : "BSC Mainnet"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Offer version</dt>
+                      <dd>v{offer.version.version}</dd>
+                    </div>
+                    <div>
+                      <dt>Terms hash</dt>
+                      <dd>{offer.version.termsHash.slice(0, 12)}…</dd>
+                    </div>
+                  </dl>
+                  <Link href={`/agents/${agent.id}/hire?offer=${offer.id}`}>
+                    Review and hire →
+                  </Link>
+                </article>
+              ))}
+            </section>
+          ) : null}
           <section className="profile-section">
             <span className="overline">What this agent does</span>
             <h2>Verified capability, in plain language</h2>

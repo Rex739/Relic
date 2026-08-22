@@ -30,12 +30,29 @@ beforeEach(async () => {
     .filter(
       (name) =>
         /^\d{4}_.+\.sql$/.test(name) &&
-        !name.startsWith("0008_secure_public_schema") &&
-        !name.startsWith("0011_lean_nebula"),
+        !name.startsWith("0008_secure_public_schema"),
     )
     .sort();
-  for (const name of names)
-    await database.exec(await readFile(new URL(name, directory), "utf8"));
+  for (const name of names) {
+    let migration = await readFile(new URL(name, directory), "utf8");
+    if (name.startsWith("0011_"))
+      migration = migration.split(
+        "-- Mandates are server-side authorization records",
+      )[0]!;
+    if (name.startsWith("0012_"))
+      migration = migration.split(
+        "-- Execution control is server-side policy state",
+      )[0]!;
+    if (name.startsWith("0013_"))
+      migration = migration.split(
+        "-- Commerce and wallet-session state is server-side only",
+      )[0]!;
+    if (name.startsWith("0014_"))
+      migration = migration.split(
+        "ALTER TABLE public.authorization_challenges ENABLE ROW LEVEL SECURITY",
+      )[0]!;
+    await database.exec(migration);
+  }
   store = new DrizzleCorpusStore(
     drizzle(database, { schema }) as unknown as RelicDatabase,
   );

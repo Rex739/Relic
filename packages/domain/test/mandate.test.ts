@@ -33,6 +33,7 @@ const actionableAgent = (
     protocols: ["Venus", "erc8183"],
     interfaces: ["erc8183"],
     pricingKnown: true,
+    hireable: true,
     executionEvidenceCount: 1,
     feedbackCount: 0,
     lastVerifiedAt: "2026-08-21T10:00:00.000Z",

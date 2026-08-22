@@ -3,17 +3,66 @@ import Link from "next/link";
 import type { MandateListItem } from "@relic/domain";
 
 import { transitionMandateAction } from "../mandate-actions";
-import { listMyAgents } from "../../lib/mandates";
+import { listExecutions, listMyAgents } from "../../lib/mandates";
 import { relativeTime } from "../../lib/marketplace";
+import { agreements, type CommerceAgreementView } from "../../lib/commerce";
+import { formatBaseUnits } from "@relic/domain";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "My Agents" };
 
+const movementAmount = (movement: Record<string, unknown>) => {
+  if (
+    typeof movement.amountBaseUnits !== "string" ||
+    !/^\d+$/.test(movement.amountBaseUnits)
+  )
+    throw new Error(
+      "A persisted commerce movement has an invalid exact amount",
+    );
+  return BigInt(movement.amountBaseUnits);
+};
+
 export default async function MyAgentsPage() {
   let items: MandateListItem[] = [];
+  let executionState: Record<
+    string,
+    { lastAt: string | null; result: string; pendingApproval: boolean }
+  > = {};
   let error: string | null = null;
+  let agreementByMandate: Record<string, CommerceAgreementView> = {};
   try {
-    items = await listMyAgents();
+    const [mandateItems, commerceAgreements] = await Promise.all([
+      listMyAgents(),
+      agreements(),
+    ]);
+    agreementByMandate = Object.fromEntries(
+      commerceAgreements
+        .filter(
+          (item): item is CommerceAgreementView =>
+            item !== null && item.mandateId !== null,
+        )
+        .map((item) => [item.mandateId!, item]),
+    );
+    items = mandateItems.filter(
+      ({ mandate }) => agreementByMandate[mandate.id] !== undefined,
+    );
+    executionState = Object.fromEntries(
+      await Promise.all(
+        items.map(async ({ mandate }) => {
+          const executions = await listExecutions(mandate.id);
+          return [
+            mandate.id,
+            {
+              lastAt: executions[0]?.updatedAt ?? null,
+              result: executions[0]?.status.replaceAll("_", " ") ?? "None",
+              pendingApproval: executions.some(
+                ({ status }) => status === "APPROVAL_REQUIRED",
+              ),
+            },
+          ] as const;
+        }),
+      ),
+    );
   } catch (caught) {
     error =
       caught instanceof Error ? caught.message : "Relationships unavailable";
@@ -45,8 +94,18 @@ export default async function MyAgentsPage() {
         </div>
       ) : (
         <div className="relationship-list">
-          {items.map(
-            ({ mandate, agent, lastActivityAt, nextExpectedAction }) => (
+          {items.map(({ mandate, agent, nextExpectedAction }) => {
+            const agreement = agreementByMandate[mandate.id]!;
+            const pendingWalletAction = agreement.operations.some(
+              (operation) => operation.state === "AWAITING_SIGNATURE",
+            );
+            const settled = agreement.movements
+              .filter((movement) => movement.movementType === "PAYMENT")
+              .reduce(
+                (total, movement) => total + movementAmount(movement),
+                0n,
+              );
+            return (
               <article key={mandate.id}>
                 <div className="relationship-main">
                   <div className="agent-avatar">
@@ -63,19 +122,33 @@ export default async function MyAgentsPage() {
                 <dl>
                   <div>
                     <dt>Status</dt>
-                    <dd>{mandate.status.replaceAll("_", " ")}</dd>
+                    <dd>{agreement.status.replaceAll("_", " ")}</dd>
                   </div>
                   <div>
-                    <dt>Authority</dt>
-                    <dd>Observe only</dd>
+                    <dt>Wallet authorization</dt>
+                    <dd>
+                      {agreement.authorizationArtifactId === null
+                        ? "Required"
+                        : "Verified"}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Limits</dt>
-                    <dd>No spending authority</dd>
+                    <dt>Offer price</dt>
+                    <dd>
+                      {formatBaseUnits(
+                        agreement.pricingSnapshot.amountBaseUnits,
+                        agreement.pricingSnapshot.decimals,
+                      )}{" "}
+                      {agreement.pricingSnapshot.symbol}
+                    </dd>
                   </div>
                   <div>
-                    <dt>Last activity</dt>
-                    <dd>{relativeTime(lastActivityAt)}</dd>
+                    <dt>Last execution</dt>
+                    <dd>
+                      {executionState[mandate.id]?.lastAt
+                        ? relativeTime(executionState[mandate.id]!.lastAt!)
+                        : "None"}
+                    </dd>
                   </div>
                   <div>
                     <dt>Expires</dt>
@@ -87,8 +160,49 @@ export default async function MyAgentsPage() {
                     <dt>Next</dt>
                     <dd>{nextExpectedAction}</dd>
                   </div>
+                  <div>
+                    <dt>Latest result</dt>
+                    <dd>{executionState[mandate.id]?.result ?? "None"}</dd>
+                  </div>
+                  <div>
+                    <dt>Pending approval</dt>
+                    <dd>
+                      {executionState[mandate.id]?.pendingApproval ||
+                      pendingWalletAction
+                        ? "Yes"
+                        : "No"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Settled spend</dt>
+                    <dd>
+                      {formatBaseUnits(
+                        settled,
+                        agreement.pricingSnapshot.decimals,
+                      )}{" "}
+                      {agreement.pricingSnapshot.symbol}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Settlement</dt>
+                    <dd>
+                      {typeof agreement.settlements[0]?.status !== "string"
+                        ? "No settlement"
+                        : agreement.settlements[0].status}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Attention</dt>
+                    <dd>{mandate.attentionReason ?? "None"}</dd>
+                  </div>
                 </dl>
                 <div className="relationship-actions">
+                  <Link href={`/my-agents/mandates/${mandate.id}`}>
+                    Open Execution Room
+                  </Link>
+                  <Link href={`/commerce/agreements/${agreement.id}`}>
+                    Open agreement
+                  </Link>
                   <Link href={`/mandates/${mandate.id}`}>Open mandate</Link>
                   {mandate.status === "ACTIVE" ? (
                     <form
@@ -125,8 +239,8 @@ export default async function MyAgentsPage() {
                   ) : null}
                 </div>
               </article>
-            ),
-          )}
+            );
+          })}
         </div>
       )}
     </main>

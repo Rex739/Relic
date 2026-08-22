@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { WalletSession } from "./wallet-session";
 
 export function SiteHeader() {
   return (
@@ -16,8 +17,11 @@ export function SiteHeader() {
         <Link href="/compare">Compare</Link>
         <Link href="/my-agents">My Agents</Link>
       </nav>
-      <div className="network-pill">
-        <span /> BNB ecosystem
+      <div className="header-actions">
+        <div className="network-pill">
+          <span /> BNB ecosystem
+        </div>
+        <WalletSession />
       </div>
     </header>
   );

@@ -24,6 +24,16 @@ beforeEach(async () => {
     let sql = await readFile(new URL(name, directory), "utf8");
     if (name.startsWith("0011_"))
       sql = sql.split("-- Mandates are server-side authorization records")[0]!;
+    if (name.startsWith("0012_"))
+      sql = sql.split("-- Execution control is server-side policy state")[0]!;
+    if (name.startsWith("0013_"))
+      sql = sql.split(
+        "-- Commerce and wallet-session state is server-side only",
+      )[0]!;
+    if (name.startsWith("0014_"))
+      sql = sql.split(
+        "ALTER TABLE public.authorization_challenges ENABLE ROW LEVEL SECURITY",
+      )[0]!;
     await database.exec(sql);
   }
   await database.exec(`

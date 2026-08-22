@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { PublicMarketplaceAgentDetail } from "./marketplace.js";
+import { addDecimalAmounts, compareDecimalAmounts } from "./money.js";
 
 export const mandateStatuses = [
   "DRAFT",
@@ -35,8 +36,13 @@ export const mandateEventTypes = [
   "AGENT_INVOCATION_REQUESTED",
   "RECOMMENDATION_PRODUCED",
   "EXECUTION_REQUESTED",
+  "POLICY_EVALUATED",
+  "APPROVAL_REQUESTED",
   "EXECUTION_APPROVED",
   "EXECUTION_REJECTED",
+  "EXECUTION_STARTED",
+  "PROVIDER_RESPONSE_RECEIVED",
+  "EXECUTION_CANCELLED",
   "RESULT_RECEIVED",
   "EXECUTION_COMPLETED",
   "EXECUTION_FAILED",
@@ -228,8 +234,6 @@ const canonical = (value: string) =>
     .replaceAll(/[\s_-]+/g, "_");
 const includesCanonical = (values: string[], value: string) =>
   values.some((candidate) => canonical(candidate) === canonical(value));
-const decimal = (value: string) => Number.parseFloat(value);
-
 const transactionCapabilities = [
   "transfer_tokens",
   "borrow_assets",
@@ -392,8 +396,10 @@ export function validateMandateConfiguration(
       [parsed.aggregateLimit.asset],
       parsed.perActionLimit.asset,
     ) ||
-      decimal(parsed.perActionLimit.amount) >
-        decimal(parsed.aggregateLimit.amount))
+      compareDecimalAmounts(
+        parsed.perActionLimit.amount,
+        parsed.aggregateLimit.amount,
+      ) > 0)
   )
     throw new MandateValidationError(
       "invalid_limits",
@@ -541,9 +547,9 @@ export function assertExecutionAuthorized(input: {
       "asset_denied",
       "The requested asset is not allowed by this mandate.",
     );
-  const amount = input.amount === undefined ? 0 : decimal(input.amount);
+  const amount = input.amount ?? "0";
   const perAction = input.mandate.version.perActionLimit;
-  if (perAction !== null && amount > decimal(perAction.amount))
+  if (perAction !== null && compareDecimalAmounts(amount, perAction.amount) > 0)
     throw new MandateValidationError(
       "per_action_limit_exceeded",
       "The requested amount exceeds the mandate's per-action limit.",
@@ -551,7 +557,10 @@ export function assertExecutionAuthorized(input: {
   const aggregate = input.mandate.version.aggregateLimit;
   if (
     aggregate !== null &&
-    amount + decimal(input.aggregateUsed ?? "0") > decimal(aggregate.amount)
+    compareDecimalAmounts(
+      addDecimalAmounts(amount, input.aggregateUsed ?? "0"),
+      aggregate.amount,
+    ) > 0
   )
     throw new MandateValidationError(
       "aggregate_limit_exceeded",

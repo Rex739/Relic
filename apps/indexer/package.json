@@ -30,6 +30,7 @@
     "supply:invoke:erc8183": "tsx src/external-erc8183-invocation.ts",
     "supply:onboard": "tsx src/cli.ts supply-onboard",
     "commerce:live:health-factor": "tsx src/live-health-commerce.ts",
+    "commerce:operations": "tsx src/cli.ts commerce-operations",
     "lint": "eslint src test",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"

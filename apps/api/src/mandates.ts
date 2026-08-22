@@ -34,7 +34,11 @@ export class MandateApplicationService {
     };
   }
 
-  public async create(principalId: string, request: CreateMandateRequest) {
+  public async create(
+    principalId: string,
+    request: CreateMandateRequest,
+    principalType: Mandate["principalType"] = "DEVELOPMENT_SESSION",
+  ) {
     const parsed = createMandateRequestSchema.parse(request);
     const agent = await this.#actionableAgent(parsed.agentId);
     const profile = mandateProfileForAgent(agent, this.now());
@@ -45,7 +49,7 @@ export class MandateApplicationService {
     );
     return this.mandates.createMandate({
       principalId,
-      principalType: "DEVELOPMENT_SESSION",
+      principalType,
       profile,
       configuration,
       evidence: mandateEvidenceBinding(agent, profile),

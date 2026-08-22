@@ -8,7 +8,11 @@ import {
 
 import {
   buildOwnershipMessage,
+  createOfferRequestSchema,
   createMandateRequestSchema,
+  executionActionRequestSchema,
+  walletChallengeRequestSchema,
+  walletChallengeVerificationSchema,
   MandateValidationError,
   type AgentReadRepository,
   type OnboardingRepository,
@@ -34,6 +38,11 @@ import { z } from "zod";
 import { getAddress, isAddress, keccak256, recoverMessageAddress } from "viem";
 
 import type { MandateApplicationService } from "./mandates.js";
+import type { ExecutionApplicationService } from "./executions.js";
+import type {
+  CommerceApplicationService,
+  WalletAuthenticationService,
+} from "./commerce.js";
 
 const json = (schema: z.ZodType, description: string) => ({
   content: { "application/json": { schema } },
@@ -202,9 +211,13 @@ const internalMarketplaceStatusRoute = createRoute({
   },
 });
 const principalHeaders = z.object({
-  "x-relic-principal-id": z.uuid(),
-  "x-relic-mandate-timestamp": z.string().regex(/^\d+$/),
-  "x-relic-mandate-signature": z.string().regex(/^[0-9a-f]{64}$/),
+  authorization: z.string().optional(),
+  "x-relic-principal-id": z.uuid().optional(),
+  "x-relic-mandate-timestamp": z.string().regex(/^\d+$/).optional(),
+  "x-relic-mandate-signature": z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
 });
 const mandateParams = z.object({ id: z.uuid() });
 const mandateDataResponse = z.object({ data: z.any() });
@@ -313,6 +326,309 @@ const executionPreflightRoute = createRoute({
     },
   },
   responses: mandateResponses,
+});
+const executionParams = z.object({ id: z.uuid(), executionId: z.uuid() });
+const createExecutionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/executions",
+  request: {
+    params: mandateParams,
+    headers: principalHeaders.extend({
+      "idempotency-key": z.string().min(8).max(200),
+    }),
+    body: {
+      content: { "application/json": { schema: executionActionRequestSchema } },
+    },
+  },
+  responses: mandateResponses,
+});
+const listExecutionsRoute = createRoute({
+  method: "get",
+  path: "/v1/mandates/{id}/executions",
+  request: { params: mandateParams, headers: principalHeaders },
+  responses: mandateResponses,
+});
+const getExecutionRoute = createRoute({
+  method: "get",
+  path: "/v1/mandates/{id}/executions/{executionId}",
+  request: { params: executionParams, headers: principalHeaders },
+  responses: mandateResponses,
+});
+const approveExecutionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/executions/{executionId}/approval",
+  request: {
+    params: executionParams,
+    headers: principalHeaders,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            normalizedHash: z.string().regex(/^[0-9a-f]{64}$/),
+            approved: z.boolean(),
+          }),
+        },
+      },
+    },
+  },
+  responses: mandateResponses,
+});
+
+const walletChallengeRoute = createRoute({
+  method: "post",
+  path: "/v1/auth/wallet/challenge",
+  request: {
+    body: {
+      content: { "application/json": { schema: walletChallengeRequestSchema } },
+    },
+  },
+  responses: {
+    201: json(z.object({ data: z.any() }), "Wallet challenge created"),
+    400: json(errorResponseSchema, "Invalid wallet challenge request"),
+    503: json(errorResponseSchema, "Wallet authentication unavailable"),
+  },
+});
+const walletVerifyRoute = createRoute({
+  method: "post",
+  path: "/v1/auth/wallet/verify",
+  request: {
+    body: {
+      content: {
+        "application/json": { schema: walletChallengeVerificationSchema },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Wallet session established"),
+    400: json(errorResponseSchema, "Invalid wallet signature"),
+    409: json(errorResponseSchema, "Wallet challenge rejected"),
+    503: json(errorResponseSchema, "Wallet authentication unavailable"),
+  },
+});
+const walletSessionRoute = createRoute({
+  method: "get",
+  path: "/v1/auth/session",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Current wallet session"),
+    401: json(errorResponseSchema, "Wallet session invalid"),
+  },
+});
+const walletLogoutRoute = createRoute({
+  method: "post",
+  path: "/v1/auth/logout",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(
+      z.object({ data: z.object({ revoked: z.boolean() }) }),
+      "Session revoked",
+    ),
+    401: json(errorResponseSchema, "Wallet session invalid"),
+  },
+});
+const agentOffersRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/agents/{id}/offers",
+  request: { params: mandateParams },
+  responses: {
+    200: json(z.object({ data: z.array(z.any()) }), "Active verified offers"),
+  },
+});
+const createOfferRoute = createRoute({
+  method: "post",
+  path: "/v1/operator/offers",
+  request: {
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: { "application/json": { schema: createOfferRequestSchema } },
+    },
+  },
+  responses: { 201: json(z.object({ data: z.any() }), "Offer draft created") },
+});
+const offerParams = z.object({ id: z.uuid() });
+const listOperatorOffersRoute = createRoute({
+  method: "get",
+  path: "/v1/operator/offers",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(z.object({ data: z.array(z.any()) }), "Operator offers"),
+  },
+});
+const reviseOfferRoute = createRoute({
+  method: "put",
+  path: "/v1/operator/offers/{id}",
+  request: {
+    params: offerParams,
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: { "application/json": { schema: createOfferRequestSchema } },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "New immutable offer version"),
+  },
+});
+const operatorAgreementsRoute = createRoute({
+  method: "get",
+  path: "/v1/operator/commerce-agreements",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(
+      z.object({ data: z.array(z.any()) }),
+      "Operator commerce history",
+    ),
+  },
+});
+const offerTransitionRoute = (action: "activate" | "pause" | "deactivate") =>
+  createRoute({
+    method: "post",
+    path: `/v1/operator/offers/{id}/${action}`,
+    request: {
+      params: offerParams,
+      headers: z.object({ authorization: z.string() }),
+    },
+    responses: { 200: json(z.object({ data: z.any() }), `Offer ${action}`) },
+  });
+const activateOfferRoute = offerTransitionRoute("activate");
+const pauseOfferRoute = offerTransitionRoute("pause");
+const deactivateOfferRoute = offerTransitionRoute("deactivate");
+const hireOfferRoute = createRoute({
+  method: "post",
+  path: "/v1/offers/{id}/hire",
+  request: {
+    params: offerParams,
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": { schema: z.object({ mandateId: z.uuid() }) },
+      },
+    },
+  },
+  responses: {
+    201: json(z.object({ data: z.any() }), "Agreement draft created"),
+  },
+});
+const agreementParams = z.object({ id: z.uuid() });
+const listAgreementsRoute = createRoute({
+  method: "get",
+  path: "/v1/commerce-agreements",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(z.object({ data: z.array(z.any()) }), "Principal agreements"),
+  },
+});
+const getAgreementRoute = createRoute({
+  method: "get",
+  path: "/v1/commerce-agreements/{id}",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: { 200: json(z.object({ data: z.any() }), "Commerce agreement") },
+});
+const acceptAgreementTermsRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/accept-terms",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            termsHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+          }),
+        },
+      },
+    },
+  },
+  responses: { 200: json(z.object({ data: z.any() }), "Terms accepted") },
+});
+const authorizationChallengeRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/authorization-challenge",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            actionHash: z
+              .string()
+              .regex(/^0x[0-9a-fA-F]{64}$/)
+              .nullable()
+              .default(null),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: json(z.object({ data: z.any() }), "Typed authorization challenge"),
+  },
+});
+const verifyAuthorizationRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/authorization",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            challengeId: z.uuid(),
+            signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Authorization verified"),
+  },
+});
+const cancelAgreementRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/cancel",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: { 200: json(z.object({ data: z.any() }), "Agreement cancelled") },
+});
+const revokeAuthorizationRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/revoke-authorization",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Authorization revoked"),
+  },
+});
+const createCommerceActivationRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/activations",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            executionRequestId: z.uuid(),
+            authorizationId: z.uuid(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: json(z.object({ data: z.any() }), "Prepared user-commerce activation"),
+  },
 });
 
 const submissionSchema = z.object({
@@ -432,7 +748,12 @@ export function createApp(
   repository: AgentReadRepository,
   onboarding?: OnboardingRepository,
   mandateService?: MandateApplicationService,
-  options: { mandateApiSecret?: string } = {},
+  options: {
+    mandateApiSecret?: string;
+    executionService?: ExecutionApplicationService;
+    walletAuthService?: WalletAuthenticationService;
+    commerceService?: CommerceApplicationService;
+  } = {},
 ) {
   const app = new OpenAPIHono({
     defaultHook: (result, context) => {
@@ -697,13 +1018,47 @@ export function createApp(
       );
     return mandateService;
   };
-  const principal = (context: {
+  const requireExecutions = () => {
+    if (options.executionService === undefined)
+      throw new MandateValidationError(
+        "executions_unavailable",
+        "Execution control is unavailable.",
+      );
+    return options.executionService;
+  };
+  const walletPrincipal = async (context: {
+    req: { header(name: string): string | undefined };
+  }) => {
+    const authorization = context.req.header("authorization");
+    if (!authorization?.startsWith("Bearer "))
+      throw new MandateValidationError(
+        "wallet_session_required",
+        "A production wallet session is required.",
+      );
+    if (options.walletAuthService === undefined)
+      throw new MandateValidationError(
+        "wallet_auth_unavailable",
+        "Wallet authentication is unavailable.",
+      );
+    const session = await options.walletAuthService.session(
+      authorization.slice("Bearer ".length),
+    );
+    if (session === null)
+      throw new MandateValidationError(
+        "wallet_session_invalid",
+        "Wallet session is invalid or expired.",
+      );
+    return session;
+  };
+  const principal = async (context: {
     req: {
       header(name: string): string | undefined;
       method: string;
       path: string;
     };
   }) => {
+    if (context.req.header("authorization")?.startsWith("Bearer "))
+      return (await walletPrincipal(context)).principalId;
     const principalId = z
       .uuid()
       .parse(context.req.header("x-relic-principal-id"));
@@ -743,6 +1098,306 @@ export function createApp(
     return principalId;
   };
 
+  const requireWalletAuth = () => {
+    if (options.walletAuthService === undefined)
+      throw new MandateValidationError(
+        "wallet_auth_unavailable",
+        "Wallet authentication is unavailable.",
+      );
+    return options.walletAuthService;
+  };
+  const requireCommerce = () => {
+    if (options.commerceService === undefined)
+      throw new MandateValidationError(
+        "commerce_unavailable",
+        "Agent commerce is unavailable.",
+      );
+    return options.commerceService;
+  };
+
+  app.openapi(walletChallengeRoute, async (context) => {
+    const body = walletChallengeRequestSchema.parse(await context.req.json());
+    return context.json(
+      { data: await requireWalletAuth().challenge(body.address, body.chainId) },
+      201,
+    );
+  });
+
+  app.openapi(walletVerifyRoute, async (context) => {
+    const body = walletChallengeVerificationSchema.parse(
+      await context.req.json(),
+    );
+    return context.json(
+      {
+        data: await requireWalletAuth().verify({
+          challengeId: body.challengeId,
+          address: body.address,
+          chainId: body.chainId,
+          signature: body.signature as `0x${string}`,
+        }),
+      },
+      200,
+    );
+  });
+
+  app.openapi(walletSessionRoute, async (context) =>
+    context.json({ data: await walletPrincipal(context) }, 200),
+  );
+
+  app.openapi(walletLogoutRoute, async (context) => {
+    await walletPrincipal(context);
+    const authorization = context.req.header("authorization")!;
+    return context.json(
+      {
+        data: {
+          revoked: await requireWalletAuth().revoke(
+            authorization.slice("Bearer ".length),
+          ),
+        },
+      },
+      200,
+    );
+  });
+
+  app.openapi(agentOffersRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json({ data: await requireCommerce().offers(id) }, 200);
+  });
+
+  app.openapi(createOfferRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    const body = createOfferRequestSchema.parse(await context.req.json());
+    return context.json(
+      { data: await requireCommerce().createOffer(session, body) },
+      201,
+    );
+  });
+
+  app.openapi(listOperatorOffersRoute, async (context) =>
+    context.json(
+      {
+        data: await requireCommerce().operatorOffers(
+          await walletPrincipal(context),
+        ),
+      },
+      200,
+    ),
+  );
+
+  app.openapi(reviseOfferRoute, async (context) => {
+    const { id } = offerParams.parse(context.req.param());
+    const body = createOfferRequestSchema.parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().reviseOffer(
+          await walletPrincipal(context),
+          id,
+          body,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(operatorAgreementsRoute, async (context) =>
+    context.json(
+      {
+        data: await requireCommerce().operatorAgreements(
+          await walletPrincipal(context),
+        ),
+      },
+      200,
+    ),
+  );
+
+  app.openapi(activateOfferRoute, async (context) => {
+    const { id } = offerParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().activateOffer(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(pauseOfferRoute, async (context) => {
+    const { id } = offerParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().transitionOffer(
+          await walletPrincipal(context),
+          id,
+          "PAUSED",
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(deactivateOfferRoute, async (context) => {
+    const { id } = offerParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().transitionOffer(
+          await walletPrincipal(context),
+          id,
+          "DEACTIVATED",
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(hireOfferRoute, async (context) => {
+    const { id } = offerParams.parse(context.req.param());
+    const body = z
+      .object({ mandateId: z.uuid() })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().hire(
+          await walletPrincipal(context),
+          id,
+          body.mandateId,
+        ),
+      },
+      201,
+    );
+  });
+
+  app.openapi(listAgreementsRoute, async (context) =>
+    context.json(
+      {
+        data: await requireCommerce().agreements(
+          await walletPrincipal(context),
+        ),
+      },
+      200,
+    ),
+  );
+
+  app.openapi(getAgreementRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().agreement(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(acceptAgreementTermsRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    const body = z
+      .object({ termsHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().acceptTerms(
+          await walletPrincipal(context),
+          id,
+          body.termsHash,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(authorizationChallengeRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    const body = z
+      .object({
+        actionHash: z
+          .string()
+          .regex(/^0x[0-9a-fA-F]{64}$/)
+          .nullable()
+          .default(null),
+      })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().authorizationChallenge(
+          await walletPrincipal(context),
+          id,
+          body.actionHash as `0x${string}` | null,
+        ),
+      },
+      201,
+    );
+  });
+
+  app.openapi(verifyAuthorizationRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    const body = z
+      .object({
+        challengeId: z.uuid(),
+        signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
+      })
+      .parse(await context.req.json());
+    const session = await walletPrincipal(context);
+    return context.json(
+      {
+        data: await requireCommerce().verifyAuthorization(
+          session,
+          id,
+          body.challengeId,
+          body.signature as `0x${string}`,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(cancelAgreementRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().cancelAgreement(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(revokeAuthorizationRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().revokeAuthorization(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(createCommerceActivationRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    const body = z
+      .object({ executionRequestId: z.uuid(), authorizationId: z.uuid() })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().createActivation(
+          await walletPrincipal(context),
+          id,
+          body.executionRequestId,
+          body.authorizationId,
+        ),
+      },
+      201,
+    );
+  });
+
   app.openapi(activationProfileRoute, async (context) => {
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
@@ -753,21 +1408,27 @@ export function createApp(
 
   app.openapi(createMandateRoute, async (context) => {
     const body = createMandateRequestSchema.parse(await context.req.json());
-    const data = await requireMandates().create(principal(context), body);
+    const walletBacked =
+      context.req.header("authorization")?.startsWith("Bearer ") === true;
+    const data = await requireMandates().create(
+      await principal(context),
+      body,
+      walletBacked ? "WALLET" : "DEVELOPMENT_SESSION",
+    );
     return context.json({ data }, 201);
   });
 
   app.openapi(getMandateRoute, async (context) => {
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
-      { data: await requireMandates().get(principal(context), id) },
+      { data: await requireMandates().get(await principal(context), id) },
       200,
     );
   });
 
   app.openapi(myAgentsRoute, async (context) =>
     context.json(
-      { data: await requireMandates().list(principal(context)) },
+      { data: await requireMandates().list(await principal(context)) },
       200,
     ),
   );
@@ -776,7 +1437,9 @@ export function createApp(
     const { id } = mandateParams.parse(context.req.param());
     const body = createMandateRequestSchema.parse(await context.req.json());
     return context.json(
-      { data: await requireMandates().edit(principal(context), id, body) },
+      {
+        data: await requireMandates().edit(await principal(context), id, body),
+      },
       200,
     );
   });
@@ -784,7 +1447,7 @@ export function createApp(
   app.openapi(reviewMandateRoute, async (context) => {
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
-      { data: await requireMandates().review(principal(context), id) },
+      { data: await requireMandates().review(await principal(context), id) },
       200,
     );
   });
@@ -797,7 +1460,7 @@ export function createApp(
     return context.json(
       {
         data: await requireMandates().activate(
-          principal(context),
+          await principal(context),
           id,
           body.explicitlyApproved,
         ),
@@ -809,7 +1472,7 @@ export function createApp(
   app.openapi(pauseMandateRoute, async (context) => {
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
-      { data: await requireMandates().pause(principal(context), id) },
+      { data: await requireMandates().pause(await principal(context), id) },
       200,
     );
   });
@@ -817,7 +1480,7 @@ export function createApp(
   app.openapi(resumeMandateRoute, async (context) => {
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
-      { data: await requireMandates().resume(principal(context), id) },
+      { data: await requireMandates().resume(await principal(context), id) },
       200,
     );
   });
@@ -825,7 +1488,7 @@ export function createApp(
   app.openapi(revokeMandateRoute, async (context) => {
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
-      { data: await requireMandates().revoke(principal(context), id) },
+      { data: await requireMandates().revoke(await principal(context), id) },
       200,
     );
   });
@@ -838,7 +1501,7 @@ export function createApp(
     return context.json(
       {
         data: await requireMandates().executionPreflight(
-          principal(context),
+          await principal(context),
           id,
           {
             capability: body.capability,
@@ -848,6 +1511,69 @@ export function createApp(
               ? {}
               : { aggregateUsed: body.aggregateUsed }),
           },
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(createExecutionRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const idempotencyKey = z
+      .string()
+      .min(8)
+      .max(200)
+      .parse(context.req.header("idempotency-key"));
+    const body = executionActionRequestSchema.parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireExecutions().request(
+          await principal(context),
+          id,
+          idempotencyKey,
+          body,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(listExecutionsRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    return context.json(
+      { data: await requireExecutions().list(await principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(getExecutionRoute, async (context) => {
+    const { executionId } = executionParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireExecutions().get(
+          await principal(context),
+          executionId,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(approveExecutionRoute, async (context) => {
+    const { executionId } = executionParams.parse(context.req.param());
+    const body = z
+      .object({
+        normalizedHash: z.string().regex(/^[0-9a-f]{64}$/),
+        approved: z.boolean(),
+      })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireExecutions().approve(
+          await principal(context),
+          executionId,
+          body.normalizedHash,
+          body.approved,
         ),
       },
       200,

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ActivationStatus } from "./supply.js";
+
 export const supplyTypeSchema = z.enum([
   "third_party",
   "partner",
@@ -101,6 +103,26 @@ export function assertActivationLifecycleTransition(
     throw new Error(
       `Invalid activation lifecycle transition: ${from} -> ${to}`,
     );
+}
+
+export function legacyActivationStatusForLifecycle(
+  state: ActivationLifecycleState,
+): ActivationStatus {
+  const statuses: Record<ActivationLifecycleState, ActivationStatus> = {
+    PREPARING: "PREPARED",
+    NEGOTIATING: "TERMS_RESOLVED",
+    AWAITING_AUTHORIZATION: "TERMS_RESOLVED",
+    ONCHAIN_CREATED: "JOB_CREATED",
+    ACTIVE: "FUNDED",
+    DELIVERED: "SUBMITTED",
+    SETTLING: "SUBMITTED",
+    COMPLETED: "COMPLETED",
+    REJECTED: "REJECTED",
+    REFUNDED: "REJECTED",
+    FAILED: "FAILED",
+    BLOCKED: "BLOCKED",
+  };
+  return statuses[state];
 }
 
 export interface AgentSubmission {

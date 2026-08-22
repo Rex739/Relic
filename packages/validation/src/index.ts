@@ -141,6 +141,7 @@ export const publicMarketplaceAgentSchema = z.object({
   protocols: z.array(z.string()),
   interfaces: z.array(z.string()),
   pricingKnown: z.boolean(),
+  hireable: z.boolean(),
   executionEvidenceCount: z.number().int().nonnegative(),
   feedbackCount: z.number().int().nonnegative(),
   lastVerifiedAt: z.iso.datetime(),

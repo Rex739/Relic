@@ -30,6 +30,9 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
           <article className="agent-card" key={agent.id}>
             <div className="agent-card-topline">
               <VerificationTier tier={agent.tier} />
+              {agent.hireable ? (
+                <span className="hireable-badge">Hireable</span>
+              ) : null}
               <label className="compare-check">
                 <input
                   type="checkbox"
@@ -112,9 +115,11 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
             </dl>
             <div className="card-footer">
               <span>
-                {agent.tier === "Actionable"
-                  ? "Available for future activation"
-                  : "Working; commerce gated"}
+                {agent.hireable
+                  ? "Active verified offer"
+                  : agent.tier === "Actionable"
+                    ? "Actionable; no active offer"
+                    : "Working; commerce gated"}
               </span>
               <Link href={`/agents/${agent.id}`}>
                 View intelligence <span aria-hidden="true">→</span>

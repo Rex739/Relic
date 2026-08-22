@@ -1,9 +1,12 @@
 import "server-only";
 
 import { createHmac } from "node:crypto";
+import { cookies } from "next/headers";
 
 import type {
   CreateMandateRequest,
+  ExecutionActionRequest,
+  ExecutionRecord,
   Mandate,
   MandateListItem,
   VerifiedMandateProfile,
@@ -24,7 +27,12 @@ const mandateSecret = () =>
     ? undefined
     : "relic-local-development-mandate-secret-not-production");
 
-const mandateHeaders = (method: string, path: string) => {
+const mandateHeaders = async (method: string, path: string) => {
+  const sessionToken = (await cookies()).get("relic_session")?.value;
+  if (sessionToken !== undefined)
+    return { authorization: `Bearer ${sessionToken}` };
+  if (process.env.NODE_ENV === "production")
+    throw new Error("Connect a wallet to access your Relic relationships");
   const secret = mandateSecret();
   if (secret === undefined)
     throw new Error("Mandate authorization is not configured");
@@ -42,7 +50,12 @@ const mandateHeaders = (method: string, path: string) => {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; authenticated?: boolean } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    authenticated?: boolean;
+    headers?: Record<string, string>;
+  } = {},
 ) {
   const method = options.method ?? "GET";
   const response = await fetch(`${apiUrl()}${path}`, {
@@ -53,7 +66,10 @@ async function request<T>(
       ...(options.body === undefined
         ? {}
         : { "content-type": "application/json" }),
-      ...(options.authenticated === false ? {} : mandateHeaders(method, path)),
+      ...(options.authenticated === false
+        ? {}
+        : await mandateHeaders(method, path)),
+      ...options.headers,
     },
     ...(options.body === undefined
       ? {}
@@ -103,3 +119,33 @@ export const transitionMandate = (
     method: "POST",
     ...(action === "activate" ? { body: { explicitlyApproved: true } } : {}),
   });
+
+export const listExecutions = (mandateId: string) =>
+  request<ExecutionRecord[]>(
+    `/v1/mandates/${encodeURIComponent(mandateId)}/executions`,
+  );
+
+export const requestExecution = (
+  mandateId: string,
+  idempotencyKey: string,
+  action: ExecutionActionRequest,
+) =>
+  request<ExecutionRecord>(
+    `/v1/mandates/${encodeURIComponent(mandateId)}/executions`,
+    {
+      method: "POST",
+      body: action,
+      headers: { "idempotency-key": idempotencyKey },
+    },
+  );
+
+export const approveExecution = (
+  mandateId: string,
+  executionId: string,
+  normalizedHash: string,
+  approved: boolean,
+) =>
+  request<ExecutionRecord>(
+    `/v1/mandates/${encodeURIComponent(mandateId)}/executions/${encodeURIComponent(executionId)}/approval`,
+    { method: "POST", body: { normalizedHash, approved } },
+  );

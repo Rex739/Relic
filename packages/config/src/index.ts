@@ -40,6 +40,24 @@ const serverEnvironmentSchema = z.object({
   NEXT_PUBLIC_API_URL: optionalUrl,
   MANDATE_API_SECRET: z.string().min(32).optional(),
   RELIC_DEVELOPMENT_PRINCIPAL_ID: z.uuid().optional(),
+  RELIC_WALLET_AUTH_DOMAIN: z.string().trim().min(1).optional(),
+  RELIC_WALLET_AUTH_URI: optionalUrl,
+  RELIC_COMMERCE_AUTHORIZER_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  ERC8183_POLICY_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_ERC8183_COMMERCE_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_ERC8183_EVALUATOR_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
 });
 
 export type ServerEnvironment = z.infer<typeof serverEnvironmentSchema>;
