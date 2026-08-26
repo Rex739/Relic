@@ -30,8 +30,18 @@ export interface PublicMarketplaceAgent {
   protocols: string[];
   interfaces: string[];
   pricingKnown: boolean;
+  activeOfferPrice: {
+    amountBaseUnits: string;
+    decimals: number;
+    symbol: string;
+    tokenAddress: string;
+  } | null;
   hireable: boolean;
-  executionEvidenceCount: number;
+  verifiedInvocationCount: number;
+  completedCommerceJobCount: number;
+  deliveryCompletedCount: number;
+  settlementCompletedCount: number;
+  unsuccessfulCommerceJobCount: number;
   feedbackCount: number;
   lastVerifiedAt: string;
   updatedAt: string;
@@ -73,6 +83,7 @@ export interface PublicMarketplaceOutcome {
   commerceSuccessful: boolean;
   executionDurationMs: number | null;
   responseStatus: string | null;
+  deliveredAt: string | null;
   settlementState: string;
   observedCost: string;
   observedAt: string;

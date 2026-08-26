@@ -6,7 +6,11 @@ import { readJsonResponse } from "../../lib/http-json";
 import { useRelicWallet } from "./relic-wallet-provider";
 import { switchWalletChain, walletChainId } from "./wallet-provider";
 
-export function WalletSession() {
+export function WalletSession({
+  connectLabel = "Connect wallet",
+}: {
+  connectLabel?: string;
+}) {
   const wallet = useRelicWallet();
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
@@ -192,9 +196,7 @@ export function WalletSession() {
           onClick={connect}
           disabled={busy || wallet.loginPending}
         >
-          {busy || wallet.loginPending
-            ? "Connecting securely…"
-            : "Connect wallet"}
+          {busy || wallet.loginPending ? "Connecting securely…" : connectLabel}
         </button>
       ) : (
         <div className="wallet-session-connected">

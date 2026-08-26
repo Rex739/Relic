@@ -228,13 +228,15 @@ export function WalletCommerceOperation({
         aria-label="Activation setup session"
       >
         <div>
-          <strong>Activation setup · step {setupStep} of 4</strong>
-          <span>CREATE_JOB → REGISTER_JOB → SET_BUDGET(0) → FUND(0)</span>
+          <strong>Agent setup · step {setupStep} of 4</strong>
+          <span>
+            Create service → Apply safety → Confirm free limit → Start running
+          </span>
         </div>
         {quoteExpiresAt === undefined ? (
           <small>
-            The signed seller quote is requested only after readiness checks
-            pass.
+            The 15-minute setup window starts only after every readiness check
+            passes.
           </small>
         ) : (
           <div
@@ -242,7 +244,7 @@ export function WalletCommerceOperation({
             role="timer"
             aria-live="polite"
           >
-            <span>Seller quote remaining</span>
+            <span>Setup time remaining</span>
             <strong>{displayRemaining(remaining(quoteExpiresAt))}</strong>
             {quoteNegotiatedAt === undefined ? null : (
               <small>
@@ -296,12 +298,12 @@ export function WalletCommerceOperation({
             : stage === "confirming"
               ? "Transaction recorded. Relic is reconciling finality and will prepare the next manual wallet step automatically."
               : operationType === "REGISTER_JOB"
-                ? "This binds the evaluation policy to the existing job. You pay network gas only; service price and funds moved remain zero."
+                ? "This applies the approved safety policy. You pay network gas only; the service remains free and no funds move."
                 : operationType === "SET_BUDGET"
-                  ? "This records an explicit zero budget for the free job. It is not funding and moves no tokens; you pay BSC Testnet gas only."
+                  ? "This confirms the service has a zero spending limit. No tokens move; you pay BSC Testnet gas only."
                   : operationType === "FUND"
-                    ? "This advances the free job to FUNDED with a zero-value protocol call. It moves no tokens; you pay BSC Testnet gas only."
-                    : "This requests one zero-value CREATE_JOB only. It does not fund or settle the job."}
+                    ? "This finishes the free setup and puts the agent in its ready state. No tokens move; you pay BSC Testnet gas only."
+                    : "This starts one free service setup. It does not fund or settle anything."}
       </span>
       {transactionHash === null ? null : (
         <small>Transaction: {transactionHash}</small>
@@ -311,7 +313,7 @@ export function WalletCommerceOperation({
         <>
           {quoteExpiresAt === undefined ? null : (
             <div className="wallet-operation-expiry" role="status">
-              <strong>Signed seller quote window</strong>
+              <strong>Secure setup window</strong>
               {operationType === "CREATE_JOB" ? (
                 <span>
                   Buyer approval:{" "}
@@ -321,7 +323,7 @@ export function WalletCommerceOperation({
                 </span>
               ) : null}
               <span>
-                Seller quote: {displayRemaining(remaining(quoteExpiresAt))}
+                Time remaining: {displayRemaining(remaining(quoteExpiresAt))}
               </span>
               {operationType === "CREATE_JOB" ? (
                 <span>
@@ -332,10 +334,8 @@ export function WalletCommerceOperation({
                 </span>
               ) : null}
               <small>
-                Complete CREATE_JOB → REGISTER_JOB → SET_BUDGET → FUND before
-                this signed quote expires. Quote expiry, job expiry, buyer
-                approval, and mandate expiry are separate controls. Relic fails
-                closed when the remaining window is unsafe.
+                Complete all four confirmations before this setup window
+                expires. Relic stops safely when too little time remains.
               </small>
             </div>
           )}

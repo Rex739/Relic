@@ -50,79 +50,33 @@ export default async function MarketplacePage({
   const intent = typeof search.intent === "string" ? search.intent : "";
 
   return (
-    <main>
+    <main className="marketplace-app">
       <section className="marketplace-hero page-shell">
-        <div className="eyebrow">
-          <span /> Verified AI agent marketplace on BNB Chain
-        </div>
-        <h1>
-          Find AI agents
-          <br />
-          that actually work.
-        </h1>
-        <p className="hero-copy">
-          Relic independently tests identity, service interfaces, and real agent
-          responses before anything reaches this marketplace. Browse agents
-          verified to work—not every ERC-8004 registration.
-        </p>
-        <IntentSearch initialValue={intent} />
-        <div className="verification-standard">
-          <div className="standard-heading">
-            <div>
-              <span className="overline">Relic Verification Standard</span>
-              <h2>Trust gets stronger at every stage.</h2>
-            </div>
-            <span className="evidence-strength">Evidence strength →</span>
+        <div className="marketplace-intro">
+          <div>
+            <span className="overline">BNB Agent Studio marketplace</span>
+            <h1>Agents you can put to work.</h1>
+            <p>
+              Find, compare, and hire AI agents that Relic has independently
+              tested for live service availability.
+            </p>
           </div>
-          <ol aria-label="Relic Verification Standard">
-            {[
-              [
-                "01",
-                "Onchain identity",
-                "Registration, chain and ownership reconcile.",
-                "Foundation",
-              ],
-              [
-                "02",
-                "Service inspection",
-                "Endpoint and claimed interface are independently inspected.",
-                "Observed",
-              ],
-              [
-                "03",
-                "Controlled invocation",
-                "Relic reaches the agent and gets a successful response.",
-                "Working",
-              ],
-              [
-                "04",
-                "Commerce evidence",
-                "The hiring, execution and settlement lifecycle is verified.",
-                "Actionable",
-              ],
-            ].map(([number, title, description, threshold]) => (
-              <li key={number}>
-                <span>{number}</span>
-                <div>
-                  <b>{title}</b>
-                  <p>{description}</p>
-                </div>
-                <small>{threshold}</small>
-              </li>
-            ))}
-          </ol>
+          <div className="marketplace-summary" aria-label="Marketplace summary">
+            <strong>{pagination?.total ?? 0}</strong>
+            <span>currently usable agents</span>
+          </div>
         </div>
+        <IntentSearch initialValue={intent} />
       </section>
 
       <section className="page-shell category-section">
         <div className="section-heading">
           <div>
-            <span className="overline">Browse by task</span>
-            <h2>What should an agent handle?</h2>
+            <span className="overline">Browse by category</span>
+            <h2>What do you want done?</h2>
           </div>
           <p>
-            Categories contain only agents that have passed Relic’s public
-            threshold.
+            All four BNB competition categories, backed by real inventory data.
           </p>
         </div>
         <div className="category-grid">
@@ -138,8 +92,8 @@ export default async function MarketplacePage({
                 <h3>{category.label}</h3>
                 <p>{category.description}</p>
                 <span className="category-count">
-                  {count?.working ?? 0} working · {count?.actionable ?? 0}{" "}
-                  actionable
+                  {Math.max(count?.working ?? 0, count?.actionable ?? 0)} usable
+                  · {count?.actionable ?? 0} hireable
                 </span>
                 <b aria-hidden="true">↗</b>
               </Link>
@@ -148,15 +102,15 @@ export default async function MarketplacePage({
         </div>
       </section>
 
-      <section className="inventory-section">
+      <section className="inventory-section" id="inventory">
         <div className="page-shell">
           <div className="section-heading inventory-heading">
             <div>
-              <span className="overline">Verified inventory</span>
+              <span className="overline">Agent inventory</span>
               <h2>
                 {params.has("category")
                   ? "Agents matching your task"
-                  : "Agents that work today"}
+                  : "Available agents"}
               </h2>
             </div>
             <span className="result-count">
@@ -193,7 +147,6 @@ export default async function MarketplacePage({
               <option value="">Working + Actionable</option>
               <option>Working</option>
               <option>Actionable</option>
-              <option>Proven</option>
             </select>
             <select
               name="chainId"
@@ -218,11 +171,11 @@ export default async function MarketplacePage({
             <div className="state-panel">
               <span>No verified match</span>
               <h3>
-                No verified agent currently satisfies all of those requirements.
+                No usable agent currently satisfies all of those requirements.
               </h3>
               <p>
                 Relax a filter or explore another category. Relic will not
-                substitute unverified registrations.
+                substitute agents that have not passed its checks.
               </p>
               <Link href="/marketplace">Clear filters</Link>
             </div>

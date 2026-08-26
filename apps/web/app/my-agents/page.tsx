@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import type { MandateListItem } from "@relic/domain";
 
@@ -7,6 +8,12 @@ import { listExecutions, listMyAgents } from "../../lib/mandates";
 import { relativeTime } from "../../lib/marketplace";
 import { agreements, type CommerceAgreementView } from "../../lib/commerce";
 import { commercePriceLabel, isFreePrice } from "../../lib/commerce-display";
+import { walletAuthenticationRequired } from "../../lib/auth-state";
+import {
+  relationshipStatus,
+  selectRelationshipAgreement,
+} from "../../lib/relationship-status";
+import { WalletSession } from "../_components/wallet-session";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "My Agents" };
@@ -23,6 +30,27 @@ const movementAmount = (movement: Record<string, unknown>) => {
 };
 
 export default async function MyAgentsPage() {
+  const authenticationRequired = walletAuthenticationRequired(
+    (await cookies()).get("relic_session")?.value,
+  );
+  if (authenticationRequired)
+    return (
+      <main className="page-shell my-agents-page">
+        <header className="operations-header">
+          <span className="overline">Your hired agents</span>
+          <h1>My Agents</h1>
+        </header>
+        <div className="state-panel authentication-state">
+          <span>Wallet authentication required</span>
+          <h2>Connect your wallet to see the agents you&apos;ve hired.</h2>
+          <p>
+            Your relationships and permissions remain private and are only
+            loaded after the buyer wallet is authenticated.
+          </p>
+          <WalletSession connectLabel="Connect wallet" />
+        </div>
+      </main>
+    );
   let items: MandateListItem[] = [];
   let executionState: Record<
     string,
@@ -35,13 +63,20 @@ export default async function MyAgentsPage() {
       listMyAgents(),
       agreements(),
     ]);
+    const eligibleAgreements = commerceAgreements.filter(
+      (item): item is CommerceAgreementView =>
+        item !== null &&
+        item.mandateId !== null &&
+        item.authorizationArtifactId !== null,
+    );
     agreementByMandate = Object.fromEntries(
-      commerceAgreements
-        .filter(
-          (item): item is CommerceAgreementView =>
-            item !== null && item.mandateId !== null,
-        )
-        .map((item) => [item.mandateId!, item]),
+      mandateItems.flatMap(({ mandate }) => {
+        const selected = selectRelationshipAgreement(
+          eligibleAgreements,
+          mandate.id,
+        );
+        return selected === null ? [] : [[mandate.id, selected]];
+      }),
     );
     items = mandateItems.filter(
       ({ mandate }) => agreementByMandate[mandate.id] !== undefined,
@@ -70,11 +105,11 @@ export default async function MyAgentsPage() {
   return (
     <main className="page-shell my-agents-page">
       <header className="operations-header">
-        <span className="overline">Operating layer</span>
+        <span className="overline">Your hired agents</span>
         <h1>My Agents</h1>
         <p>
-          Activated relationships, mandate limits, and authorization status—not
-          marketplace listings.
+          See what is running, review the latest result, and change or revoke
+          permissions.
         </p>
       </header>
       {error ? (
@@ -86,10 +121,7 @@ export default async function MyAgentsPage() {
         <div className="empty-relationships">
           <span>0 active relationships</span>
           <h2>No agents have been activated.</h2>
-          <p>
-            Choose an Actionable agent in the marketplace and define its
-            mandate.
-          </p>
+          <p>Hire an available agent from the marketplace to see it here.</p>
           <Link href="/marketplace">Browse verified agents →</Link>
         </div>
       ) : (
@@ -99,12 +131,15 @@ export default async function MyAgentsPage() {
             const pendingWalletAction = agreement.operations.some(
               (operation) => operation.state === "AWAITING_SIGNATURE",
             );
+            const mandateExpired =
+              Date.parse(mandate.version.expiresAt) <= Date.now();
             const settled = agreement.movements
               .filter((movement) => movement.movementType === "PAYMENT")
               .reduce(
                 (total, movement) => total + movementAmount(movement),
                 0n,
               );
+            const displayStatus = relationshipStatus({ mandate, agreement });
             return (
               <article key={mandate.id}>
                 <div className="relationship-main">
@@ -112,9 +147,13 @@ export default async function MyAgentsPage() {
                     {agent.name.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
-                    <span className="overline">{agent.network}</span>
+                    <span className="overline">
+                      {agent.network} · {displayStatus}
+                    </span>
                     <h2>
-                      <Link href={`/mandates/${mandate.id}`}>{agent.name}</Link>
+                      <Link href={`/my-agents/mandates/${mandate.id}`}>
+                        {agent.name}
+                      </Link>
                     </h2>
                     <p>{mandate.version.objective}</p>
                   </div>
@@ -122,18 +161,18 @@ export default async function MyAgentsPage() {
                 <dl>
                   <div>
                     <dt>Status</dt>
-                    <dd>{agreement.status.replaceAll("_", " ")}</dd>
-                  </div>
-                  <div>
-                    <dt>Wallet authorization</dt>
-                    <dd>
-                      {agreement.authorizationArtifactId === null
-                        ? "Required"
-                        : "Verified"}
+                    <dd
+                      className={`relationship-status ${displayStatus.toLowerCase().replaceAll(" ", "-")}`}
+                    >
+                      {displayStatus}
                     </dd>
                   </div>
                   <div>
-                    <dt>Offer price</dt>
+                    <dt>Permissions</dt>
+                    <dd>{mandate.version.approvalMode.replaceAll("_", " ")}</dd>
+                  </div>
+                  <div>
+                    <dt>Service price</dt>
                     <dd>{commercePriceLabel(agreement.pricingSnapshot)}</dd>
                   </div>
                   <div>
@@ -151,24 +190,21 @@ export default async function MyAgentsPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt>Next</dt>
-                    <dd>{nextExpectedAction}</dd>
+                    <dt>Next expected action</dt>
+                    <dd>
+                      {pendingWalletAction
+                        ? mandateExpired
+                          ? "No further action"
+                          : "Confirm setup in wallet"
+                        : nextExpectedAction}
+                    </dd>
                   </div>
                   <div>
                     <dt>Latest result</dt>
                     <dd>{executionState[mandate.id]?.result ?? "None"}</dd>
                   </div>
                   <div>
-                    <dt>Pending approval</dt>
-                    <dd>
-                      {executionState[mandate.id]?.pendingApproval ||
-                      pendingWalletAction
-                        ? "Yes"
-                        : "No"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Settled spend</dt>
+                    <dt>Spend to date</dt>
                     <dd>
                       {isFreePrice(agreement.pricingSnapshot)
                         ? "None"
@@ -178,28 +214,15 @@ export default async function MyAgentsPage() {
                           })}
                     </dd>
                   </div>
-                  <div>
-                    <dt>Settlement</dt>
-                    <dd>
-                      {typeof agreement.settlements[0]?.status !== "string"
-                        ? "No settlement"
-                        : agreement.settlements[0].status}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Attention</dt>
-                    <dd>{mandate.attentionReason ?? "None"}</dd>
-                  </div>
                 </dl>
                 <div className="relationship-actions">
                   <Link href={`/my-agents/mandates/${mandate.id}`}>
-                    Open Execution Room
+                    View agent
                   </Link>
-                  <Link href={`/commerce/agreements/${agreement.id}`}>
-                    Open agreement
+                  <Link href={`/mandates/${mandate.id}`}>
+                    Manage permissions
                   </Link>
-                  <Link href={`/mandates/${mandate.id}`}>Open mandate</Link>
-                  {mandate.status === "ACTIVE" ? (
+                  {mandate.status === "ACTIVE" && !mandateExpired ? (
                     <form
                       action={transitionMandateAction.bind(
                         null,
@@ -210,7 +233,7 @@ export default async function MyAgentsPage() {
                       <button>Pause</button>
                     </form>
                   ) : null}
-                  {mandate.status === "PAUSED" ? (
+                  {mandate.status === "PAUSED" && !mandateExpired ? (
                     <form
                       action={transitionMandateAction.bind(
                         null,
@@ -221,7 +244,8 @@ export default async function MyAgentsPage() {
                       <button>Resume</button>
                     </form>
                   ) : null}
-                  {!["REVOKED", "EXPIRED"].includes(mandate.status) ? (
+                  {!mandateExpired &&
+                  !["REVOKED", "EXPIRED"].includes(mandate.status) ? (
                     <form
                       action={transitionMandateAction.bind(
                         null,

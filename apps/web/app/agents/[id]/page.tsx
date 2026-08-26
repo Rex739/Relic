@@ -6,6 +6,8 @@ import { commercePriceLabel } from "../../../lib/commerce-display";
 import {
   labelForCategory,
   marketplaceAgent,
+  marketplaceOutcomeLabel,
+  productCapabilityLabel,
   provenanceLabel,
   relativeTime,
 } from "../../../lib/marketplace";
@@ -98,45 +100,51 @@ export default async function AgentIntelligencePage({
             <div className="tag-row">
               <span>{labelForCategory(agent.category)}</span>
               {agent.protocols.slice(0, 5).map((protocol) => (
-                <span key={protocol}>{protocol.toUpperCase()}</span>
+                <span key={protocol}>{productCapabilityLabel(protocol)}</span>
               ))}
             </div>
           </div>
         </div>
         <aside className="profile-action">
-          <span>Current operability</span>
+          <span>Service status</span>
           <strong>
-            <i /> Available
+            <i /> Live
           </strong>
           <p>
             Last independently checked {relativeTime(agent.lastVerifiedAt)}.
           </p>
           {agent.tier === "Actionable" && offers.length > 0 ? (
             <div className="action-boundary actionable-boundary">
-              <span>Verified offer available</span>
-              <b>Hireable on {agent.network}</b>
+              <span>Available to hire</span>
+              <b>{commercePriceLabel(offers[0]!.version.price)}</b>
               <p>
-                Review immutable commercial terms, configure a mandate, and
-                authorize each distinct boundary separately.
+                Review the service, choose permissions, and confirm with your
+                wallet.
               </p>
               <Link href={`/agents/${agent.id}/hire`} className="activate-link">
-                Hire agent <small>Review verified offers</small>
+                Hire agent <small>Start setup</small>
+              </Link>
+              <Link
+                href={`/compare?ids=${agent.id}`}
+                className="profile-compare-link"
+              >
+                Compare agent
               </Link>
             </div>
           ) : agent.tier === "Actionable" ? (
             <div className="action-boundary">
               <b>No active verified offer</b>
               <p>
-                This service is Actionable, but its operator has not published
-                currently valid terms. Hiring is unavailable.
+                This agent works, but the operator has no currently available
+                service offer.
               </p>
             </div>
           ) : (
             <div className="action-boundary">
               <b>Commerce not yet verified</b>
               <p>
-                Relic has verified successful responses. Hiring remains
-                unavailable until the commerce path is independently tested.
+                Relic recently reached this agent successfully. Hiring remains
+                unavailable until its service setup has been tested.
               </p>
             </div>
           )}
@@ -145,13 +153,70 @@ export default async function AgentIntelligencePage({
 
       <div className="profile-layout">
         <div className="profile-main">
+          <section className="profile-section track-record-section">
+            <div className="section-heading compact-heading">
+              <div>
+                <span className="overline">Track record</span>
+                <h2>Recent, attributable history</h2>
+              </div>
+              <span className="live-status">
+                <i /> Last active {relativeTime(agent.lastVerifiedAt)}
+              </span>
+            </div>
+            <dl className="track-record-grid">
+              <div>
+                <dt>Completed jobs</dt>
+                <dd>
+                  {agent.completedCommerceJobCount > 0
+                    ? agent.completedCommerceJobCount
+                    : "No completed commerce jobs yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Verified service checks</dt>
+                <dd>
+                  {agent.verifiedInvocationCount > 0
+                    ? agent.verifiedInvocationCount
+                    : "No verified invocations yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Deliveries submitted</dt>
+                <dd>
+                  {agent.deliveryCompletedCount > 0
+                    ? agent.deliveryCompletedCount
+                    : "No deliveries yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Settlements completed</dt>
+                <dd>
+                  {agent.settlementCompletedCount > 0
+                    ? agent.settlementCompletedCount
+                    : "No settlements yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Unsuccessful commerce jobs</dt>
+                <dd>
+                  {agent.unsuccessfulCommerceJobCount > 0
+                    ? agent.unsuccessfulCommerceJobCount
+                    : "No failed, cancelled, rejected, or refunded jobs"}
+                </dd>
+              </div>
+            </dl>
+            <p className="data-integrity-note">
+              Verification checks and user jobs are kept separate. Relic does
+              not infer ratings or success rates from missing history.
+            </p>
+          </section>
           {offers.length > 0 ? (
             <section className="profile-section commerce-offers">
-              <span className="overline">Verified offers</span>
-              <h2>Commercial terms published by the operator</h2>
+              <span className="overline">Services</span>
+              <h2>Choose what you want this agent to do</h2>
               <p>
-                Offer terms are operator-authored. Relic independently checks
-                the bound identity, service eligibility, and evidence freshness.
+                Current service offers published by the operator and checked by
+                Relic.
               </p>
               {offers.map((offer) => (
                 <article key={offer.id} className="offer-card">
@@ -188,7 +253,7 @@ export default async function AgentIntelligencePage({
                     </div>
                   </dl>
                   <Link href={`/agents/${agent.id}/hire?offer=${offer.id}`}>
-                    Review and hire →
+                    Hire this service →
                   </Link>
                 </article>
               ))}
@@ -196,7 +261,7 @@ export default async function AgentIntelligencePage({
           ) : null}
           <section className="profile-section">
             <span className="overline">What this agent does</span>
-            <h2>Verified capability, in plain language</h2>
+            <h2>Capabilities</h2>
             <p className="large-copy">{agent.description}</p>
             <div className="capability-list">
               {(agent.capabilities.length > 0
@@ -204,15 +269,41 @@ export default async function AgentIntelligencePage({
                 : agent.interfaces
               ).map((capability) => (
                 <span key={capability}>
-                  ✓ {capability.replaceAll("-", " ")}
+                  ✓ {productCapabilityLabel(capability)}
                 </span>
               ))}
             </div>
           </section>
 
-          <section className="profile-section">
-            <span className="overline">Relic verification</span>
-            <h2>Why this agent is surfaced</h2>
+          <section className="profile-section restrictions-section">
+            <span className="overline">What this agent cannot do</span>
+            <h2>Operating restrictions</h2>
+            {offers.some(
+              (offer) => offer.version.limitationsSnapshot.length > 0,
+            ) ? (
+              <div className="restriction-list">
+                {[
+                  ...new Set(
+                    offers.flatMap(
+                      (offer) => offer.version.limitationsSnapshot,
+                    ),
+                  ),
+                ].map((restriction) => (
+                  <span key={restriction}>× {restriction}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="large-copy">
+                No operator restrictions are published. Review the service terms
+                and permissions before hiring.
+              </p>
+            )}
+          </section>
+
+          <details className="profile-section verification-details">
+            <summary>Verification details</summary>
+            <span className="overline">Relic checks</span>
+            <h2>Why this agent is listed</h2>
             <div className="verification-grid">
               {[
                 ["Identity", "Onchain verified", agent.checks.identityVerified],
@@ -251,61 +342,66 @@ export default async function AgentIntelligencePage({
                 ))}
               </div>
             ) : null}
-          </section>
+          </details>
 
           <section className="profile-section">
             <span className="overline">Verified services</span>
             <h2>Interfaces Relic has tested</h2>
             <div className="service-list">
-              {agent.services.map((service) => (
-                <article key={service.id}>
-                  <div>
-                    <span className="service-icon">↗</span>
+              {agent.services.map((service) => {
+                const serviceOffer = offers.find(
+                  (offer) => offer.serviceId === service.id,
+                );
+                return (
+                  <article key={service.id}>
                     <div>
-                      <h3>{service.name}</h3>
-                      <p>
-                        {service.interface.toUpperCase()} ·{" "}
-                        {service.availability}
-                      </p>
+                      <span className="service-icon">↗</span>
+                      <div>
+                        <h3>{service.name}</h3>
+                        <p>
+                          {service.interface.toUpperCase()} ·{" "}
+                          {service.availability}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <span className="tier tier-working">
-                    ●{" "}
-                    {service.verificationLevel === "COMMERCE_VERIFIED"
-                      ? "Commerce verified"
-                      : "Invocation verified"}
-                  </span>
-                  <dl>
-                    <div>
-                      <dt>Endpoint</dt>
-                      <dd>{new URL(service.endpoint).host}</dd>
-                    </div>
-                    <div>
-                      <dt>Pricing</dt>
-                      <dd>
-                        {service.pricing === null
-                          ? "Not published"
-                          : "Published"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Last inspected</dt>
-                      <dd>{relativeTime(service.lastVerifiedAt)}</dd>
-                    </div>
-                  </dl>
-                </article>
-              ))}
+                    <span className="tier tier-working">
+                      ●{" "}
+                      {service.verificationLevel === "COMMERCE_VERIFIED"
+                        ? "Commerce verified"
+                        : "Invocation verified"}
+                    </span>
+                    <dl>
+                      <div>
+                        <dt>Endpoint</dt>
+                        <dd>{new URL(service.endpoint).host}</dd>
+                      </div>
+                      <div>
+                        <dt>Current offer</dt>
+                        <dd>
+                          {serviceOffer === undefined
+                            ? "No active offer"
+                            : commercePriceLabel(serviceOffer.version.price)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Last inspected</dt>
+                        <dd>{relativeTime(service.lastVerifiedAt)}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
           {agent.outcomes.length > 0 ? (
             <section className="profile-section">
-              <span className="overline">Execution & commerce</span>
-              <h2>Observed outcomes</h2>
+              <span className="overline">Recent activity</span>
+              <h2>What happened recently</h2>
               <div className="outcome-list">
                 {agent.outcomes.map((outcome, index) => (
                   <article key={`${outcome.observedAt}-${index}`}>
-                    <b>✓ {outcome.settlementState}</b>
+                    <b>{marketplaceOutcomeLabel(outcome)}</b>
                     <span>
                       {outcome.responseStatus ?? "Execution observed"}
                     </span>
@@ -320,8 +416,8 @@ export default async function AgentIntelligencePage({
 
         <aside className="evidence-rail">
           <section>
-            <span className="overline">Evidence coverage</span>
-            <h2>Fact provenance</h2>
+            <span className="overline">Verification details</span>
+            <h2>Sources and recency</h2>
             <p>
               Every important claim retains its source and observation time.
             </p>

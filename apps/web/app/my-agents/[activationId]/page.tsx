@@ -8,7 +8,12 @@ import type { ExecutionRecord, PolicyReason } from "@relic/domain";
 import { agreements, type CommerceAgreementView } from "../../../lib/commerce";
 import { commercePriceLabel, isFreePrice } from "../../../lib/commerce-display";
 import { getMandate, listExecutions } from "../../../lib/mandates";
-import { relativeTime } from "../../../lib/marketplace";
+import { marketplaceAgent, relativeTime } from "../../../lib/marketplace";
+import {
+  relationshipSetupComplete,
+  relationshipStatus,
+  selectRelationshipAgreement,
+} from "../../../lib/relationship-status";
 import {
   requestForbiddenTransfer,
   requestHealthObservation,
@@ -19,7 +24,7 @@ import { CommerceAuthorization } from "../../_components/commerce-authorization"
 import { WalletCommerceOperation } from "../../_components/wallet-commerce-operation";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Execution Room" };
+export const metadata: Metadata = { title: "Active agent" };
 const ACTIVATION_SETUP_AUTHORIZATION_HEADROOM_MS = 12 * 60_000;
 
 const sentenceCase = (value: string) => {
@@ -208,6 +213,8 @@ export default async function ExecutionRoomPage({
   }
   const walletAuthenticated =
     (await cookies()).get("relic_session")?.value !== undefined;
+  const agentResponse = await marketplaceAgent(mandate.agentId);
+  const agentName = agentResponse.data?.name ?? "Active agent";
   let commerceAgreement: CommerceAgreementView | null = null;
   if (walletAuthenticated) {
     try {
@@ -215,22 +222,10 @@ export default async function ExecutionRoomPage({
         (item): item is CommerceAgreementView =>
           item !== null && item.mandateId === mandate.id,
       );
-      commerceAgreement =
-        matchingAgreements.find((item) =>
-          item.operations.some(
-            (operation) =>
-              operation.operationType === "REGISTER_JOB" &&
-              operation.state === "AWAITING_SIGNATURE",
-          ),
-        ) ??
-        matchingAgreements.find((item) =>
-          item.operations.some(
-            (operation) => operation.state === "AWAITING_SIGNATURE",
-          ),
-        ) ??
-        matchingAgreements.find((item) => item.status === "ACTIVE") ??
-        matchingAgreements[0] ??
-        null;
+      commerceAgreement = selectRelationshipAgreement(
+        matchingAgreements,
+        mandate.id,
+      );
     } catch {
       commerceAgreement = null;
     }
@@ -332,56 +327,110 @@ export default async function ExecutionRoomPage({
       .filter((movement) => types.includes(String(movement.movementType)))
       .reduce((total, movement) => total + movementBaseUnits(movement), 0n) ??
     0n;
+  const setupComplete = relationshipSetupComplete(commerceAgreement);
+  const latestPresentation =
+    latest === null ? null : executionPresentation(latest);
+  const relationshipState = relationshipStatus({
+    mandate,
+    agreement: commerceAgreement,
+  });
   return (
     <main className="page-shell execution-room">
       <nav className="breadcrumbs">
         <Link href="/my-agents">My Agents</Link>
         <span>/</span>
-        <span>Execution Room</span>
+        <span>Active agent</span>
       </nav>
       <header className="execution-room-header">
         <div>
-          <span className="overline">
-            Controlled operations ·{" "}
-            {walletAuthenticated
-              ? "Wallet-authenticated principal"
-              : "Development principal"}
-          </span>
-          <h1>Execution Room</h1>
+          <span className="overline">{relationshipState}</span>
+          <h1>{agentName}</h1>
           <p>{mandate.version.objective}</p>
         </div>
         <aside
           className={`execution-state ${mandate.attentionReason ? "attention" : ""}`}
         >
-          <span>Relationship state</span>
-          <strong>
-            {mandate.attentionReason ? "NEEDS ATTENTION" : mandate.status}
-          </strong>
-          <small>BNB Chain Testnet · mandate v{mandate.currentVersion}</small>
+          <span>Current status</span>
+          <strong>{relationshipState.toUpperCase()}</strong>
+          <small>
+            BNB Chain Testnet ·{" "}
+            {mandate.version.approvalMode.replaceAll("_", " ")}
+          </small>
         </aside>
       </header>
 
-      {commerceAgreement === null ? null : (
+      {relationshipState === "Running" ? (
+        <section className="running-overview" aria-label="Agent overview">
+          <div>
+            <span className="overline">Overview</span>
+            <h2>Your agent is running</h2>
+            <p>{mandate.version.objective}</p>
+          </div>
+          <dl>
+            <div>
+              <dt>Doing now</dt>
+              <dd>Read-only Venus monitoring</dd>
+            </div>
+            <div>
+              <dt>Latest result</dt>
+              <dd>
+                {latestPresentation?.result ?? "Waiting for first observation"}
+              </dd>
+            </div>
+            <div>
+              <dt>Permissions</dt>
+              <dd>{mandate.version.approvalMode.replaceAll("_", " ")}</dd>
+            </div>
+            <div>
+              <dt>Service price</dt>
+              <dd>
+                {commerceAgreement === null
+                  ? "Unavailable"
+                  : commercePriceLabel(commerceAgreement.pricingSnapshot)}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {setupComplete && relationshipState !== "Running" ? (
+        <section className="running-overview" aria-label="Relationship status">
+          <div>
+            <span className="overline">Relationship status</span>
+            <h2>{relationshipState}</h2>
+            <p>
+              Setup is complete. Review the current status and available
+              controls below.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {commerceAgreement === null || setupComplete ? null : (
         <section className="execution-commerce-context">
           <div>
-            <span className="overline">Commercial context</span>
-            <h2>Agreement {commerceAgreement.status.replaceAll("_", " ")}</h2>
+            <span className="overline">Service setup</span>
+            <h2>
+              {commerceAgreement.status === "ACTIVE"
+                ? "Ready to run"
+                : sentenceCase(commerceAgreement.status)}
+            </h2>
             <p>
-              Policy approval and wallet transaction authority remain separate.
-              Every ERC-8183 write stays visible as a durable operation.
+              Relic keeps permissions and wallet confirmations separate so the
+              agent cannot exceed the limits you approved.
             </p>
           </div>
           <dl className="commerce-facts">
             <div>
-              <dt>Expected price</dt>
+              <dt>Service price</dt>
               <dd>{commercePriceLabel(commerceAgreement.pricingSnapshot)}</dd>
             </div>
             <div>
-              <dt>Authorization</dt>
+              <dt>Permissions</dt>
               <dd>
                 {commerceAgreement.authorizationArtifactId === null
-                  ? "Wallet authorization required"
-                  : "Verified wallet signature"}
+                  ? "Confirmation required"
+                  : "Confirmed"}
               </dd>
             </div>
             <div>
@@ -424,29 +473,28 @@ export default async function ExecutionRoomPage({
               </dd>
             </div>
             <div>
-              <dt>ERC-8183 operations</dt>
+              <dt>Setup progress</dt>
               <dd>
-                {commerceAgreement.operations.length} durable ·{" "}
+                {commerceAgreement.operations.length} recorded ·{" "}
                 {
                   commerceAgreement.operations.filter(
                     (operation) => operation.state === "AWAITING_SIGNATURE",
                   ).length
                 }{" "}
-                awaiting wallet
+                awaiting confirmation
               </dd>
             </div>
           </dl>
           <Link href={`/commerce/agreements/${commerceAgreement.id}`}>
-            Inspect agreement and technical evidence →
+            View technical setup details →
           </Link>
           {commerceExecution?.status === "SUCCEEDED" &&
           awaitingOperationType === "CREATE_JOB" ? (
             <div className="authorization-action">
-              <strong>Exact-action approval</strong>
+              <strong>Confirm this run</strong>
               <p>
-                Bind this buyer approval to execution {commerceExecution.id},
-                including its monitored account, mandate version, network, and
-                canonical action hash.
+                Confirm the exact target and permissions for this run. This
+                signature does not move funds.
               </p>
               {latestExactAuthorizationId === undefined ? (
                 <CommerceAuthorization
@@ -471,21 +519,21 @@ export default async function ExecutionRoomPage({
             <div className="authorization-action">
               <strong>
                 {awaitingOperationType === "REGISTER_JOB"
-                  ? "Register job policy"
+                  ? "Continue secure setup"
                   : awaitingOperationType === "SET_BUDGET"
-                    ? "Set job budget"
+                    ? "Confirm the free service limit"
                     : awaitingOperationType === "FUND"
-                      ? "Fund free job"
-                      : "Create the zero-price ERC-8183 job"}
+                      ? "Start the free service"
+                      : "Start agent setup"}
               </strong>
               <p>
                 {awaitingOperationType === "REGISTER_JOB"
-                  ? "Bind the approved evaluation and dispute policy to the existing job. The service remains free and no funds move; the buyer pays BSC Testnet gas only."
+                  ? "Apply the approved safety policy. No service funds move; BSC Testnet gas only."
                   : awaitingOperationType === "SET_BUDGET"
-                    ? "Record the free job's explicit zero budget before funding eligibility. This moves no tokens and is not funding; the buyer pays BSC Testnet gas only."
+                    ? "Confirm the service remains free. No tokens move; BSC Testnet gas only."
                     : awaitingOperationType === "FUND"
-                      ? "Advance the free job to FUNDED with an explicit zero-value protocol call. No tokens or commerce funds move; the buyer pays BSC Testnet gas only."
-                      : "Relic rechecks the exact authorization, seller quote, payload hash, operation state, and network immediately before opening your wallet."}
+                      ? "Finish setup and put the agent in its ready state. No service funds move; BSC Testnet gas only."
+                      : "Relic checks your permissions, the live service, and the selected network immediately before opening your wallet."}
               </p>
               <WalletCommerceOperation
                 agreementId={commerceAgreement.id}
@@ -525,7 +573,7 @@ export default async function ExecutionRoomPage({
                 value={commerceAgreement.authorizationArtifactId}
               />
               <button type="submit">
-                Prepare free commerce lifecycle <span>→</span>
+                Prepare setup session <span>→</span>
               </button>
               <small>
                 Creates durable offchain preparation only. It does not request a
@@ -539,11 +587,10 @@ export default async function ExecutionRoomPage({
             <div className="authorization-action">
               <strong>Start a fresh quote-bound attempt</strong>
               <p>
-                Job 621 remains historical. Its signed quote expired before
-                setup completed, so Relic will not prepare another operation for
-                it. Recovery reuses the active agreement and mandate but
-                requires a fresh observation, exact-action signature,
-                activation, and quote-bound setup session.
+                A previous setup window expired before all confirmations were
+                complete. Relic preserved that attempt as history and will not
+                advance it. Continue with a fresh observation and time-bound
+                setup under the same approved relationship.
               </p>
               {!freshReplacementExecution ? (
                 <>
@@ -606,8 +653,9 @@ export default async function ExecutionRoomPage({
                   <small>
                     Offchain preparation only. Relic will request a fresh
                     SDK-signed quote and require at least 12 minutes of
-                    remaining setup time before exposing CREATE_JOB. It creates
-                    no blockchain job and moves no funds.
+                    remaining setup time before showing the first wallet
+                    confirmation. It creates no blockchain job and moves no
+                    funds.
                   </small>
                 </form>
               )}
@@ -618,8 +666,8 @@ export default async function ExecutionRoomPage({
 
       <section className="execution-console-grid">
         <div className="execution-feed">
-          <span className="overline">Persisted activity</span>
-          <h2>What the agent did—and why</h2>
+          <span className="overline">Activity</span>
+          <h2>Latest results</h2>
           {executions.length === 0 ? (
             <div className="empty-relationships">
               <h3>No execution requested yet.</h3>
@@ -733,7 +781,7 @@ export default async function ExecutionRoomPage({
 
         <aside className="execution-sidebar">
           <section>
-            <span className="overline">Current authority</span>
+            <span className="overline">Permissions</span>
             <h2>{mandate.version.approvalMode.replaceAll("_", " ")}</h2>
             <p>
               Read-only monitoring. No asset, spending, wallet, or transaction
@@ -791,9 +839,7 @@ export default async function ExecutionRoomPage({
           </section>
           <section className="execution-controls">
             <span className="overline">Controls</span>
-            <Link href={`/mandates/${mandate.id}`}>
-              Inspect or edit mandate
-            </Link>
+            <Link href={`/mandates/${mandate.id}`}>Manage permissions</Link>
             {mandate.status === "ACTIVE" ? (
               <form
                 action={transitionMandateAction.bind(null, mandate.id, "pause")}
@@ -824,8 +870,8 @@ export default async function ExecutionRoomPage({
               </form>
             ) : null}
           </section>
-          <section>
-            <span className="overline">Safety proof</span>
+          <details className="technical-details safety-test">
+            <summary>Advanced safety test</summary>
             <h2>Test a forbidden action</h2>
             <p>
               Ask Relic to evaluate a token transfer. This observe-only mandate
@@ -849,7 +895,7 @@ export default async function ExecutionRoomPage({
               </button>
             </form>
             <small>No transaction is constructed or submitted.</small>
-          </section>
+          </details>
         </aside>
       </section>
     </main>

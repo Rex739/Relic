@@ -4,6 +4,8 @@ import Link from "next/link";
 import {
   compareAgents,
   labelForCategory,
+  marketplacePriceLabel,
+  productCapabilityLabel,
   relativeTime,
 } from "../../lib/marketplace";
 import { VerificationTier } from "../_components/verification-tier";
@@ -29,11 +31,11 @@ export default async function ComparePage({
 
   return (
     <main className="page-shell compare-page">
-      <span className="overline">Evidence-first comparison</span>
-      <h1>Compare what Relic has actually verified.</h1>
+      <span className="overline">Agent comparison</span>
+      <h1>Choose the right agent.</h1>
       <p className="hero-copy">
-        No composite score hides the evidence. Compare operability, interfaces,
-        execution history, and network directly.
+        Compare live status, capabilities, pricing availability, permissions,
+        and real history. No mystery score.
       </p>
       {ids.length === 0 ? (
         <div className="state-panel">
@@ -56,7 +58,7 @@ export default async function ComparePage({
           <table className="comparison-table">
             <thead>
               <tr>
-                <th>Evidence dimension</th>
+                <th>Compare</th>
                 {agents.map((agent) => (
                   <th key={agent.id}>
                     <div className="agent-avatar">
@@ -69,6 +71,14 @@ export default async function ComparePage({
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <th>Status</th>
+                {agents.map((agent) => (
+                  <td key={agent.id} className="positive">
+                    ● Live
+                  </td>
+                ))}
+              </tr>
               <tr>
                 <th>Category</th>
                 {agents.map((agent) => (
@@ -86,12 +96,10 @@ export default async function ComparePage({
                 ))}
               </tr>
               <tr>
-                <th>Verified interfaces</th>
+                <th>Service compatibility</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>
-                    {agent.interfaces
-                      .map((item) => item.toUpperCase())
-                      .join(", ")}
+                    {agent.interfaces.map(productCapabilityLabel).join(", ")}
                   </td>
                 ))}
               </tr>
@@ -100,21 +108,23 @@ export default async function ComparePage({
                 {agents.map((agent) => (
                   <td key={agent.id}>
                     {agent.capabilities.length > 0
-                      ? agent.capabilities.join(", ")
+                      ? agent.capabilities
+                          .map(productCapabilityLabel)
+                          .join(", ")
                       : "Service-level evidence"}
                   </td>
                 ))}
               </tr>
               <tr>
-                <th>Invocation</th>
+                <th>Recent service check</th>
                 {agents.map((agent) => (
                   <td key={agent.id} className="positive">
-                    ✓ Verified
+                    Passed · {relativeTime(agent.lastVerifiedAt)}
                   </td>
                 ))}
               </tr>
               <tr>
-                <th>Commerce</th>
+                <th>Hiring readiness</th>
                 {agents.map((agent) => (
                   <td
                     key={agent.id}
@@ -123,41 +133,39 @@ export default async function ComparePage({
                     }
                   >
                     {agent.tier === "Actionable"
-                      ? "✓ Verified"
-                      : "Not yet verified"}
+                      ? "Setup path verified"
+                      : "Not yet hireable"}
                   </td>
                 ))}
               </tr>
               <tr>
-                <th>Execution evidence</th>
+                <th>Completed jobs</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>
-                    {agent.executionEvidenceCount > 0
-                      ? `${agent.executionEvidenceCount} completed`
-                      : "None recorded yet"}
+                    {agent.completedCommerceJobCount > 0
+                      ? agent.completedCommerceJobCount
+                      : "No completed commerce jobs yet"}
                   </td>
                 ))}
               </tr>
               <tr>
-                <th>Hiring</th>
+                <th>Availability</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>
-                    {agent.hireable
-                      ? "Hireable now"
-                      : "No active verified offer"}
+                    {agent.hireable ? "Available to hire" : "No active offer"}
                   </td>
                 ))}
               </tr>
               <tr>
-                <th>Pricing</th>
+                <th>Price / billing</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>
-                    {agent.pricingKnown ? "Published" : "Not published"}
+                    {marketplacePriceLabel(agent.activeOfferPrice)}
                   </td>
                 ))}
               </tr>
               <tr>
-                <th>Reputation evidence</th>
+                <th>Track-record feedback</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>
                     {agent.feedbackCount > 0
@@ -167,9 +175,41 @@ export default async function ComparePage({
                 ))}
               </tr>
               <tr>
-                <th>Last verified</th>
+                <th>Last active</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>{relativeTime(agent.lastVerifiedAt)}</td>
+                ))}
+              </tr>
+              <tr>
+                <th>Funds permissions</th>
+                {agents.map((agent) => (
+                  <td key={agent.id}>
+                    {agent.category === "health-factor-monitoring"
+                      ? "Read-only for published Health Factor service"
+                      : "Review service permissions before hiring"}
+                  </td>
+                ))}
+              </tr>
+              <tr className="comparison-actions-row">
+                <th>Next step</th>
+                {agents.map((agent) => (
+                  <td key={agent.id}>
+                    {agent.hireable ? (
+                      <Link
+                        className="primary-button"
+                        href={`/agents/${agent.id}/hire`}
+                      >
+                        Hire this agent
+                      </Link>
+                    ) : (
+                      <Link
+                        className="secondary-button"
+                        href={`/agents/${agent.id}`}
+                      >
+                        View agent
+                      </Link>
+                    )}
+                  </td>
                 ))}
               </tr>
             </tbody>

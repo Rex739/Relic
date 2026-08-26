@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { labelForCategory, relativeTime } from "../../lib/marketplace";
+import {
+  labelForCategory,
+  marketplacePriceLabel,
+  productCapabilityLabel,
+  relativeTime,
+} from "../../lib/marketplace";
 import { VerificationTier } from "./verification-tier";
 
 const concise = (description: string) =>
@@ -29,10 +34,16 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
         {agents.map((agent) => (
           <article className="agent-card" key={agent.id}>
             <div className="agent-card-topline">
-              <VerificationTier tier={agent.tier} />
-              {agent.hireable ? (
-                <span className="hireable-badge">Hireable</span>
-              ) : null}
+              <span className="live-status">
+                <i /> Live
+              </span>
+              <span
+                className={
+                  agent.chainId === 97 ? "testnet-tag" : "network-label"
+                }
+              >
+                {agent.network}
+              </span>
               <label className="compare-check">
                 <input
                   type="checkbox"
@@ -54,76 +65,52 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
               </div>
             </Link>
             <p className="agent-description">{concise(agent.description)}</p>
-            <div className="card-network-row">
-              <span className={agent.chainId === 97 ? "testnet-tag" : ""}>
-                {agent.network}
-              </span>
+            <div className="agent-card-tags">
+              {agent.protocols.slice(0, 3).map((protocol) => (
+                <span key={protocol}>{productCapabilityLabel(protocol)}</span>
+              ))}
+              {agent.interfaces.slice(0, 2).map((item) => (
+                <span key={item}>{productCapabilityLabel(item)}</span>
+              ))}
             </div>
-            <dl className="card-service-facts">
+            <dl className="agent-card-metrics">
               <div>
-                <dt>Relevant protocols</dt>
+                <dt>Track record</dt>
                 <dd>
-                  {agent.protocols.length > 0
-                    ? agent.protocols
-                        .slice(0, 3)
-                        .map((item) => item.toUpperCase())
-                        .join(" · ")
-                    : "Service-level evidence"}
+                  {agent.completedCommerceJobCount > 0
+                    ? `${agent.completedCommerceJobCount} completed`
+                    : "No completed commerce jobs yet"}
                 </dd>
               </div>
               <div>
-                <dt>Verified interfaces</dt>
-                <dd>
-                  {agent.interfaces
-                    .slice(0, 3)
-                    .map((item) => item.toUpperCase())
-                    .join(" · ")}
-                </dd>
-              </div>
-            </dl>
-            <dl className="card-evidence">
-              <div>
-                <dt>Current service</dt>
-                <dd>
-                  <i /> Available
-                </dd>
-              </div>
-              <div>
-                <dt>Invocation</dt>
-                <dd>✓ Passed recently</dd>
-              </div>
-              <div>
-                <dt>Completed execution evidence</dt>
-                <dd>
-                  {agent.executionEvidenceCount > 0
-                    ? `${agent.executionEvidenceCount} recorded`
-                    : "None recorded yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>Commerce</dt>
-                <dd>
-                  {agent.tier === "Actionable"
-                    ? "✓ Lifecycle verified"
-                    : "Not yet verified"}
-                </dd>
-              </div>
-              <div>
-                <dt>Last verified</dt>
+                <dt>Last active</dt>
                 <dd>{relativeTime(agent.lastVerifiedAt)}</dd>
+              </div>
+              <div>
+                <dt>Service</dt>
+                <dd>{marketplacePriceLabel(agent.activeOfferPrice)}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>
+                  <VerificationTier tier={agent.tier} />
+                </dd>
               </div>
             </dl>
             <div className="card-footer">
-              <span>
-                {agent.hireable
-                  ? "Active verified offer"
-                  : agent.tier === "Actionable"
-                    ? "Actionable; no active offer"
-                    : "Working; commerce gated"}
-              </span>
-              <Link href={`/agents/${agent.id}`}>
-                View intelligence <span aria-hidden="true">→</span>
+              <Link href={`/agents/${agent.id}`} className="secondary-button">
+                View agent
               </Link>
+              {agent.hireable ? (
+                <Link
+                  href={`/agents/${agent.id}/hire`}
+                  className="primary-button"
+                >
+                  Hire
+                </Link>
+              ) : (
+                <span className="unavailable-copy">Not currently hireable</span>
+              )}
             </div>
           </article>
         ))}

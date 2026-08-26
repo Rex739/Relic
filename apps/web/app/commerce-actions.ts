@@ -17,6 +17,11 @@ const field = (formData: FormData, name: string) => {
   return value;
 };
 
+const safeContinuation = (value: FormDataEntryValue | null) =>
+  typeof value === "string" && value.startsWith("/") && !value.startsWith("//")
+    ? value
+    : null;
+
 export async function hireOfferAction(formData: FormData) {
   const offerId = field(formData, "offerId");
   const mandateId = field(formData, "mandateId");
@@ -24,14 +29,20 @@ export async function hireOfferAction(formData: FormData) {
   const agreementId = typeof result.id === "string" ? result.id : "";
   if (agreementId.length === 0)
     throw new Error("Agreement creation returned no identifier");
-  redirect(`/commerce/agreements/${agreementId}`);
+  const continuation = safeContinuation(formData.get("continuation"));
+  redirect(
+    continuation !== null
+      ? `${continuation}${continuation.includes("?") ? "&" : "?"}agreement=${encodeURIComponent(agreementId)}`
+      : `/commerce/agreements/${agreementId}`,
+  );
 }
 
 export async function acceptTermsAction(formData: FormData) {
   const agreementId = field(formData, "agreementId");
   const termsHash = field(formData, "termsHash");
   await acceptTerms(agreementId, termsHash);
-  redirect(`/commerce/agreements/${agreementId}`);
+  const continuation = safeContinuation(formData.get("continuation"));
+  redirect(continuation ?? `/commerce/agreements/${agreementId}`);
 }
 
 export async function cancelAgreementAction(formData: FormData) {

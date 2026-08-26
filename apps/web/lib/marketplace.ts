@@ -5,6 +5,7 @@ import type {
   PublicMarketplaceAgentDetail,
   PublicMarketplaceResult,
 } from "@relic/domain";
+import { formatDisplayBaseUnits } from "./commerce-display";
 
 export const categories = [
   {
@@ -36,6 +37,23 @@ export const categories = [
       "Watch lending positions and surface liquidation risk before it becomes urgent.",
   },
 ] as const;
+
+const interfaceLabels: Record<string, string> = {
+  erc8183: "Managed service lifecycle",
+  a2a: "Agent-to-agent service",
+  mcp: "Tool-enabled service",
+};
+
+export function productCapabilityLabel(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return (
+    interfaceLabels[normalized] ??
+    value
+      .replaceAll("_", " ")
+      .replaceAll("-", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+  );
+}
 
 export type IntentUnderstanding = {
   category?: string;
@@ -169,3 +187,47 @@ export const provenanceLabel = (value: string) =>
     agent_reported: "Agent reported",
     secondary_unverified: "Secondary / unverified",
   })[value] ?? value.replaceAll("_", " ");
+
+export function marketplacePriceLabel(
+  price: PublicMarketplaceAgent["activeOfferPrice"],
+) {
+  if (price === null) return "No active offer";
+  if (BigInt(price.amountBaseUnits) === 0n) return "Free";
+  return `${formatDisplayBaseUnits(price.amountBaseUnits, price.decimals)} ${price.symbol}`;
+}
+
+export function marketplaceOutcomeLabel(
+  outcome: PublicMarketplaceAgentDetail["outcomes"][number],
+) {
+  const settlement = outcome.settlementState.toUpperCase();
+  if (settlement === "SETTLED") return "Settlement completed";
+  if (["FAILED", "CANCELLED", "REJECTED", "REFUNDED"].includes(settlement))
+    return `Commerce ${settlement.toLowerCase()}`;
+  if (outcome.deliveredAt !== null) return "Delivery submitted";
+  if (outcome.commerceSuccessful) return "Commerce job completed";
+  if (outcome.invocationSuccessful) return "Verified service check";
+  return "Service check unsuccessful";
+}
+
+export type ReadinessInventoryResponse = {
+  data: {
+    data: PublicMarketplaceAgent[];
+    pagination?: { total: number };
+  } | null;
+  error: string | null;
+};
+
+export function readinessInventory(responses: ReadinessInventoryResponse[]) {
+  const failed = responses.find(
+    (response) => response.error !== null || response.data === null,
+  );
+  if (failed !== undefined)
+    return {
+      ok: false as const,
+      error: failed.error ?? "Category inventory response was empty",
+    };
+  return {
+    ok: true as const,
+    items: responses.map((response) => response.data!),
+  };
+}

@@ -73,11 +73,22 @@ beforeEach(async () => {
       ('01945b1e-7e80-7000-8000-000000001003', 'PAYMENT_UNDERSTOOD', 'INVOCATION_VERIFIED', 'passed', 'erc8183', '{}', '2026-08-20'),
       ('01945b1e-7e80-7000-8000-000000001004', 'ENDPOINT_OBSERVED', 'INVOCATION_VERIFIED', 'passed', 'a2a', '{}', '2026-08-01');
     insert into activations (id, agent_id, service_id, chain_id, status)
-    values ('01945b1e-7e80-7000-8000-000000002001', '01945b1e-7e80-7000-8000-000000000003', '01945b1e-7e80-7000-8000-000000001003', 97, 'COMPLETED');
+    values
+      ('01945b1e-7e80-7000-8000-000000002001', '01945b1e-7e80-7000-8000-000000000003', '01945b1e-7e80-7000-8000-000000001003', 97, 'COMPLETED'),
+      ('01945b1e-7e80-7000-8000-000000002002', '01945b1e-7e80-7000-8000-000000000002', '01945b1e-7e80-7000-8000-000000001002', 56, 'TERMS_RESOLVED');
     insert into marketplace_outcomes
       (activation_id, agent_id, service_id, invocation_successful, commerce_successful, settlement_state, observed_cost, protocol_evidence)
     values
-      ('01945b1e-7e80-7000-8000-000000002001', '01945b1e-7e80-7000-8000-000000000003', '01945b1e-7e80-7000-8000-000000001003', true, true, 'COMPLETED', '0', '{}');
+      ('01945b1e-7e80-7000-8000-000000002001', '01945b1e-7e80-7000-8000-000000000003', '01945b1e-7e80-7000-8000-000000001003', true, true, 'COMPLETED', '0', '{}'),
+      ('01945b1e-7e80-7000-8000-000000002002', '01945b1e-7e80-7000-8000-000000000002', '01945b1e-7e80-7000-8000-000000001002', true, false, 'NOT_STARTED', '0', '{}');
+    insert into agent_offers
+      (id, operator_principal_id, agent_id, service_id, status, current_version)
+    values
+      ('01945b1e-7e80-7000-8000-000000003001', 'operator', '01945b1e-7e80-7000-8000-000000000003', '01945b1e-7e80-7000-8000-000000001003', 'ACTIVE', 1);
+    insert into agent_offer_versions
+      (offer_id, version, chain_id, capability, billing_model, price_base_units, payment_token_address, payment_token_decimals, currency_symbol, terms_content, terms_hash, capability_snapshot, limitations_snapshot, evidence_reference, effective_at)
+    values
+      ('01945b1e-7e80-7000-8000-000000003001', 1, 97, 'Health monitoring', 'PER_EXECUTION', 0, '0x0000000000000000000000000000000000000000', 18, 'tBNB', 'Read-only monitoring', '0xterms', '[]', '[]', '{}', '2026-08-19');
   `);
   repository = new DrizzleAgentRepository(
     drizzle(database, { schema }) as unknown as RelicDatabase,
@@ -122,7 +133,28 @@ describe("verified public marketplace", () => {
       tier: "Actionable",
       chainId: 97,
       network: "BNB Chain Testnet",
-      executionEvidenceCount: 1,
+      verifiedInvocationCount: 1,
+      completedCommerceJobCount: 1,
+      activeOfferPrice: {
+        amountBaseUnits: "0",
+        decimals: 18,
+        symbol: "tBNB",
+      },
+    });
+  });
+
+  it("never counts invocation evidence as a completed commerce job", async () => {
+    const result = await repository.listPublicMarketplace({
+      page: 1,
+      limit: 10,
+    });
+    expect(
+      result.items.find(({ name }) => name === "Working rebalancer"),
+    ).toMatchObject({
+      verifiedInvocationCount: 1,
+      completedCommerceJobCount: 0,
+      deliveryCompletedCount: 0,
+      settlementCompletedCount: 0,
     });
   });
 

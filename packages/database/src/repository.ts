@@ -47,8 +47,18 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   protocols: string[];
   interfaces: string[];
   pricingKnown: boolean;
+  activeOfferPrice: {
+    amountBaseUnits: string;
+    decimals: number;
+    symbol: string;
+    tokenAddress: string;
+  } | null;
   hireable: boolean;
-  executionEvidenceCount: number;
+  verifiedInvocationCount: number;
+  completedCommerceJobCount: number;
+  deliveryCompletedCount: number;
+  settlementCompletedCount: number;
+  unsuccessfulCommerceJobCount: number;
   feedbackCount: number;
   lastVerifiedAt: Date | string;
   updatedAt: Date | string;
@@ -177,6 +187,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             commerceSuccessful: marketplaceOutcomes.commerceSuccessful,
             executionDurationMs: marketplaceOutcomes.executionDurationMs,
             responseStatus: marketplaceOutcomes.responseStatus,
+            deliveredAt: marketplaceOutcomes.deliveredAt,
             settlementState: marketplaceOutcomes.settlementState,
             observedCost: marketplaceOutcomes.observedCost,
             observedAt: marketplaceOutcomes.createdAt,
@@ -241,6 +252,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       })),
       outcomes: outcomes.map((outcome) => ({
         ...outcome,
+        deliveredAt: outcome.deliveredAt?.toISOString() ?? null,
         observedAt: outcome.observedAt.toISOString(),
       })),
       surfacedBecause: classifications.map(
@@ -445,8 +457,24 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       filters.push(sql`ai.chain_id = ${query.chainId}`);
     if (query.interface !== undefined)
       filters.push(sql`ms.interface_protocol = ${query.interface}`);
-    if (query.pricingKnown === true) filters.push(sql`ms.pricing is not null`);
-    if (query.pricingKnown === false) filters.push(sql`ms.pricing is null`);
+    if (query.pricingKnown !== undefined) {
+      const hasActiveOffer = sql`exists (
+        select 1
+        from agent_offers filter_offer
+        join agent_offer_versions filter_version
+          on filter_version.offer_id = filter_offer.id
+         and filter_version.version = filter_offer.current_version
+        where filter_offer.agent_id = a.id
+          and filter_offer.service_id = ms.id
+          and filter_offer.status = 'ACTIVE'
+          and filter_version.effective_at <= now()
+          and (filter_version.expires_at is null or filter_version.expires_at > now())
+          and filter_version.chain_id = ai.chain_id
+      )`;
+      filters.push(
+        query.pricingKnown ? hasActiveOffer : sql`not (${hasActiveOffer})`,
+      );
+    }
     if (query.hasReputation === true)
       filters.push(sql`exists (
         select 1 from reputation_inventory ri
@@ -499,7 +527,39 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             order by protocol
           ), array[]::text[]) protocols,
           array[ms.interface_protocol]::text[] interfaces,
-          (ms.pricing is not null) "pricingKnown",
+          (exists (
+            select 1
+            from agent_offers price_offer
+            join agent_offer_versions price_version
+              on price_version.offer_id = price_offer.id
+             and price_version.version = price_offer.current_version
+            where price_offer.agent_id = a.id
+              and price_offer.service_id = ms.id
+              and price_offer.status = 'ACTIVE'
+              and price_version.effective_at <= now()
+              and (price_version.expires_at is null or price_version.expires_at > now())
+              and price_version.chain_id = ai.chain_id
+          )) "pricingKnown",
+          (
+            select jsonb_build_object(
+              'amountBaseUnits', price_version.price_base_units::text,
+              'decimals', price_version.payment_token_decimals,
+              'symbol', price_version.currency_symbol,
+              'tokenAddress', price_version.payment_token_address
+            )
+            from agent_offers price_offer
+            join agent_offer_versions price_version
+              on price_version.offer_id = price_offer.id
+             and price_version.version = price_offer.current_version
+            where price_offer.agent_id = a.id
+              and price_offer.service_id = ms.id
+              and price_offer.status = 'ACTIVE'
+              and price_version.effective_at <= now()
+              and (price_version.expires_at is null or price_version.expires_at > now())
+              and price_version.chain_id = ai.chain_id
+            order by price_version.effective_at desc, price_offer.id
+            limit 1
+          ) "activeOfferPrice",
           (${actionable} and exists (
             select 1
             from agent_offers ao
@@ -512,7 +572,11 @@ export class DrizzleAgentRepository implements AgentReadRepository {
               and (aov.expires_at is null or aov.expires_at > now())
               and aov.chain_id = ai.chain_id
           )) "hireable",
-          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "executionEvidenceCount",
+          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "verifiedInvocationCount",
+          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.commerce_successful = true) "completedCommerceJobCount",
+          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.delivered_at is not null) "deliveryCompletedCount",
+          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and upper(mo.settlement_state) = 'SETTLED') "settlementCompletedCount",
+          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and upper(mo.settlement_state) in ('FAILED', 'CANCELLED', 'REJECTED', 'REFUNDED')) "unsuccessfulCommerceJobCount",
           coalesce((select max(ri.feedback_count)::int from reputation_inventory ri where ri.agent_id = a.id), 0) "feedbackCount",
           ms.last_verified_at "lastVerifiedAt",
           greatest(a.updated_at, ms.updated_at) "updatedAt",
@@ -559,8 +623,13 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       protocols: row.protocols,
       interfaces: row.interfaces,
       pricingKnown: row.pricingKnown,
+      activeOfferPrice: row.activeOfferPrice,
       hireable: row.hireable,
-      executionEvidenceCount: Number(row.executionEvidenceCount),
+      verifiedInvocationCount: Number(row.verifiedInvocationCount),
+      completedCommerceJobCount: Number(row.completedCommerceJobCount),
+      deliveryCompletedCount: Number(row.deliveryCompletedCount),
+      settlementCompletedCount: Number(row.settlementCompletedCount),
+      unsuccessfulCommerceJobCount: Number(row.unsuccessfulCommerceJobCount),
       feedbackCount: Number(row.feedbackCount),
       lastVerifiedAt: new Date(row.lastVerifiedAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString(),

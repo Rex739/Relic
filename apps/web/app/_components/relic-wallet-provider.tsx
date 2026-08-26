@@ -203,7 +203,7 @@ export function RelicWalletProvider({ children }: { children: ReactNode }) {
         embeddedWallets: { ethereum: { createOnLogin: "off" } },
         appearance: {
           theme: "dark",
-          accentColor: "#b7ff3c",
+          accentColor: "#A9483F",
           walletChainType: "ethereum-only",
           walletList: [
             "metamask",

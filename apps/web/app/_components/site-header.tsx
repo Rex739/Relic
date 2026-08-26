@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AppNavigation } from "./app-navigation";
 import { WalletSession } from "./wallet-session";
 
 export function SiteHeader() {
@@ -12,15 +13,11 @@ export function SiteHeader() {
         <span className="brand-mark">R</span>
         <span>Relic</span>
       </Link>
-      <nav aria-label="Primary navigation">
-        <Link href="/marketplace">Marketplace</Link>
-        <Link href="/compare">Compare</Link>
-        <Link href="/my-agents">My Agents</Link>
-      </nav>
+      <AppNavigation />
       <div className="header-actions">
-        <div className="network-pill">
-          <span /> BNB ecosystem
-        </div>
+        <Link className="header-compare" href="/compare">
+          Compare
+        </Link>
         <WalletSession />
       </div>
     </header>

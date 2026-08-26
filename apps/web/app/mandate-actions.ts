@@ -37,6 +37,12 @@ function healthFactorConfiguration(formData: FormData): CreateMandateRequest {
   const enabledCapabilities = capabilities.filter(
     (capability) => formData.get(capability) === "on",
   );
+  const monitoredAccount = fieldString(formData, "monitoredAccount");
+  if (
+    monitoredAccount.length > 0 &&
+    !/^0x[0-9a-fA-F]{40}$/.test(monitoredAccount)
+  )
+    throw new Error("monitoredAccount must be a valid EVM address");
   return {
     agentId: fieldString(formData, "agentId"),
     chainId: Number(formData.get("chainId")) as 56 | 97,
@@ -54,7 +60,10 @@ function healthFactorConfiguration(formData: FormData): CreateMandateRequest {
       now.getTime() + durationDays * 86_400_000,
     ).toISOString(),
     approvalMode: "OBSERVE_ONLY",
-    riskConstraints: { alertHealthFactorBelow: threshold },
+    riskConstraints: {
+      alertHealthFactorBelow: threshold,
+      ...(monitoredAccount.length === 0 ? {} : { monitoredAccount }),
+    },
     stopConditions: [
       { kind: "SERVICE_STALE" },
       { kind: "MANDATE_EXPIRED" },
@@ -67,6 +76,19 @@ export async function createAndReviewMandate(formData: FormData) {
   const draft = await createMandate(healthFactorConfiguration(formData));
   await transitionMandate(draft.id, "review");
   redirect(`/mandates/${draft.id}?preflight=passed`);
+}
+
+export async function createActivateMandateForHire(formData: FormData) {
+  if (formData.get("explicitApproval") !== "approved")
+    throw new Error("Explicit mandate approval is required");
+  const draft = await createMandate(healthFactorConfiguration(formData));
+  await transitionMandate(draft.id, "review");
+  await transitionMandate(draft.id, "activate");
+  const agentId = fieldString(formData, "agentId");
+  const offerId = fieldString(formData, "offerId");
+  redirect(
+    `/agents/${encodeURIComponent(agentId)}/hire?offer=${encodeURIComponent(offerId)}&mandate=${encodeURIComponent(draft.id)}`,
+  );
 }
 
 export async function activateMandateAction(id: string, formData: FormData) {

@@ -7,10 +7,11 @@ import { SiteHeader } from "./_components/site-header";
 
 export const metadata: Metadata = {
   title: {
-    default: "Relic — Verified Agent Marketplace",
+    default: "Relic — BNB Agent Marketplace",
     template: "%s · Relic",
   },
-  description: "Independently verified autonomous agents for BNB Chain.",
+  description:
+    "Find, compare, and hire independently tested AI agents on BNB Chain.",
 };
 
 export default function RootLayout({
@@ -23,10 +24,8 @@ export default function RootLayout({
           <SiteHeader />
           {children}
           <footer className="site-footer">
-            <span>
-              Relic verifies operability. Registration alone is never enough.
-            </span>
-            <span>BNB Chain · Evidence-first agent infrastructure</span>
+            <span>Relic · The BNB Agent Studio marketplace</span>
+            <span>Find · Compare · Hire · Running</span>
           </footer>
         </RelicWalletProvider>
       </body>
