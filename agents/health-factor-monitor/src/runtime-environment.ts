@@ -4,6 +4,7 @@ export interface ReferenceRuntimeEnvironment {
   fundedPollInterval: number;
   keystoreDirectory: string;
   port: number;
+  signedQuoteTtlSeconds: number;
   walletAddress: `0x${string}`;
   walletPassword: string;
 }
@@ -68,6 +69,11 @@ export function parseReferenceRuntimeEnvironment(
     ),
     keystoreDirectory: required(environment, "WALLET_KEYSTORE_DIR"),
     port: positiveInteger(environment.PORT ?? "8003", "PORT", 65_535),
+    signedQuoteTtlSeconds: positiveInteger(
+      environment.ERC8183_SIGNED_QUOTE_TTL_SECONDS ?? "900",
+      "ERC8183_SIGNED_QUOTE_TTL_SECONDS",
+      900,
+    ),
     walletAddress: evmAddress(environment, "WALLET_ADDRESS"),
     walletPassword: required(environment, "WALLET_PASSWORD"),
   };

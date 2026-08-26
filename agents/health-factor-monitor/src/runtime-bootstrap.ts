@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { getAddress } from "viem";
 
 interface StartupMemoryTelemetry {
   capture(stage: string): { maxRss: number; rss: number };
@@ -46,19 +47,20 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
   const environment = parseReferenceRuntimeEnvironment(process.env);
   telemetry.capture("environment/config:initialized");
 
-  const { getAddress } = await import("viem");
-  const walletAddress = getAddress(environment.walletAddress);
+  const viem = (await import("viem")) as {
+    getAddress: typeof getAddress;
+  };
+  const walletAddress = viem.getAddress(environment.walletAddress);
   telemetry.capture("viem/rpc:imported");
 
   const { PostgresArtifactStorage } = await import("./postgres-storage.js");
+  const { normalizeDeliveryContent } = await import("./delivery-content.js");
   telemetry.capture("database/postgres:imported");
   const storage = new PostgresArtifactStorage(
     environment.databaseUrl,
     "health-factor-monitor",
   );
   let startupComplete = false;
-  let startupStop: AbortController | undefined;
-  let startupWatcher: Promise<void> | undefined;
   let runtime: StartedRuntime | undefined;
   try {
     await storage.verify();
@@ -99,26 +101,19 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
     const negotiation = await sdk.NegotiationHandler.fromErc8183Client(client, {
       servicePrice: "0",
       walletProvider: config.walletProvider,
+      quoteTtlSeconds: environment.signedQuoteTtlSeconds,
     });
     const paymentToken = await client.paymentToken();
     telemetry.capture("bnb-agent-sdk/erc8183:initialized");
 
-    const { VenusCoreReader } = await import("./venus.js");
-    const reader = new VenusCoreReader();
-    telemetry.capture("venus:imported-and-initialized");
-
     const { startReferenceRuntime } = await import("./runtime-host.js");
     telemetry.capture("http-runtime:imported");
-    const stop = new AbortController();
-    startupStop = stop;
     let agentReady = false;
     const healthFactorAgent = {
       slug: "health-factor-monitor",
       ready: () => agentReady,
       close: async () => {
         agentReady = false;
-        stop.abort();
-        await startupWatcher;
         await storage.close();
       },
       handle: async (
@@ -168,13 +163,10 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
         );
         if (request.method === "GET" && responseMatch?.[1]) {
           const jobId = Number(responseMatch[1]);
-          const cached = await jobOps.getResponse(jobId);
-          if (cached.success) send(response, 200, cached);
-          else
-            send(response, 200, {
-              success: true,
-              ...(await storage.download(`erc8183-job-${jobId}.json`)),
-            });
+          const persisted = normalizeDeliveryContent(
+            await storage.download(`erc8183-job-${jobId}.json`),
+          );
+          send(response, 200, { success: true, ...persisted });
           return true;
         }
         return false;
@@ -185,47 +177,12 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
     ]);
     telemetry.capture("http-runtime:initialized");
 
-    let analysisModulePromise:
-      ReturnType<typeof importAnalysisModule> | undefined;
-    const loadAnalysisModule = async () => {
-      const firstLoad = analysisModulePromise === undefined;
-      analysisModulePromise ??= importAnalysisModule();
-      const module = await analysisModulePromise;
-      if (firstLoad) telemetry.capture("funded-job-analysis:imported");
-      return module;
-    };
-    startupWatcher = sdk.fundedJobWatcher(
-      jobOps,
-      async (job) => {
-        const { analyzePosition } = await loadAnalysisModule();
-        const rawDescription =
-          typeof job.description === "string" ? job.description : "";
-        const parsed = sdk.parseJobDescription(rawDescription);
-        if (!parsed?.task)
-          throw new Error("ERC-8183 description has no task payload");
-        const input = JSON.parse(parsed.task) as unknown;
-        const result = await analyzePosition(input, reader);
-        const submission = await jobOps.submitResult(
-          Number(job.jobId),
-          JSON.stringify(result),
-          {
-            seller: "relic-health-factor-monitor",
-            supplyType: "relic_reference",
-            dataSource: result.source,
-            observedBlock: result.observedBlock,
-            readOnly: true,
-          },
-        );
-        return submission.success ? undefined : { retry: submission.retryable };
-      },
-      {
-        interval: environment.fundedPollInterval,
-        stop: stop.signal,
-      },
-    );
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    // The reference runtime deliberately has no autonomous blockchain-write
+    // loop. Provider execution and delivery preparation are orchestrated by
+    // Relic's durable commerce operation path, which records signer role,
+    // idempotency, prepared calldata, and the returned transaction hash.
     agentReady = true;
-    telemetry.capture("funded-job-polling:initialized");
+    telemetry.capture("funded-job-polling:disabled-no-signing-authority");
 
     let shuttingDown = false;
     const shutdown = async (signal: string) => {
@@ -256,12 +213,8 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
     startupComplete = true;
   } finally {
     if (!startupComplete) {
-      startupStop?.abort();
-      await startupWatcher;
       await runtime?.close();
       if (!runtime) await storage.close();
     }
   }
 }
-
-const importAnalysisModule = () => import("./analysis.js");

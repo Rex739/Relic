@@ -33,14 +33,25 @@ export class PostgresArtifactStorage implements StorageProvider {
     if (!filename)
       throw new Error("A deterministic deliverable filename is required");
     const jobId = jobIdFromLocation(filename);
-    await this.#sql`
+    const inserted = await this.#sql<Array<{ inserted: boolean }>>`
       insert into reference_agent_artifacts (agent_slug, job_id, filename, content)
       values (${this.#agentSlug}, ${jobId}, ${filename}, ${JSON.stringify(data)}::jsonb)
-      on conflict (agent_slug, job_id) do update
-      set filename = excluded.filename,
-          content = excluded.content,
-          updated_at = now()
+      on conflict (agent_slug, job_id) do nothing
+      returning true as inserted
     `;
+    if (inserted.length === 0) {
+      const existing = await this.#sql<Array<{ matches: boolean }>>`
+        select filename = ${filename}
+          and content = ${JSON.stringify(data)}::jsonb as matches
+        from reference_agent_artifacts
+        where agent_slug = ${this.#agentSlug} and job_id = ${jobId}
+        limit 1
+      `;
+      if (existing[0]?.matches !== true)
+        throw new Error(
+          `Immutable deliverable already exists for ERC-8183 job ${jobId}`,
+        );
+    }
     return `file:///${filename}`;
   }
 

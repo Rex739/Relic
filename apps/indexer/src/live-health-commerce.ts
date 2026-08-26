@@ -27,12 +27,6 @@ const log = (value: Record<string, unknown>) =>
       typeof item === "bigint" ? item.toString() : item,
     ),
   );
-const jsonSafe = (value: unknown) =>
-  JSON.parse(
-    JSON.stringify(value, (_key, item: unknown) =>
-      typeof item === "bigint" ? item.toString() : item,
-    ),
-  ) as unknown;
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
@@ -100,47 +94,6 @@ async function recordVerifiedInvocation(
     });
 }
 
-async function recordVerifiedCommerce(
-  serviceId: string,
-  evidence: Record<string, unknown>,
-) {
-  const selected = (await supply.referenceCommerceCandidates(100)).find(
-    ({ service }) => service.id === serviceId,
-  );
-  if (!selected) throw new Error("Reference commerce candidate disappeared");
-  if (selected.service.verificationLevel === "INVOCATION_VERIFIED")
-    await supply.recordServiceVerification({
-      serviceId,
-      fromLevel: "INVOCATION_VERIFIED",
-      toLevel: "COMMERCE_VERIFIED",
-      result: "passed",
-      protocol: "erc8183",
-      requestMethod: null,
-      httpStatus: null,
-      availability: "available",
-      evidence,
-    });
-  if (selected.candidate.status === "INVOCATION_VERIFIED")
-    await supply.transitionCandidate({
-      candidateId: selected.candidate.id,
-      from: "INVOCATION_VERIFIED",
-      to: "ACTIONABLE",
-      evidence,
-    });
-  const submission = await onboarding.findSubmissionByCandidateId(
-    selected.candidate.id,
-  );
-  if (submission?.status === "COMMERCE_PREFLIGHT")
-    await onboarding.transitionSubmission({
-      submissionId: submission.id,
-      from: "COMMERCE_PREFLIGHT",
-      to: "ACTIONABLE",
-      evidence,
-      agentId: selected.service.agentId,
-      candidateId: selected.candidate.id,
-    });
-}
-
 async function settleOrCheckpoint(
   activation: NonNullable<
     Awaited<ReturnType<DrizzleSupplyStore["findActivation"]>>
@@ -154,8 +107,6 @@ async function settleOrCheckpoint(
     providerAddress: activation.activation.providerAddress as `0x${string}`,
     sellerUrl: activation.service.endpoint,
   });
-  const routing = commerce.routingAddresses();
-  const clientAddress = arg("wallet-address");
   const jobId = BigInt(activation.activation.externalJobId);
   let job = await commerce.refreshJob(jobId);
   if (activation.activation.status === "JOB_CREATED" && job.state === "OPEN") {
@@ -208,137 +159,9 @@ async function settleOrCheckpoint(
     });
     return;
   }
-  if (job.state === "SUBMITTED") {
-    const submissionEvidence = await commerce.submissionEvidence(jobId);
-    if (activation.activation.status === "FUNDED")
-      await supply.transitionActivation({
-        activationId: activation.activation.id,
-        status: "SUBMITTED",
-        externalJobId: jobId.toString(),
-        resultReference: job.deliverable,
-        evidence: {
-          source: "onchain-job-submitted-event",
-          submittedAt: job.submittedAt.toString(),
-          submissionEvent: jsonSafe(submissionEvidence),
-        },
-        ...(submissionEvidence?.transactionHash === null ||
-        submissionEvidence?.transactionHash === undefined
-          ? {}
-          : { transactionHash: submissionEvidence.transactionHash }),
-        ...(submissionEvidence?.blockNumber === null ||
-        submissionEvidence?.blockNumber === undefined
-          ? {}
-          : { blockNumber: submissionEvidence.blockNumber }),
-      });
-    if (activation.activation.lifecycleState === "ACTIVE")
-      await onboarding.transitionActivationLifecycle({
-        activationId: activation.activation.id,
-        from: "ACTIVE",
-        to: "DELIVERED",
-        evidence: {
-          source: "onchain-read",
-          deliverable: job.deliverable,
-          submittedAt: job.submittedAt.toString(),
-          submissionEvent: jsonSafe(submissionEvidence),
-        },
-        ...(submissionEvidence?.transactionHash === null ||
-        submissionEvidence?.transactionHash === undefined
-          ? {}
-          : { transactionHash: submissionEvidence.transactionHash }),
-        ...(submissionEvidence?.blockNumber === null ||
-        submissionEvidence?.blockNumber === undefined
-          ? {}
-          : { blockNumber: submissionEvidence.blockNumber }),
-      });
-    const disputeWindow = await commerce.disputeWindow();
-    const settleAt = job.submittedAt + disputeWindow;
-    if (BigInt(Math.floor(Date.now() / 1000)) <= settleAt) {
-      log({
-        event: "activation_waiting_for_settlement_window",
-        activationId: activation.activation.id,
-        settleAt: settleAt.toString(),
-      });
-      return;
-    }
-    await onboarding.transitionActivationLifecycle({
-      activationId: activation.activation.id,
-      from: "DELIVERED",
-      to: "SETTLING",
-      evidence: { disputeWindow: disputeWindow.toString() },
-    });
-    const hash = await commerce.settle(jobId, "0x");
-    const settlementEvidence = commerce.drainEvidence();
-    const settlementWrite = settlementEvidence.at(-1);
-    const settlementBlock =
-      settlementWrite?.blockNumber === undefined
-        ? undefined
-        : BigInt(settlementWrite.blockNumber);
-    await supply.transitionActivation({
-      activationId: activation.activation.id,
-      status: "COMPLETED",
-      transactionHash: hash,
-      ...(settlementBlock === undefined
-        ? {}
-        : { blockNumber: settlementBlock }),
-      externalJobId: jobId.toString(),
-      resultReference: job.deliverable,
-      commerceAddress: routing.commerce,
-      ...(clientAddress === undefined ? {} : { clientAddress }),
-      providerAddress: activation.activation.providerAddress,
-      evaluatorAddress: routing.router,
-      evidence: {
-        operation: "settle",
-        source: "sdk-0.5.0",
-        writes: settlementEvidence,
-        routing,
-      },
-    });
-    await onboarding.transitionActivationLifecycle({
-      activationId: activation.activation.id,
-      from: "SETTLING",
-      to: "COMPLETED",
-      transactionHash: hash,
-      ...(settlementBlock === undefined
-        ? {}
-        : { blockNumber: settlementBlock }),
-      evidence: {
-        state: "COMPLETED",
-        observedCost: "0",
-        writes: settlementEvidence,
-      },
-    });
-    await recordVerifiedCommerce(activation.service.id, {
-      source: "real-settled-erc8183-commerce",
-      jobId: jobId.toString(),
-      deliverable: job.deliverable,
-      writes: settlementEvidence,
-      routing,
-      observedCost: "0",
-    });
-  }
-  await onboarding.recordOutcome({
-    activationId: activation.activation.id,
-    agentId: activation.activation.agentId,
-    serviceId: activation.activation.serviceId,
-    invocationSuccessful: true,
-    commerceSuccessful: true,
-    responseStatus: "delivered",
-    deliveredAt: new Date(Number(job.submittedAt) * 1000),
-    settlementState: "COMPLETED",
-    observedCost: "0",
-    protocolEvidence: {
-      dataKind: "real-persisted-commerce",
-      jobId: jobId.toString(),
-      deliverable: job.deliverable,
-      sdkVersion: "0.5.0",
-    },
-  });
-  log({
-    event: "activation_completed",
-    activationId: activation.activation.id,
-    jobId: jobId.toString(),
-    observedCost: "0",
-  });
+  throw new Error(
+    "Automatic settlement and commerce-success projection are disabled; submitted delivery must be reconciled through its matching durable SUBMIT_DELIVERY operation and immutable artifact",
+  );
 }
 
 try {

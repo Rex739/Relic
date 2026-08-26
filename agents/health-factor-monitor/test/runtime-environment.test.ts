@@ -23,7 +23,17 @@ describe("reference runtime environment", () => {
       port: 8003,
       fundedPollInterval: 15,
       keystoreDirectory: "/run/secrets/relic-health-factor",
+      signedQuoteTtlSeconds: 900,
     });
+  });
+
+  it("fails closed above the SDK's signed-quote maximum", () => {
+    expect(() =>
+      parseReferenceRuntimeEnvironment({
+        ...validEnvironment(),
+        ERC8183_SIGNED_QUOTE_TTL_SECONDS: "21600",
+      }),
+    ).toThrow(/between 1 and 900/);
   });
 
   it("forbids private-key import", () => {
