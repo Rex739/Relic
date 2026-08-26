@@ -42,11 +42,11 @@ beforeEach(async () => {
     await database.exec(migration);
   }
   await database.exec(`
-    insert into agents (id, name, description, metadata_uri, updated_at) values
-      ('01945b1e-7e80-7000-8000-000000000001', 'Registered only', 'A declared agent that has never passed a controlled invocation.', 'ipfs://registered', '2026-08-20'),
-      ('01945b1e-7e80-7000-8000-000000000002', 'Working rebalancer', 'A verified rebalancing agent with a controlled invocation.', 'ipfs://working', '2026-08-20'),
-      ('01945b1e-7e80-7000-8000-000000000003', 'Actionable monitor', 'A verified health monitor with completed commerce evidence.', 'ipfs://actionable', '2026-08-20'),
-      ('01945b1e-7e80-7000-8000-000000000004', 'Stale grid agent', 'An invocation once passed but the evidence is now stale.', 'ipfs://stale', '2026-08-01');
+    insert into agents (id, name, description, image_url, metadata_uri, updated_at) values
+      ('01945b1e-7e80-7000-8000-000000000001', 'Registered only', 'A declared agent that has never passed a controlled invocation.', null, 'ipfs://registered', '2026-08-20'),
+      ('01945b1e-7e80-7000-8000-000000000002', 'Working rebalancer', 'A verified rebalancing agent with a controlled invocation.', null, 'ipfs://working', '2026-08-20'),
+      ('01945b1e-7e80-7000-8000-000000000003', 'Actionable monitor', 'A verified health monitor with completed commerce evidence.', 'https://agents.example/monitor.png', 'ipfs://actionable', '2026-08-20'),
+      ('01945b1e-7e80-7000-8000-000000000004', 'Stale grid agent', 'An invocation once passed but the evidence is now stale.', null, 'ipfs://stale', '2026-08-01');
     insert into agent_identities
       (agent_id, standard, namespace, chain_id, registry_address, external_agent_id, owner_address, registration_status)
     values
@@ -133,6 +133,7 @@ describe("verified public marketplace", () => {
       tier: "Actionable",
       chainId: 97,
       network: "BNB Chain Testnet",
+      imageUrl: "https://agents.example/monitor.png",
       verifiedInvocationCount: 1,
       completedCommerceJobCount: 1,
       activeOfferPrice: {

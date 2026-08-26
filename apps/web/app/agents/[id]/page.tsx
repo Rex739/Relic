@@ -8,28 +8,15 @@ import {
   marketplaceAgent,
   marketplaceOutcomeLabel,
   productCapabilityLabel,
-  provenanceLabel,
   relativeTime,
 } from "../../../lib/marketplace";
 import { activeOffers } from "../../../lib/commerce";
+import { AgentAvatar } from "../../_components/agent-avatar";
 import { VerificationTier } from "../../_components/verification-tier";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Agent intelligence" };
-
-const evidenceGroup = (fieldPath: string) => {
-  const field = fieldPath.toLowerCase();
-  if (
-    /identity|chain|registry|agent.?id|owner|registration|transaction/.test(
-      field,
-    )
-  )
-    return "Identity";
-  if (/service|endpoint|interface|protocol|capabilit|pricing/.test(field))
-    return "Service";
-  return "Metadata";
-};
 
 export default async function AgentIntelligencePage({
   params,
@@ -52,12 +39,14 @@ export default async function AgentIntelligencePage({
     );
   const agent = response.data;
   const offers = await activeOffers(id);
-  const evidenceGroups = ["Identity", "Metadata", "Service"].map((group) => ({
-    group,
-    items: agent.evidence.filter(
-      (item) => evidenceGroup(item.fieldPath) === group,
+  const restrictions = offers.flatMap(
+    (offer) => offer.version.limitationsSnapshot,
+  );
+  const isReadOnly = restrictions.some((restriction) =>
+    /read.?only|cannot (transfer|move|spend)|no (transfer|transaction|spending)/i.test(
+      restriction,
     ),
-  }));
+  );
 
   return (
     <main className="page-shell profile-page">
@@ -74,9 +63,12 @@ export default async function AgentIntelligencePage({
       </nav>
       <header className="profile-header">
         <div className="profile-identity">
-          <div className="agent-avatar large">
-            {agent.name.slice(0, 2).toUpperCase()}
-          </div>
+          <AgentAvatar
+            id={agent.id}
+            imageUrl={agent.imageUrl}
+            name={agent.name}
+            size="profile"
+          />
           <div>
             <div className="profile-badges">
               <VerificationTier tier={agent.tier} />
@@ -106,23 +98,45 @@ export default async function AgentIntelligencePage({
           </div>
         </div>
         <aside className="profile-action">
-          <span>Service status</span>
-          <strong>
-            <i /> Live
-          </strong>
-          <p>
-            Last independently checked {relativeTime(agent.lastVerifiedAt)}.
+          <span>Agent status</span>
+          <div className="buyer-summary-list">
+            <div>
+              <span>Status</span>
+              <b className="live-status">
+                <i /> Live
+              </b>
+            </div>
+            <div>
+              <span>Trust</span>
+              <b>
+                {agent.checks.identityVerified
+                  ? "Verified by Relic"
+                  : "Checks in progress"}
+              </b>
+            </div>
+            <div>
+              <span>Service</span>
+              <b>
+                {offers.length > 0
+                  ? commercePriceLabel(offers[0]!.version.price)
+                  : "No active offer"}
+              </b>
+            </div>
+            <div>
+              <span>Permissions</span>
+              <b>{isReadOnly ? "Read-only" : "Set during hire"}</b>
+            </div>
+          </div>
+          <p>Last active {relativeTime(agent.lastVerifiedAt)}.</p>
+          <p className="funds-access-summary">
+            {isReadOnly
+              ? "This service cannot move your funds."
+              : "You review any funds access before authorizing it."}
           </p>
           {agent.tier === "Actionable" && offers.length > 0 ? (
             <div className="action-boundary actionable-boundary">
-              <span>Available to hire</span>
-              <b>{commercePriceLabel(offers[0]!.version.price)}</b>
-              <p>
-                Review the service, choose permissions, and confirm with your
-                wallet.
-              </p>
               <Link href={`/agents/${agent.id}/hire`} className="activate-link">
-                Hire agent <small>Start setup</small>
+                Hire agent <small>Review permissions</small>
               </Link>
               <Link
                 href={`/compare?ids=${agent.id}`}
@@ -243,14 +257,6 @@ export default async function AgentIntelligencePage({
                           : "BSC Mainnet"}
                       </dd>
                     </div>
-                    <div>
-                      <dt>Offer version</dt>
-                      <dd>v{offer.version.version}</dd>
-                    </div>
-                    <div>
-                      <dt>Terms hash</dt>
-                      <dd>{offer.version.termsHash.slice(0, 12)}…</dd>
-                    </div>
                   </dl>
                   <Link href={`/agents/${agent.id}/hire?offer=${offer.id}`}>
                     Hire this service →
@@ -266,7 +272,7 @@ export default async function AgentIntelligencePage({
             <div className="capability-list">
               {(agent.capabilities.length > 0
                 ? agent.capabilities
-                : agent.interfaces
+                : [labelForCategory(agent.category)]
               ).map((capability) => (
                 <span key={capability}>
                   ✓ {productCapabilityLabel(capability)}
@@ -300,53 +306,9 @@ export default async function AgentIntelligencePage({
             )}
           </section>
 
-          <details className="profile-section verification-details">
-            <summary>Verification details</summary>
-            <span className="overline">Relic checks</span>
-            <h2>Why this agent is listed</h2>
-            <div className="verification-grid">
-              {[
-                ["Identity", "Onchain verified", agent.checks.identityVerified],
-                ["Endpoint", "Reachable", agent.checks.endpointReachable],
-                [
-                  "Protocol",
-                  "Interface confirmed",
-                  agent.checks.protocolVerified,
-                ],
-                [
-                  "Invocation",
-                  "Controlled test passed",
-                  agent.checks.invocationVerified,
-                ],
-                [
-                  "Commerce",
-                  agent.checks.commerceVerified
-                    ? "Lifecycle verified"
-                    : "Not yet verified",
-                  agent.checks.commerceVerified,
-                ],
-              ].map(([label, value, passed]) => (
-                <div key={String(label)}>
-                  <span>{label}</span>
-                  <b className={passed ? "passed" : "pending"}>
-                    {passed ? "✓" : "○"} {value}
-                  </b>
-                </div>
-              ))}
-            </div>
-            {agent.surfacedBecause.length > 0 ? (
-              <div className="surfaced-because">
-                <b>Classification evidence</b>
-                {agent.surfacedBecause.map((reason) => (
-                  <p key={reason}>{reason}</p>
-                ))}
-              </div>
-            ) : null}
-          </details>
-
           <section className="profile-section">
-            <span className="overline">Verified services</span>
-            <h2>Interfaces Relic has tested</h2>
+            <span className="overline">Services</span>
+            <h2>Services Relic has checked</h2>
             <div className="service-list">
               {agent.services.map((service) => {
                 const serviceOffer = offers.find(
@@ -357,24 +319,17 @@ export default async function AgentIntelligencePage({
                     <div>
                       <span className="service-icon">↗</span>
                       <div>
-                        <h3>{service.name}</h3>
-                        <p>
-                          {service.interface.toUpperCase()} ·{" "}
-                          {service.availability}
-                        </p>
+                        <h3>{productCapabilityLabel(service.name)}</h3>
+                        <p>{service.description ?? "Verified agent service"}</p>
                       </div>
                     </div>
                     <span className="tier tier-working">
                       ●{" "}
                       {service.verificationLevel === "COMMERCE_VERIFIED"
-                        ? "Commerce verified"
-                        : "Invocation verified"}
+                        ? "Service and hiring checked"
+                        : "Service checked"}
                     </span>
                     <dl>
-                      <div>
-                        <dt>Endpoint</dt>
-                        <dd>{new URL(service.endpoint).host}</dd>
-                      </div>
                       <div>
                         <dt>Current offer</dt>
                         <dd>
@@ -392,6 +347,60 @@ export default async function AgentIntelligencePage({
                 );
               })}
             </div>
+          </section>
+
+          <section className="profile-section human-verification">
+            <span className="overline">Verified by Relic</span>
+            <h2>Checks you can understand</h2>
+            <div className="trust-check-list">
+              <div
+                className={agent.checks.identityVerified ? "passed" : "pending"}
+              >
+                <b>
+                  {agent.checks.identityVerified
+                    ? "✓ Identity registered"
+                    : "○ Identity check pending"}
+                </b>
+                <p>
+                  {agent.checks.identityVerified
+                    ? "This agent has a verifiable identity registered on BNB Chain."
+                    : "Relic has not yet confirmed this agent’s registered identity."}
+                </p>
+              </div>
+              <div
+                className={
+                  agent.checks.invocationVerified ? "passed" : "pending"
+                }
+              >
+                <b>
+                  {agent.checks.invocationVerified
+                    ? "✓ Service checked"
+                    : "○ Service check pending"}
+                </b>
+                <p>
+                  {agent.checks.invocationVerified
+                    ? "Relic successfully contacted the service and received a valid response."
+                    : "Relic has not yet recorded a successful service test."}
+                </p>
+              </div>
+              <div
+                className={agent.checks.protocolVerified ? "passed" : "pending"}
+              >
+                <b>
+                  {agent.checks.protocolVerified
+                    ? "✓ Profile matches service"
+                    : "○ Profile match pending"}
+                </b>
+                <p>
+                  {agent.checks.protocolVerified
+                    ? "The service Relic observed matches what this agent advertises."
+                    : "Relic has not yet confirmed that the advertised profile matches the live service."}
+                </p>
+              </div>
+            </div>
+            <p className="verification-recency">
+              Last checked {relativeTime(agent.checks.lastCheckedAt)}.
+            </p>
           </section>
 
           {agent.outcomes.length > 0 ? (
@@ -414,69 +423,58 @@ export default async function AgentIntelligencePage({
           ) : null}
         </div>
 
-        <aside className="evidence-rail">
-          <section>
-            <span className="overline">Verification details</span>
-            <h2>Sources and recency</h2>
-            <p>
-              Every important claim retains its source and observation time.
-            </p>
-            <div className="provenance-groups">
-              {evidenceGroups.map(({ group, items }) => (
-                <div className="provenance-group" key={group}>
-                  <div className="provenance-group-heading">
-                    <b>{group}</b>
-                    <span>{items.length}</span>
-                  </div>
-                  {items.length === 0 ? (
-                    <p>No recorded {group.toLowerCase()} facts.</p>
-                  ) : (
-                    <div className="evidence-list">
-                      {items.map((item, index) => (
-                        <div
-                          key={`${item.fieldPath}-${item.observedAt}-${index}`}
-                        >
-                          <i />
-                          <div>
-                            <b title={item.fieldPath}>{item.label}</b>
-                            <span>{provenanceLabel(item.provenance)}</span>
-                            <span>Source: {item.source}</span>
-                            <time>{relativeTime(item.observedAt)}</time>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+        <details className="profile-section technical-details">
+          <summary>View technical details</summary>
+          <dl>
+            <div>
+              <dt>ERC-8004 Agent ID</dt>
+              <dd>{agent.externalAgentId}</dd>
+            </div>
+            <div>
+              <dt>Chain ID</dt>
+              <dd>{agent.chainId}</dd>
+            </div>
+            <div>
+              <dt>Registry address</dt>
+              <dd>{agent.registryAddress}</dd>
+            </div>
+            <div>
+              <dt>Owner</dt>
+              <dd>{agent.ownerAddress}</dd>
+            </div>
+            <div>
+              <dt>Registration block</dt>
+              <dd>{agent.registrationBlock ?? "Not recorded"}</dd>
+            </div>
+            <div>
+              <dt>Metadata URI</dt>
+              <dd>{agent.metadataUri}</dd>
+            </div>
+            {agent.services.map((service) => (
+              <div key={service.id}>
+                <dt>Service URI</dt>
+                <dd>{service.endpoint}</dd>
+              </div>
+            ))}
+            {offers.map((offer) => (
+              <div key={offer.id}>
+                <dt>Offer v{offer.version.version} terms hash</dt>
+                <dd>{offer.version.termsHash}</dd>
+              </div>
+            ))}
+          </dl>
+          {agent.evidence.length > 0 ? (
+            <div className="technical-evidence">
+              <h3>Evidence and provenance</h3>
+              {agent.evidence.map((item, index) => (
+                <p key={`${item.fieldPath}-${item.observedAt}-${index}`}>
+                  <b>{item.fieldPath}</b> · {item.source} ·{" "}
+                  {new Date(item.observedAt).toLocaleString()}
+                </p>
               ))}
             </div>
-          </section>
-          <details className="technical-details">
-            <summary>Technical identity</summary>
-            <dl>
-              <div>
-                <dt>ERC-8004 agent</dt>
-                <dd>{agent.externalAgentId}</dd>
-              </div>
-              <div>
-                <dt>Chain</dt>
-                <dd>{agent.chainId}</dd>
-              </div>
-              <div>
-                <dt>Registry</dt>
-                <dd>{agent.registryAddress}</dd>
-              </div>
-              <div>
-                <dt>Owner</dt>
-                <dd>{agent.ownerAddress}</dd>
-              </div>
-              <div>
-                <dt>Registration block</dt>
-                <dd>{agent.registrationBlock ?? "Not recorded"}</dd>
-              </div>
-            </dl>
-          </details>
-        </aside>
+          ) : null}
+        </details>
       </div>
     </main>
   );

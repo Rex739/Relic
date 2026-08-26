@@ -37,6 +37,7 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   id: string;
   name: string;
   description: string;
+  imageUrl: string | null;
   category: string;
   tier: "Working" | "Actionable";
   chainId: number;
@@ -502,6 +503,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           a.id,
           a.name,
           a.description,
+          a.image_url "imageUrl",
           lc.category_slug category,
           case when ${actionable} then 'Actionable' else 'Working' end tier,
           ai.chain_id "chainId",
@@ -611,6 +613,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       id: row.id,
       name: row.name,
       description: row.description,
+      imageUrl: row.imageUrl,
       category: row.category,
       tier: row.tier,
       availability: "available",

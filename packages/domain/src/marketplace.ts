@@ -18,6 +18,7 @@ export interface PublicMarketplaceAgent {
   id: string;
   name: string;
   description: string;
+  imageUrl: string | null;
   category: string;
   tier: PublicVerificationTier;
   availability: "available";

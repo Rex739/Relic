@@ -97,7 +97,7 @@ describe("deterministic marketplace intent mapping", () => {
   });
 
   it("keeps protocol interface names out of primary capability copy", () => {
-    expect(productCapabilityLabel("erc8183")).toBe("Managed service lifecycle");
+    expect(productCapabilityLabel("erc8183")).toBe("Managed agent service");
     expect(productCapabilityLabel("monitor_positions")).toBe(
       "Monitor Positions",
     );

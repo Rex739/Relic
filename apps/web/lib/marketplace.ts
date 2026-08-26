@@ -39,7 +39,7 @@ export const categories = [
 ] as const;
 
 const interfaceLabels: Record<string, string> = {
-  erc8183: "Managed service lifecycle",
+  erc8183: "Managed agent service",
   a2a: "Agent-to-agent service",
   mcp: "Tool-enabled service",
 };

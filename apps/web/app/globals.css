@@ -3550,3 +3550,123 @@ summary:focus-visible {
     gap: 6px;
   }
 }
+
+/* Phase 12 final profile correction — human identity and trust first. */
+.agent-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.agent-avatar.avatar-tone-1 {
+  background: #202228;
+  color: #aeb8d7;
+  border-color: #3b4050;
+}
+.agent-avatar.avatar-tone-2 {
+  background: #1c2723;
+  color: #9fc9b7;
+  border-color: #354a42;
+}
+.agent-avatar.avatar-tone-3 {
+  background: #29221a;
+  color: #d2b28d;
+  border-color: #4d4031;
+}
+.buyer-summary-list {
+  display: grid;
+  gap: 0;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.buyer-summary-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.buyer-summary-list span {
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.buyer-summary-list b {
+  text-align: right;
+  font-size: 12px;
+}
+.funds-access-summary {
+  color: #c7beb9 !important;
+}
+.profile-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.trust-check-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.trust-check-list > div {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11100f;
+}
+.trust-check-list b {
+  display: block;
+  color: #c9d6ca;
+  font-size: 13px;
+}
+.trust-check-list .pending b {
+  color: #c8b7a7;
+}
+.trust-check-list p,
+.verification-recency {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.verification-recency {
+  margin-top: 12px;
+}
+.technical-details {
+  align-self: start;
+}
+.technical-details:not([open]) {
+  padding-block: 15px;
+}
+.technical-details[open] summary {
+  margin-bottom: 16px;
+}
+.technical-details dd {
+  overflow-wrap: anywhere;
+}
+.technical-evidence {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.technical-evidence h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.technical-evidence p {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .trust-check-list {
+    grid-template-columns: 1fr;
+  }
+}

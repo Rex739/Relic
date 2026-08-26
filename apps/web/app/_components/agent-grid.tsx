@@ -12,6 +12,7 @@ import {
   relativeTime,
 } from "../../lib/marketplace";
 import { VerificationTier } from "./verification-tier";
+import { AgentAvatar } from "./agent-avatar";
 
 const concise = (description: string) =>
   description.length > 150 ? `${description.slice(0, 147)}…` : description;
@@ -54,9 +55,11 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
               </label>
             </div>
             <Link href={`/agents/${agent.id}`} className="card-main-link">
-              <div className="agent-avatar" aria-hidden="true">
-                {agent.name.slice(0, 2).toUpperCase()}
-              </div>
+              <AgentAvatar
+                id={agent.id}
+                imageUrl={agent.imageUrl}
+                name={agent.name}
+              />
               <div>
                 <h3>{agent.name}</h3>
                 <p className="category-label">
