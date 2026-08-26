@@ -50,6 +50,15 @@ const asObject = (value: unknown) => (value ?? {}) as Record<string, unknown>;
 const strings = (value: unknown) =>
   Array.isArray(value) ? value.map(String) : [];
 
+export interface PreparedSetupOperation {
+  operationType: "REGISTER_JOB" | "SET_BUDGET" | "FUND";
+  idempotencyKey: string;
+  state: "AWAITING_SIGNATURE" | "CANCELLED";
+  preparedPayloadHash: string;
+  evidence: Record<string, unknown>;
+  failure?: Record<string, unknown>;
+}
+
 export class DrizzleWalletAuthStore {
   public constructor(private readonly database: RelicDatabase) {}
 
@@ -668,7 +677,14 @@ export class DrizzleCommerceStore {
                 ),
                 eq(executionRequests.agentId, input.authorization.agentId),
                 sql`lower(${executionRequests.normalizedHash}) = lower(${actionHash})`,
-                eq(executionRequests.status, "APPROVAL_REQUIRED"),
+                or(
+                  eq(executionRequests.status, "APPROVAL_REQUIRED"),
+                  and(
+                    eq(executionRequests.status, "SUCCEEDED"),
+                    eq(executionRequests.decision, "ALLOW"),
+                    sql`coalesce((${executionRequests.normalizedAction} ->> 'transactional')::boolean, false) = false`,
+                  ),
+                ),
               ),
             )
             .limit(1);
@@ -720,20 +736,40 @@ export class DrizzleCommerceStore {
           })
           .onConflictDoNothing()
           .returning({ id: executionApprovals.id });
-        if (approval.length !== 1)
-          throw new Error("Exact execution authorization was already consumed");
-        const changedExecution = await transaction
-          .update(executionRequests)
-          .set({ status: "APPROVED", updatedAt: new Date() })
-          .where(
-            and(
-              eq(executionRequests.id, execution.id),
-              eq(executionRequests.status, "APPROVAL_REQUIRED"),
-            ),
-          )
-          .returning({ id: executionRequests.id });
-        if (changedExecution.length !== 1)
-          throw new Error("Execution changed before approval was recorded");
+        if (approval.length === 0) {
+          const [existingApproval] = await transaction
+            .select()
+            .from(executionApprovals)
+            .where(
+              and(
+                eq(executionApprovals.executionRequestId, execution.id),
+                eq(executionApprovals.principalId, input.principalId),
+                eq(executionApprovals.normalizedHash, execution.normalizedHash),
+                eq(executionApprovals.approved, true),
+                eq(executionApprovals.authorizationKind, "WALLET_EIP712"),
+                eq(executionApprovals.walletAuthorization, true),
+              ),
+            )
+            .limit(1);
+          if (existingApproval === undefined)
+            throw new Error(
+              "Existing exact execution approval does not match this refresh",
+            );
+        }
+        if (execution.status === "APPROVAL_REQUIRED") {
+          const changedExecution = await transaction
+            .update(executionRequests)
+            .set({ status: "APPROVED", updatedAt: new Date() })
+            .where(
+              and(
+                eq(executionRequests.id, execution.id),
+                eq(executionRequests.status, "APPROVAL_REQUIRED"),
+              ),
+            )
+            .returning({ id: executionRequests.id });
+          if (changedExecution.length !== 1)
+            throw new Error("Execution changed before approval was recorded");
+        }
         await transaction.insert(mandateEvents).values({
           mandateId: execution.mandateId,
           mandateVersionId: null,
@@ -743,6 +779,9 @@ export class DrizzleCommerceStore {
             executionId: execution.id,
             authorizationKind: "WALLET_EIP712",
             walletAuthorization: true,
+            authorizationRefresh: approval.length === 0,
+            executionStatusPreserved:
+              execution.status === "SUCCEEDED" ? "SUCCEEDED" : null,
           },
           evidenceReferences: {
             authorizationId: artifact.id,
@@ -763,6 +802,7 @@ export class DrizzleCommerceStore {
             executionRequestId: execution!.id,
             actionHash: input.authorization.actionHash,
             messageHash: input.messageHash,
+            expiresAt: expiresAt.toISOString(),
           },
         });
         await transaction.insert(commerceArtifacts).values({
@@ -779,6 +819,24 @@ export class DrizzleCommerceStore {
           },
           provenance: "independently_observed",
         });
+        await transaction
+          .update(commerceOperations)
+          .set({
+            evidence: sql`${commerceOperations.evidence} || ${JSON.stringify({
+              exactActionAuthorizationId: artifact.id,
+              authorizationExpiresAt: expiresAt.toISOString(),
+            })}::jsonb`,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(commerceOperations.agreementId, agreement.id),
+              eq(commerceOperations.executionRequestId, execution!.id),
+              eq(commerceOperations.operationType, "CREATE_JOB"),
+              eq(commerceOperations.state, "AWAITING_SIGNATURE"),
+              isNull(commerceOperations.transactionHash),
+            ),
+          );
         return artifact.id;
       }
       const changed = await transaction
@@ -901,37 +959,285 @@ export class DrizzleCommerceStore {
     return row ?? null;
   }
 
+  public async authorizationArtifact(id: string, principalId: string) {
+    const [row] = await this.database
+      .select()
+      .from(authorizationArtifacts)
+      .where(
+        and(
+          eq(authorizationArtifacts.id, id),
+          eq(authorizationArtifacts.principalId, principalId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  public async marketplaceServiceEndpoint(serviceId: string) {
+    const [row] = await this.database
+      .select({ endpoint: marketplaceServices.endpoint })
+      .from(marketplaceServices)
+      .where(eq(marketplaceServices.id, serviceId))
+      .limit(1);
+    return row?.endpoint ?? null;
+  }
+
+  public async refreshPreparedWalletOperation(input: {
+    operationId: string;
+    agreementId: string;
+    principalId: string;
+    previousPayloadHash: string;
+    preparedPayloadHash: string;
+    evidence: Record<string, unknown>;
+  }) {
+    const agreement = await this.#agreementRow(
+      input.agreementId,
+      input.principalId,
+    );
+    if (agreement === null) throw new Error("Commerce agreement not found");
+    const [row] = await this.database
+      .update(commerceOperations)
+      .set({
+        preparedPayloadHash: input.preparedPayloadHash,
+        evidence: input.evidence,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(commerceOperations.id, input.operationId),
+          eq(commerceOperations.agreementId, agreement.id),
+          eq(commerceOperations.operationType, "CREATE_JOB"),
+          eq(commerceOperations.state, "AWAITING_SIGNATURE"),
+          eq(commerceOperations.preparedPayloadHash, input.previousPayloadHash),
+          isNull(commerceOperations.transactionHash),
+        ),
+      )
+      .returning();
+    if (row === undefined)
+      throw new Error("Commerce operation changed during quote refresh");
+    return row;
+  }
+
+  public async walletOperationActivation(input: {
+    activationId: string;
+    agreementId: string;
+    principalId: string;
+  }) {
+    const agreement = await this.#agreementRow(
+      input.agreementId,
+      input.principalId,
+    );
+    if (agreement === null) return null;
+    const [row] = await this.database
+      .select()
+      .from(activations)
+      .where(
+        and(
+          eq(activations.id, input.activationId),
+          eq(activations.commerceAgreementId, agreement.id),
+          eq(activations.principalId, input.principalId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  public async createJobSubmissionContext(input: {
+    activationId: string;
+    agreementId: string;
+    principalId: string;
+  }) {
+    const agreement = await this.#agreementRow(
+      input.agreementId,
+      input.principalId,
+    );
+    if (agreement === null) return null;
+    const [row] = await this.database
+      .select({
+        activation: activations,
+        mandateStatus: mandates.status,
+        mandateCurrentVersion: mandates.currentVersion,
+        mandateActiveVersion: mandates.activeVersion,
+        serviceEndpoint: marketplaceServices.endpoint,
+        serviceAvailability: marketplaceServices.availability,
+        serviceVerificationLevel: marketplaceServices.verificationLevel,
+        serviceLastVerifiedAt: marketplaceServices.lastVerifiedAt,
+        executionStatus: executionRequests.status,
+        executionHash: executionRequests.normalizedHash,
+        executionAction: executionRequests.normalizedAction,
+      })
+      .from(activations)
+      .innerJoin(mandates, eq(mandates.id, activations.mandateId))
+      .innerJoin(
+        marketplaceServices,
+        eq(marketplaceServices.id, activations.serviceId),
+      )
+      .innerJoin(
+        executionRequests,
+        eq(executionRequests.id, activations.executionRequestId),
+      )
+      .where(
+        and(
+          eq(activations.id, input.activationId),
+          eq(activations.commerceAgreementId, agreement.id),
+          eq(activations.principalId, input.principalId),
+        ),
+      )
+      .limit(1);
+    return row === undefined ? null : { agreement, ...row };
+  }
+
+  public async recordWalletSubmittedOperation(input: {
+    operationId: string;
+    agreementId: string;
+    principalId: string;
+    transactionHash: string;
+    signerAddress: string;
+    preparedPayloadHash: string;
+    nonce?: bigint;
+  }) {
+    const agreement = await this.#agreementRow(
+      input.agreementId,
+      input.principalId,
+    );
+    if (agreement === null) throw new Error("Commerce agreement not found");
+    const submittedAt = new Date();
+    const [row] = await this.database
+      .update(commerceOperations)
+      .set({
+        state: "SUBMITTED",
+        transactionHash: input.transactionHash,
+        signerAddress: input.signerAddress,
+        nonce: input.nonce,
+        finalityState: "UNCONFIRMED",
+        nextAttemptAt: submittedAt,
+        evidence: sql`${commerceOperations.evidence} || ${JSON.stringify({
+          walletSubmitted: true,
+          transactionSubmitted: true,
+          submittedAt: submittedAt.toISOString(),
+          signerAddress: input.signerAddress,
+          ...(input.nonce === undefined
+            ? {}
+            : { nonce: input.nonce.toString() }),
+          preparedPayloadHash: input.preparedPayloadHash,
+        })}::jsonb`,
+        updatedAt: submittedAt,
+      })
+      .where(
+        and(
+          eq(commerceOperations.id, input.operationId),
+          eq(commerceOperations.agreementId, agreement.id),
+          inArray(commerceOperations.operationType, [
+            "CREATE_JOB",
+            "REGISTER_JOB",
+            "SET_BUDGET",
+            "FUND",
+          ]),
+          eq(commerceOperations.state, "AWAITING_SIGNATURE"),
+          eq(commerceOperations.preparedPayloadHash, input.preparedPayloadHash),
+          isNull(commerceOperations.transactionHash),
+        ),
+      )
+      .returning();
+    if (row === undefined) {
+      const [existing] = await this.database
+        .select()
+        .from(commerceOperations)
+        .where(
+          and(
+            eq(commerceOperations.id, input.operationId),
+            eq(commerceOperations.agreementId, agreement.id),
+          ),
+        )
+        .limit(1);
+      if (
+        existing !== undefined &&
+        existing.transactionHash?.toLowerCase() ===
+          input.transactionHash.toLowerCase()
+      )
+        return existing;
+      if (existing?.transactionHash !== null && existing !== undefined)
+        throw new Error(
+          "A different transaction hash is already recorded for this operation",
+        );
+      if (
+        existing?.preparedPayloadHash?.toLowerCase() !==
+        input.preparedPayloadHash.toLowerCase()
+      )
+        throw new Error("Prepared wallet transaction hash mismatch");
+      throw new Error(
+        "Commerce operation is no longer eligible for submission",
+      );
+    }
+    return row;
+  }
+
   public async findAgreement(id: string, principalId: string) {
     const row = await this.#agreementRow(id, principalId);
     if (row === null) return null;
-    const [events, operations, movements, settlements, artifacts] =
-      await Promise.all([
-        this.database
-          .select()
-          .from(commerceAgreementEvents)
-          .where(eq(commerceAgreementEvents.agreementId, id))
-          .orderBy(asc(commerceAgreementEvents.occurredAt)),
-        this.database
-          .select()
-          .from(commerceOperations)
-          .where(eq(commerceOperations.agreementId, id))
-          .orderBy(asc(commerceOperations.createdAt)),
-        this.database
-          .select()
-          .from(commerceValueMovements)
-          .where(eq(commerceValueMovements.agreementId, id))
-          .orderBy(asc(commerceValueMovements.observedAt)),
-        this.database
-          .select()
-          .from(settlementRecords)
-          .where(eq(settlementRecords.agreementId, id)),
-        this.database
-          .select()
-          .from(commerceArtifacts)
-          .where(eq(commerceArtifacts.agreementId, id))
-          .orderBy(asc(commerceArtifacts.observedAt)),
-      ]);
-    return { ...row, events, operations, movements, settlements, artifacts };
+    const [
+      events,
+      operations,
+      movements,
+      settlements,
+      artifacts,
+      authorizations,
+    ] = await Promise.all([
+      this.database
+        .select()
+        .from(commerceAgreementEvents)
+        .where(eq(commerceAgreementEvents.agreementId, id))
+        .orderBy(asc(commerceAgreementEvents.occurredAt)),
+      this.database
+        .select()
+        .from(commerceOperations)
+        .where(eq(commerceOperations.agreementId, id))
+        .orderBy(asc(commerceOperations.createdAt)),
+      this.database
+        .select()
+        .from(commerceValueMovements)
+        .where(eq(commerceValueMovements.agreementId, id))
+        .orderBy(asc(commerceValueMovements.observedAt)),
+      this.database
+        .select()
+        .from(settlementRecords)
+        .where(eq(settlementRecords.agreementId, id)),
+      this.database
+        .select()
+        .from(commerceArtifacts)
+        .where(eq(commerceArtifacts.agreementId, id))
+        .orderBy(asc(commerceArtifacts.observedAt)),
+      this.database
+        .select({
+          id: authorizationArtifacts.id,
+          executionRequestId: authorizationArtifacts.executionRequestId,
+          verificationStatus: authorizationArtifacts.verificationStatus,
+          signerAddress: authorizationArtifacts.signerAddress,
+          actionHash: authorizationArtifacts.actionHash,
+          expiresAt: authorizationArtifacts.expiresAt,
+          revokedAt: authorizationArtifacts.revokedAt,
+          createdAt: authorizationArtifacts.createdAt,
+        })
+        .from(authorizationArtifacts)
+        .where(eq(authorizationArtifacts.agreementId, id))
+        .orderBy(asc(authorizationArtifacts.createdAt)),
+    ]);
+    return {
+      ...row,
+      events,
+      operations: operations.map((operation) => ({
+        ...operation,
+        nonce: operation.nonce?.toString() ?? null,
+        blockNumber: operation.blockNumber?.toString() ?? null,
+      })),
+      movements: movements.map((movement) => ({
+        ...movement,
+        blockNumber: movement.blockNumber?.toString() ?? null,
+      })),
+      settlements,
+      artifacts,
+      authorizations,
+    };
   }
 
   public async listAgreements(principalId: string) {
@@ -1063,7 +1369,12 @@ export class DrizzleCommerceStore {
       .insert(commerceOperations)
       .values({
         ...input,
-        attempt: 1,
+        attempt: sql<number>`(
+          select coalesce(max(existing.attempt), 0)::int + 1
+          from commerce_operations existing
+          where existing.agreement_id = ${input.agreementId}::uuid
+            and existing.operation_type = ${input.operationType}::commerce_operation_type
+        )`,
         nextAttemptAt: new Date(),
         evidence: input.evidence ?? {},
       })
@@ -1089,6 +1400,179 @@ export class DrizzleCommerceStore {
     return existing;
   }
 
+  public async prepareProviderDelivery(input: {
+    agreementId: string;
+    activationId: string;
+    executionRequestId: string;
+    externalJobId: string;
+    providerAddress: string;
+    idempotencyKey: string;
+    manifestHash: string;
+    manifestReference: string;
+    manifest: Record<string, unknown>;
+    observedAt: Date;
+    preparedPayloadHash: string;
+    operationEvidence: Record<string, unknown>;
+  }) {
+    return this.database.transaction(async (transaction) => {
+      const [
+        [activation],
+        [agreement],
+        existingOperations,
+        movements,
+        settlements,
+      ] = await Promise.all([
+        transaction
+          .select()
+          .from(activations)
+          .where(eq(activations.id, input.activationId))
+          .limit(1),
+        transaction
+          .select({ status: commerceAgreements.status })
+          .from(commerceAgreements)
+          .where(eq(commerceAgreements.id, input.agreementId))
+          .limit(1),
+        transaction
+          .select()
+          .from(commerceOperations)
+          .where(
+            and(
+              eq(commerceOperations.activationId, input.activationId),
+              eq(commerceOperations.operationType, "SUBMIT_DELIVERY"),
+            ),
+          ),
+        transaction
+          .select({ id: commerceValueMovements.id })
+          .from(commerceValueMovements)
+          .where(eq(commerceValueMovements.activationId, input.activationId)),
+        transaction
+          .select({ id: settlementRecords.id })
+          .from(settlementRecords)
+          .where(eq(settlementRecords.activationId, input.activationId)),
+      ]);
+      if (
+        activation === undefined ||
+        activation.purpose !== "USER_COMMERCE" ||
+        activation.commerceAgreementId !== input.agreementId ||
+        activation.executionRequestId !== input.executionRequestId ||
+        activation.externalJobId !== input.externalJobId ||
+        activation.lifecycleState !== "ACTIVE" ||
+        activation.status !== "FUNDED" ||
+        activation.reconciliationState !== "CURRENT" ||
+        activation.providerAddress?.toLowerCase() !==
+          input.providerAddress.toLowerCase()
+      )
+        throw new Error(
+          "FUNDED activation is not eligible for provider delivery",
+        );
+      if (agreement?.status !== "ACTIVE")
+        throw new Error("An active commerce agreement is required");
+      if (movements.length !== 0 || settlements.length !== 0)
+        throw new Error("Zero-price delivery cannot have economic records");
+
+      const existing = existingOperations[0];
+      if (existing !== undefined) {
+        if (
+          existing.idempotencyKey !== input.idempotencyKey ||
+          existing.preparedPayloadHash !== input.preparedPayloadHash ||
+          existing.signerAddress?.toLowerCase() !==
+            input.providerAddress.toLowerCase()
+        )
+          throw new Error("A different provider delivery is already prepared");
+        const [artifact] = await transaction
+          .select()
+          .from(commerceArtifacts)
+          .where(
+            and(
+              eq(commerceArtifacts.activationId, input.activationId),
+              eq(commerceArtifacts.artifactType, "DELIVERY"),
+              eq(commerceArtifacts.contentHash, input.manifestHash),
+            ),
+          )
+          .limit(1);
+        if (artifact === undefined)
+          throw new Error(
+            "Prepared provider delivery has no immutable artifact",
+          );
+        return { artifact, operation: existing };
+      }
+
+      const [insertedArtifact] = await transaction
+        .insert(commerceArtifacts)
+        .values({
+          agreementId: input.agreementId,
+          activationId: input.activationId,
+          executionRequestId: input.executionRequestId,
+          artifactType: "DELIVERY",
+          source: "relic-health-factor-monitor",
+          contentHash: input.manifestHash,
+          contentReference: input.manifestReference,
+          safeContent: input.manifest,
+          provenance: "independently_observed",
+          observedAt: input.observedAt,
+        })
+        .onConflictDoNothing({
+          target: [
+            commerceArtifacts.agreementId,
+            commerceArtifacts.artifactType,
+            commerceArtifacts.contentHash,
+          ],
+        })
+        .returning();
+      const artifact =
+        insertedArtifact ??
+        (
+          await transaction
+            .select()
+            .from(commerceArtifacts)
+            .where(
+              and(
+                eq(commerceArtifacts.agreementId, input.agreementId),
+                eq(commerceArtifacts.artifactType, "DELIVERY"),
+                eq(commerceArtifacts.contentHash, input.manifestHash),
+              ),
+            )
+            .limit(1)
+        )[0];
+      if (artifact === undefined)
+        throw new Error("Provider delivery artifact insert failed");
+
+      const [operation] = await transaction
+        .insert(commerceOperations)
+        .values({
+          agreementId: input.agreementId,
+          activationId: input.activationId,
+          executionRequestId: input.executionRequestId,
+          operationType: "SUBMIT_DELIVERY",
+          state: "AWAITING_SIGNATURE",
+          idempotencyKey: input.idempotencyKey,
+          attempt: sql<number>`(
+            select coalesce(max(existing.attempt), 0)::int + 1
+            from commerce_operations existing
+            where existing.agreement_id = ${input.agreementId}::uuid
+              and existing.operation_type = 'SUBMIT_DELIVERY'::commerce_operation_type
+          )`,
+          preparedPayloadHash: input.preparedPayloadHash,
+          signerAddress: input.providerAddress,
+          nextAttemptAt: input.observedAt,
+          evidence: {
+            ...input.operationEvidence,
+            deliveryArtifactId: artifact.id,
+            deliveryManifestHash: input.manifestHash,
+            deliveryManifestReference: input.manifestReference,
+            transactionPrepared: true,
+            transactionSubmitted: false,
+            fundsMoved: false,
+            settlementCreated: false,
+          },
+        })
+        .returning();
+      if (operation === undefined)
+        throw new Error("Provider delivery operation insert failed");
+      return { artifact, operation };
+    });
+  }
+
   public async createUserCommerceActivation(input: {
     agreementId: string;
     executionRequestId: string;
@@ -1097,11 +1581,47 @@ export class DrizzleCommerceStore {
     clientAddress: string;
     evaluatorAddress: string;
   }) {
+    const [existing] = await this.database
+      .select()
+      .from(activations)
+      .where(
+        and(
+          eq(activations.purpose, "USER_COMMERCE"),
+          eq(activations.commerceAgreementId, input.agreementId),
+          eq(activations.executionRequestId, input.executionRequestId),
+          eq(activations.authorizationId, input.authorizationId),
+        ),
+      )
+      .limit(1);
+    if (existing !== undefined) {
+      if (
+        existing.clientAddress?.toLowerCase() !==
+          input.clientAddress.toLowerCase() ||
+        existing.commerceAddress?.toLowerCase() !==
+          input.commerceAddress.toLowerCase() ||
+        existing.evaluatorAddress?.toLowerCase() !==
+          input.evaluatorAddress.toLowerCase()
+      )
+        throw new Error(
+          "Existing commerce activation does not match the requested routing",
+        );
+      return existing;
+    }
+    const [activationForExecution] = await this.database
+      .select({ id: activations.id })
+      .from(activations)
+      .where(eq(activations.executionRequestId, input.executionRequestId))
+      .limit(1);
+    if (activationForExecution !== undefined)
+      throw new Error(
+        "This execution already belongs to a commerce activation; run a fresh policy-controlled observation",
+      );
     const agreement = await this.#agreementRowById(input.agreementId);
     if (
       agreement === null ||
-      agreement.status !== "AUTHORIZED" ||
-      agreement.authorizationArtifactId !== input.authorizationId ||
+      !["AUTHORIZED", "ACTIVE"].includes(agreement.status) ||
+      (agreement.status === "AUTHORIZED" &&
+        agreement.authorizationArtifactId !== input.authorizationId) ||
       agreement.mandateId === null ||
       agreement.mandateVersion === null
     )
@@ -1133,6 +1653,11 @@ export class DrizzleCommerceStore {
           type: authorizationArtifacts.authorizationType,
           status: authorizationArtifacts.verificationStatus,
           signerAddress: authorizationArtifacts.signerAddress,
+          agreementId: authorizationArtifacts.agreementId,
+          executionRequestId: authorizationArtifacts.executionRequestId,
+          mandateId: authorizationArtifacts.mandateId,
+          mandateVersion: authorizationArtifacts.mandateVersion,
+          actionHash: authorizationArtifacts.actionHash,
           expiresAt: authorizationArtifacts.expiresAt,
           revokedAt: authorizationArtifacts.revokedAt,
         })
@@ -1168,22 +1693,72 @@ export class DrizzleCommerceStore {
     )
       throw new Error("The seller wallet must never represent the buyer");
     return this.database.transaction(async (transaction) => {
-      const [activatedAgreement] = await transaction
-        .update(commerceAgreements)
-        .set({ status: "ACTIVE", updatedAt: new Date() })
+      const replacement = agreement.status === "ACTIVE";
+      if (replacement) {
+        if (
+          authorization.actionHash === null ||
+          authorization.agreementId !== agreement.id ||
+          authorization.executionRequestId !== execution.id ||
+          authorization.mandateId !== agreement.mandateId ||
+          authorization.mandateVersion !== agreement.mandateVersion
+        )
+          throw new Error(
+            "A replacement activation requires a current exact-action authorization",
+          );
+        const activeAttempts = await transaction
+          .select({ id: activations.id })
+          .from(activations)
+          .where(
+            and(
+              eq(activations.commerceAgreementId, agreement.id),
+              eq(activations.purpose, "USER_COMMERCE"),
+              inArray(activations.lifecycleState, [
+                "PREPARING",
+                "NEGOTIATING",
+                "AWAITING_AUTHORIZATION",
+                "ONCHAIN_CREATED",
+                "ACTIVE",
+                "DELIVERED",
+                "SETTLING",
+              ]),
+            ),
+          );
+        if (activeAttempts.length !== 0)
+          throw new Error(
+            "A non-terminal commerce activation already exists for this agreement",
+          );
+      } else {
+        const [activatedAgreement] = await transaction
+          .update(commerceAgreements)
+          .set({ status: "ACTIVE", updatedAt: new Date() })
+          .where(
+            and(
+              eq(commerceAgreements.id, agreement.id),
+              eq(commerceAgreements.status, "AUTHORIZED"),
+              eq(
+                commerceAgreements.authorizationArtifactId,
+                input.authorizationId,
+              ),
+            ),
+          )
+          .returning({ id: commerceAgreements.id });
+        if (activatedAgreement === undefined)
+          throw new Error(
+            "Agreement changed before activation could be created",
+          );
+      }
+      const [prepareAttemptResult] = await transaction
+        .select({
+          value: sql<number>`coalesce(max(${commerceOperations.attempt}), 0)::int + 1`,
+        })
+        .from(commerceOperations)
         .where(
           and(
-            eq(commerceAgreements.id, agreement.id),
-            eq(commerceAgreements.status, "AUTHORIZED"),
-            eq(
-              commerceAgreements.authorizationArtifactId,
-              input.authorizationId,
-            ),
+            eq(commerceOperations.agreementId, agreement.id),
+            eq(commerceOperations.operationType, "PREPARE_JOB"),
           ),
-        )
-        .returning({ id: commerceAgreements.id });
-      if (activatedAgreement === undefined)
-        throw new Error("Agreement changed before activation could be created");
+        );
+      const prepareAttempt = prepareAttemptResult?.value ?? 1;
       const [row] = await transaction
         .insert(activations)
         .values({
@@ -1214,11 +1789,17 @@ export class DrizzleCommerceStore {
         throw new Error("Commerce activation insert failed");
       await transaction.insert(commerceAgreementEvents).values({
         agreementId: agreement.id,
-        fromStatus: "AUTHORIZED",
+        fromStatus: replacement ? "ACTIVE" : "AUTHORIZED",
         toStatus: "ACTIVE",
-        eventType: "COMMERCE_ACTIVATION_CREATED",
+        eventType: replacement
+          ? "COMMERCE_ACTIVATION_REPLACED"
+          : "COMMERCE_ACTIVATION_CREATED",
         actorPrincipalId: agreement.principalId,
-        evidence: { activationId: row.id, executionRequestId: execution.id },
+        evidence: {
+          activationId: row.id,
+          executionRequestId: execution.id,
+          replacement,
+        },
       });
       await transaction.insert(commerceOperations).values({
         agreementId: agreement.id,
@@ -1227,13 +1808,62 @@ export class DrizzleCommerceStore {
         operationType: "PREPARE_JOB",
         state: "CREATED",
         idempotencyKey: `activation:${row.id}:prepare-job`,
-        attempt: 1,
+        attempt: prepareAttempt,
         evidence: {
           userCommerce: true,
+          replacement,
           transactionPrepared: false,
           transactionSubmitted: false,
         },
       });
+      if (replacement) {
+        const [createAttemptResult] = await transaction
+          .select({
+            value: sql<number>`coalesce(max(${commerceOperations.attempt}), 0)::int + 1`,
+          })
+          .from(commerceOperations)
+          .where(
+            and(
+              eq(commerceOperations.agreementId, agreement.id),
+              eq(commerceOperations.operationType, "CREATE_JOB"),
+            ),
+          );
+        const createAttempt = createAttemptResult?.value ?? 1;
+        const monitoredAccount = asObject(
+          execution.normalizedAction,
+        ).parameters;
+        const account = asObject(monitoredAccount).account;
+        if (typeof account !== "string")
+          throw new Error("Replacement execution has no monitored account");
+        await transaction.insert(commerceOperations).values({
+          agreementId: agreement.id,
+          activationId: row.id,
+          executionRequestId: execution.id,
+          operationType: "CREATE_JOB",
+          state: "AWAITING_SIGNATURE",
+          idempotencyKey: `activation:${row.id}:create-job`,
+          attempt: createAttempt,
+          preparedPayloadHash: immutableContentHash({
+            state: "awaiting-fresh-seller-negotiation",
+            activationId: row.id,
+            executionRequestId: execution.id,
+            authorizationId: input.authorizationId,
+          }),
+          evidence: {
+            userCommerce: true,
+            replacement: true,
+            expiredActivationReplaced: true,
+            exactActionAuthorizationId: input.authorizationId,
+            authorizationExpiresAt: authorization.expiresAt.toISOString(),
+            actionHash: authorization.actionHash,
+            monitoredAccount: account,
+            contract: input.commerceAddress,
+            functionArguments: { provider: identity.ownerAddress },
+            transactionPrepared: false,
+            transactionSubmitted: false,
+          },
+        });
+      }
       return row;
     });
   }
@@ -1346,27 +1976,377 @@ export class DrizzleCommerceStore {
     });
   }
 
+  public async expireUnsubmittedCommerceAttempt(input: {
+    activationId: string;
+    operationId: string;
+    externalJobId: string;
+    observedAt: Date;
+    observedBlock: bigint;
+    observedBlockHash: string;
+    jobExpiry: Date;
+    evidence: Record<string, unknown>;
+  }) {
+    const failure = {
+      code: "ERC8183_JOB_EXPIRED",
+      externalJobId: input.externalJobId,
+      jobExpiry: input.jobExpiry.toISOString(),
+      observedAt: input.observedAt.toISOString(),
+      observedBlock: input.observedBlock.toString(),
+      observedBlockHash: input.observedBlockHash,
+    };
+    const evidence = { ...input.evidence, ...failure };
+    return this.database.transaction(async (transaction) => {
+      const [activation] = await transaction
+        .select()
+        .from(activations)
+        .where(eq(activations.id, input.activationId))
+        .limit(1);
+      if (
+        activation === undefined ||
+        activation.purpose !== "USER_COMMERCE" ||
+        activation.externalJobId !== input.externalJobId ||
+        activation.commerceAgreementId === null ||
+        activation.principalId === null
+      )
+        throw new Error(
+          "Expired commerce activation does not match the observed job",
+        );
+      const [operation] = await transaction
+        .select()
+        .from(commerceOperations)
+        .where(
+          and(
+            eq(commerceOperations.id, input.operationId),
+            eq(commerceOperations.activationId, activation.id),
+          ),
+        )
+        .limit(1);
+      if (
+        operation === undefined ||
+        operation.operationType !== "SET_BUDGET" ||
+        operation.transactionHash !== null
+      )
+        throw new Error(
+          "Only the unsigned SET_BUDGET operation may be cancelled",
+        );
+      if (
+        activation.lifecycleState === "FAILED" &&
+        operation.state === "CANCELLED"
+      )
+        return { activation, operation };
+      if (
+        activation.lifecycleState !== "ONCHAIN_CREATED" ||
+        operation.state !== "AWAITING_SIGNATURE"
+      )
+        throw new Error(
+          "Expired commerce attempt changed before reconciliation",
+        );
+      assertActivationLifecycleTransition("ONCHAIN_CREATED", "FAILED");
+      const [changedActivation] = await transaction
+        .update(activations)
+        .set({
+          lifecycleState: "FAILED",
+          status: legacyActivationStatusForLifecycle("FAILED"),
+          reconciliationState: "FAILED",
+          failure,
+          updatedAt: input.observedAt,
+        })
+        .where(
+          and(
+            eq(activations.id, activation.id),
+            eq(activations.lifecycleState, "ONCHAIN_CREATED"),
+          ),
+        )
+        .returning();
+      if (changedActivation === undefined)
+        throw new Error("Expired commerce activation changed concurrently");
+      const [cancelledOperation] = await transaction
+        .update(commerceOperations)
+        .set({
+          state: "CANCELLED",
+          failure,
+          evidence: {
+            ...asObject(operation.evidence),
+            expiryReconciliation: evidence,
+          },
+          nextAttemptAt: null,
+          updatedAt: input.observedAt,
+        })
+        .where(
+          and(
+            eq(commerceOperations.id, operation.id),
+            eq(commerceOperations.state, "AWAITING_SIGNATURE"),
+            isNull(commerceOperations.transactionHash),
+          ),
+        )
+        .returning();
+      if (cancelledOperation === undefined)
+        throw new Error("Unsigned SET_BUDGET operation changed concurrently");
+      await transaction.insert(activationLifecycleTransitions).values({
+        activationId: activation.id,
+        fromState: "ONCHAIN_CREATED",
+        toState: "FAILED",
+        evidence,
+        blockNumber: input.observedBlock,
+      });
+      await transaction.insert(activationTransitions).values({
+        activationId: activation.id,
+        status: legacyActivationStatusForLifecycle("FAILED"),
+        blockNumber: input.observedBlock,
+        evidence: {
+          compatibilityProjection: true,
+          canonicalLifecycleState: "FAILED",
+          terminalReason: "ERC8183_JOB_EXPIRED",
+        },
+      });
+      await transaction.insert(commerceAgreementEvents).values({
+        agreementId: activation.commerceAgreementId,
+        fromStatus: "ACTIVE",
+        toStatus: "ACTIVE",
+        eventType: "ERC8183_JOB_EXPIRED",
+        actorPrincipalId: activation.principalId,
+        evidence: {
+          ...evidence,
+          agreementPreserved: true,
+          cancelledOperationId: operation.id,
+        },
+      });
+      await transaction.insert(commerceArtifacts).values({
+        agreementId: activation.commerceAgreementId,
+        activationId: activation.id,
+        executionRequestId: activation.executionRequestId,
+        artifactType: "JOB_SPECIFICATION",
+        source: "erc8183-expiry-reconciliation",
+        contentHash: immutableContentHash({
+          activationId: activation.id,
+          operationId: operation.id,
+          ...failure,
+        }),
+        safeContent: {
+          externalJobId: input.externalJobId,
+          terminalReason: failure.code,
+          jobExpiry: failure.jobExpiry,
+          observedAt: failure.observedAt,
+          observedBlock: failure.observedBlock,
+          observedBlockHash: failure.observedBlockHash,
+          transactionHash: null,
+          fundsMoved: false,
+          settlementCreated: false,
+        },
+        provenance: "onchain_verified",
+        observedAt: input.observedAt,
+      });
+      return { activation: changedActivation, operation: cancelledOperation };
+    });
+  }
+
+  public async failFundedCommerceAttemptForQuoteWindow(input: {
+    activationId: string;
+    externalJobId: string;
+    providerArtifactId: string;
+    negotiatedAt: Date;
+    quoteExpiresAt: Date;
+    fundedAt: Date;
+    observedAt: Date;
+    observedBlock: bigint;
+    observedBlockHash: string;
+    evidence: Record<string, unknown>;
+  }) {
+    if (input.fundedAt <= input.quoteExpiresAt)
+      throw new Error("Funded time does not exceed the signed quote window");
+    const failure = {
+      code: "SIGNED_QUOTE_WINDOW_EXPIRED",
+      externalJobId: input.externalJobId,
+      negotiatedAt: input.negotiatedAt.toISOString(),
+      quoteExpiresAt: input.quoteExpiresAt.toISOString(),
+      fundedAt: input.fundedAt.toISOString(),
+      observedAt: input.observedAt.toISOString(),
+      observedBlock: input.observedBlock.toString(),
+      observedBlockHash: input.observedBlockHash,
+      fundsMoved: false,
+      settlementCreated: false,
+      providerSubmissionRefused: true,
+    };
+    const evidence = { ...input.evidence, ...failure };
+    return this.database.transaction(async (transaction) => {
+      const [activation] = await transaction
+        .select()
+        .from(activations)
+        .where(eq(activations.id, input.activationId))
+        .limit(1);
+      if (
+        activation === undefined ||
+        activation.purpose !== "USER_COMMERCE" ||
+        activation.externalJobId !== input.externalJobId ||
+        activation.commerceAgreementId === null ||
+        activation.principalId === null
+      )
+        throw new Error("Quote-window failure does not match the activation");
+      const [providerArtifact] = await transaction
+        .select()
+        .from(commerceArtifacts)
+        .where(
+          and(
+            eq(commerceArtifacts.id, input.providerArtifactId),
+            eq(commerceArtifacts.activationId, activation.id),
+            eq(commerceArtifacts.artifactType, "DELIVERY"),
+          ),
+        )
+        .limit(1);
+      if (providerArtifact === undefined)
+        throw new Error(
+          "Provider observation artifact is not bound to the job",
+        );
+      const [fundOperation, submitOperation, movements, settlements] =
+        await Promise.all([
+          transaction
+            .select({ id: commerceOperations.id })
+            .from(commerceOperations)
+            .where(
+              and(
+                eq(commerceOperations.activationId, activation.id),
+                eq(commerceOperations.operationType, "FUND"),
+                eq(commerceOperations.state, "FINALIZED"),
+              ),
+            )
+            .limit(1),
+          transaction
+            .select({ id: commerceOperations.id })
+            .from(commerceOperations)
+            .where(
+              and(
+                eq(commerceOperations.activationId, activation.id),
+                eq(commerceOperations.operationType, "SUBMIT_DELIVERY"),
+              ),
+            )
+            .limit(1),
+          transaction
+            .select({ id: commerceValueMovements.id })
+            .from(commerceValueMovements)
+            .where(eq(commerceValueMovements.activationId, activation.id)),
+          transaction
+            .select({ id: settlementRecords.id })
+            .from(settlementRecords)
+            .where(eq(settlementRecords.activationId, activation.id)),
+        ]);
+      if (fundOperation.length !== 1)
+        throw new Error("A finalized FUND operation is required");
+      if (submitOperation.length !== 0)
+        throw new Error("Provider submission already exists");
+      if (movements.length !== 0 || settlements.length !== 0)
+        throw new Error("Zero-price quote failure has economic records");
+      if (
+        activation.lifecycleState === "FAILED" &&
+        asObject(activation.failure).code === failure.code
+      )
+        return { activation, providerArtifact };
+      if (activation.lifecycleState !== "ONCHAIN_CREATED")
+        throw new Error(
+          "Quote-window activation changed before reconciliation",
+        );
+      assertActivationLifecycleTransition("ONCHAIN_CREATED", "FAILED");
+      const [changedActivation] = await transaction
+        .update(activations)
+        .set({
+          lifecycleState: "FAILED",
+          status: legacyActivationStatusForLifecycle("FAILED"),
+          reconciliationState: "FAILED",
+          failure,
+          updatedAt: input.observedAt,
+        })
+        .where(
+          and(
+            eq(activations.id, activation.id),
+            eq(activations.lifecycleState, "ONCHAIN_CREATED"),
+          ),
+        )
+        .returning();
+      if (changedActivation === undefined)
+        throw new Error("Quote-window activation changed concurrently");
+      await transaction.insert(activationLifecycleTransitions).values({
+        activationId: activation.id,
+        fromState: "ONCHAIN_CREATED",
+        toState: "FAILED",
+        evidence,
+        blockNumber: input.observedBlock,
+      });
+      await transaction.insert(activationTransitions).values({
+        activationId: activation.id,
+        status: legacyActivationStatusForLifecycle("FAILED"),
+        blockNumber: input.observedBlock,
+        evidence: {
+          compatibilityProjection: true,
+          canonicalLifecycleState: "FAILED",
+          terminalReason: failure.code,
+        },
+      });
+      await transaction.insert(commerceAgreementEvents).values({
+        agreementId: activation.commerceAgreementId,
+        fromStatus: "ACTIVE",
+        toStatus: "ACTIVE",
+        eventType: "ERC8183_SIGNED_QUOTE_WINDOW_EXPIRED",
+        actorPrincipalId: activation.principalId,
+        evidence: {
+          ...evidence,
+          agreementPreserved: true,
+          providerArtifactId: providerArtifact.id,
+          providerArtifactAcceptedOnchain: false,
+          successfulCommerceOutcome: false,
+        },
+      });
+      await transaction.insert(commerceArtifacts).values({
+        agreementId: activation.commerceAgreementId,
+        activationId: activation.id,
+        executionRequestId: activation.executionRequestId,
+        artifactType: "JOB_SPECIFICATION",
+        source: "erc8183-quote-window-reconciliation",
+        contentHash: immutableContentHash({
+          activationId: activation.id,
+          providerArtifactId: providerArtifact.id,
+          ...failure,
+        }),
+        safeContent: {
+          ...failure,
+          onchainJobState: "FUNDED",
+          budgetBaseUnits: "0",
+          providerWorkObserved: true,
+          providerArtifactId: providerArtifact.id,
+          providerArtifactAcceptedOnchain: false,
+          successfulCommerceOutcome: false,
+        },
+        provenance: "onchain_verified",
+        observedAt: input.observedAt,
+      });
+      return { activation: changedActivation, providerArtifact };
+    });
+  }
+
   public async leaseOperations(input: {
     workerId: string;
     limit: number;
     leaseSeconds: number;
+    operationId?: string;
     now?: Date;
   }) {
     const now = input.now ?? new Date();
     const leaseExpiresAt = new Date(now.getTime() + input.leaseSeconds * 1_000);
+    const nowTimestamp = now.toISOString();
+    const leaseExpiresTimestamp = leaseExpiresAt.toISOString();
+    const operationId = input.operationId ?? null;
     const result = await this.database.execute(sql`
       with candidates as (
         select id from commerce_operations
-        where state in ('READY', 'SUBMITTED', 'PENDING', 'REORGED')
-          and (next_attempt_at is null or next_attempt_at <= ${now})
-          and (lease_expires_at is null or lease_expires_at <= ${now})
+        where state in ('READY', 'SUBMITTED', 'PENDING', 'CONFIRMED', 'REORGED')
+          and (${operationId}::uuid is null or id = ${operationId}::uuid)
+          and (next_attempt_at is null or next_attempt_at <= ${nowTimestamp})
+          and (lease_expires_at is null or lease_expires_at <= ${nowTimestamp})
         order by coalesce(next_attempt_at, created_at), created_at
         for update skip locked
         limit ${input.limit}
       )
       update commerce_operations o
-      set lease_owner = ${input.workerId}, lease_expires_at = ${leaseExpiresAt},
-          updated_at = ${now}
+      set lease_owner = ${input.workerId}, lease_expires_at = ${leaseExpiresTimestamp},
+          updated_at = ${nowTimestamp}
       from candidates c
       where o.id = c.id
       returning o.*
@@ -1402,7 +2382,10 @@ export class DrizzleCommerceStore {
         confirmationCount: input.confirmationCount,
         finalityState: input.finalityState,
         failure: input.failure,
-        evidence: input.evidence,
+        evidence:
+          input.evidence === undefined
+            ? undefined
+            : sql`${commerceOperations.evidence} || ${JSON.stringify(input.evidence)}::jsonb`,
         nextAttemptAt: input.nextAttemptAt,
         retryCount: input.incrementRetry
           ? sql`${commerceOperations.retryCount} + 1`
@@ -1420,6 +2403,542 @@ export class DrizzleCommerceStore {
       )
       .returning();
     return row ?? null;
+  }
+
+  public async finalizeCreateJobOperation(input: {
+    id: string;
+    workerId: string;
+    from: CommerceOperationState[];
+    transactionHash: string;
+    blockNumber: bigint;
+    blockHash: string;
+    confirmationCount: number;
+    externalJobId: string;
+    evidence: Record<string, unknown>;
+    nextOperation?: PreparedSetupOperation;
+  }) {
+    return this.database.transaction(async (transaction) => {
+      const [operation] = await transaction
+        .select()
+        .from(commerceOperations)
+        .where(
+          and(
+            eq(commerceOperations.id, input.id),
+            eq(commerceOperations.leaseOwner, input.workerId),
+            eq(commerceOperations.operationType, "CREATE_JOB"),
+            inArray(commerceOperations.state, input.from),
+          ),
+        )
+        .limit(1);
+      if (operation === undefined) return null;
+      if (
+        operation.activationId === null ||
+        operation.transactionHash?.toLowerCase() !==
+          input.transactionHash.toLowerCase()
+      )
+        throw new Error(
+          "Finalized CREATE_JOB does not match its durable operation",
+        );
+      const [activation] = await transaction
+        .select()
+        .from(activations)
+        .where(eq(activations.id, operation.activationId))
+        .limit(1);
+      if (
+        activation === undefined ||
+        activation.purpose !== "USER_COMMERCE" ||
+        activation.commerceAgreementId !== operation.agreementId ||
+        activation.executionRequestId !== operation.executionRequestId ||
+        activation.lifecycleState !== "PREPARING" ||
+        activation.reconciliationState !== "PENDING" ||
+        activation.externalJobId !== null ||
+        activation.principalId === null
+      )
+        throw new Error(
+          "CREATE_JOB activation is not eligible for finality projection",
+        );
+      assertActivationLifecycleTransition("PREPARING", "ONCHAIN_CREATED");
+      const observedAt = new Date();
+      const receiptEvidence = {
+        ...input.evidence,
+        transactionHash: input.transactionHash,
+        blockNumber: input.blockNumber.toString(),
+        blockHash: input.blockHash,
+        confirmationCount: input.confirmationCount,
+        externalJobId: input.externalJobId,
+      };
+      const [finalizedOperation] = await transaction
+        .update(commerceOperations)
+        .set({
+          state: "FINALIZED",
+          blockNumber: input.blockNumber,
+          blockHash: input.blockHash,
+          confirmationCount: input.confirmationCount,
+          finalityState: "FINALIZED",
+          failure: null,
+          evidence: sql`${commerceOperations.evidence} || ${JSON.stringify(receiptEvidence)}::jsonb`,
+          nextAttemptAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          updatedAt: observedAt,
+        })
+        .where(
+          and(
+            eq(commerceOperations.id, operation.id),
+            eq(commerceOperations.leaseOwner, input.workerId),
+            inArray(commerceOperations.state, input.from),
+          ),
+        )
+        .returning();
+      if (finalizedOperation === undefined)
+        throw new Error("CREATE_JOB operation changed during finalization");
+      const lifecycleEvidence = {
+        sourceOperationId: operation.id,
+        receipt: receiptEvidence,
+        fundsMoved: false,
+        settlementCreated: false,
+      };
+      const [changedActivation] = await transaction
+        .update(activations)
+        .set({
+          lifecycleState: "ONCHAIN_CREATED",
+          status: legacyActivationStatusForLifecycle("ONCHAIN_CREATED"),
+          reconciliationState: "CURRENT",
+          externalJobId: input.externalJobId,
+          updatedAt: observedAt,
+        })
+        .where(
+          and(
+            eq(activations.id, activation.id),
+            eq(activations.lifecycleState, "PREPARING"),
+          ),
+        )
+        .returning();
+      if (changedActivation === undefined)
+        throw new Error("CREATE_JOB activation changed during finalization");
+      await transaction.insert(commerceAgreementEvents).values({
+        agreementId: operation.agreementId,
+        fromStatus: null,
+        toStatus: "ACTIVE",
+        eventType: "ERC8183_ONCHAIN_CREATED",
+        actorPrincipalId: activation.principalId,
+        evidence: lifecycleEvidence,
+      });
+      await transaction.insert(activationLifecycleTransitions).values({
+        activationId: activation.id,
+        fromState: "PREPARING",
+        toState: "ONCHAIN_CREATED",
+        transactionHash: input.transactionHash,
+        blockNumber: input.blockNumber,
+        evidence: lifecycleEvidence,
+      });
+      await transaction.insert(activationTransitions).values({
+        activationId: activation.id,
+        status: legacyActivationStatusForLifecycle("ONCHAIN_CREATED"),
+        transactionHash: input.transactionHash,
+        blockNumber: input.blockNumber,
+        evidence: {
+          compatibilityProjection: true,
+          canonicalLifecycleState: "ONCHAIN_CREATED",
+          externalJobId: input.externalJobId,
+        },
+      });
+      await transaction.insert(commerceArtifacts).values({
+        agreementId: operation.agreementId,
+        activationId: activation.id,
+        executionRequestId: operation.executionRequestId,
+        artifactType: "JOB_SPECIFICATION",
+        source: "erc8183-lifecycle-reconciliation",
+        contentHash: immutableContentHash({
+          activationId: activation.id,
+          operationId: operation.id,
+          externalJobId: input.externalJobId,
+          transactionHash: input.transactionHash,
+          blockNumber: input.blockNumber.toString(),
+          blockHash: input.blockHash,
+        }),
+        safeContent: lifecycleEvidence,
+        provenance: "onchain_verified",
+        observedAt,
+      });
+      if (input.nextOperation !== undefined) {
+        const [nextAttemptResult] = await transaction
+          .select({
+            value: sql<number>`coalesce(max(${commerceOperations.attempt}), 0)::int + 1`,
+          })
+          .from(commerceOperations)
+          .where(
+            and(
+              eq(commerceOperations.agreementId, operation.agreementId),
+              eq(
+                commerceOperations.operationType,
+                input.nextOperation.operationType,
+              ),
+            ),
+          );
+        await transaction
+          .insert(commerceOperations)
+          .values({
+            agreementId: operation.agreementId,
+            activationId: activation.id,
+            executionRequestId: operation.executionRequestId,
+            operationType: input.nextOperation.operationType,
+            state: input.nextOperation.state,
+            idempotencyKey: input.nextOperation.idempotencyKey,
+            attempt: nextAttemptResult?.value ?? 1,
+            preparedPayloadHash: input.nextOperation.preparedPayloadHash,
+            failure: input.nextOperation.failure,
+            evidence: input.nextOperation.evidence,
+            nextAttemptAt:
+              input.nextOperation.state === "AWAITING_SIGNATURE"
+                ? observedAt
+                : null,
+          })
+          .onConflictDoNothing({
+            target: [
+              commerceOperations.agreementId,
+              commerceOperations.idempotencyKey,
+            ],
+          });
+        if (input.nextOperation.state === "CANCELLED") {
+          const [activation] = await transaction
+            .select()
+            .from(activations)
+            .where(eq(activations.id, operation.activationId))
+            .limit(1);
+          if (
+            activation === undefined ||
+            activation.purpose !== "USER_COMMERCE" ||
+            activation.commerceAgreementId === null ||
+            activation.principalId === null ||
+            activation.lifecycleState !== "ONCHAIN_CREATED"
+          )
+            throw new Error(
+              "Cancelled setup operation does not match an active commerce attempt",
+            );
+          assertActivationLifecycleTransition("ONCHAIN_CREATED", "FAILED");
+          const failure = {
+            ...input.nextOperation.failure,
+            failedAfterOperation: operation.operationType,
+            fundsMoved: false,
+            settlementCreated: false,
+            observedAt: observedAt.toISOString(),
+          };
+          const [failedActivation] = await transaction
+            .update(activations)
+            .set({
+              lifecycleState: "FAILED",
+              status: legacyActivationStatusForLifecycle("FAILED"),
+              reconciliationState: "FAILED",
+              failure,
+              updatedAt: observedAt,
+            })
+            .where(
+              and(
+                eq(activations.id, activation.id),
+                eq(activations.lifecycleState, "ONCHAIN_CREATED"),
+              ),
+            )
+            .returning({ id: activations.id });
+          if (failedActivation === undefined)
+            throw new Error(
+              "Commerce activation changed while closing its setup window",
+            );
+          await transaction.insert(activationLifecycleTransitions).values({
+            activationId: activation.id,
+            fromState: "ONCHAIN_CREATED",
+            toState: "FAILED",
+            transactionHash: input.transactionHash,
+            blockNumber: input.blockNumber,
+            evidence: failure,
+          });
+          await transaction.insert(activationTransitions).values({
+            activationId: activation.id,
+            status: legacyActivationStatusForLifecycle("FAILED"),
+            transactionHash: input.transactionHash,
+            blockNumber: input.blockNumber,
+            evidence: {
+              compatibilityProjection: true,
+              canonicalLifecycleState: "FAILED",
+              terminalReason: input.nextOperation.failure?.code,
+            },
+          });
+          await transaction.insert(commerceAgreementEvents).values({
+            agreementId: activation.commerceAgreementId,
+            fromStatus: "ACTIVE",
+            toStatus: "ACTIVE",
+            eventType: "ERC8183_SETUP_WINDOW_CLOSED",
+            actorPrincipalId: activation.principalId,
+            evidence: { ...failure, agreementPreserved: true },
+          });
+        }
+      }
+      return { operation: finalizedOperation, activation: changedActivation };
+    });
+  }
+
+  public async finalizeSetupOperation(input: {
+    id: string;
+    workerId: string;
+    from: CommerceOperationState[];
+    transactionHash: string;
+    blockNumber: bigint;
+    blockHash: string;
+    confirmationCount: number;
+    evidence: Record<string, unknown>;
+    nextOperation?: PreparedSetupOperation;
+  }) {
+    return this.database.transaction(async (transaction) => {
+      const [operation] = await transaction
+        .select()
+        .from(commerceOperations)
+        .where(
+          and(
+            eq(commerceOperations.id, input.id),
+            eq(commerceOperations.leaseOwner, input.workerId),
+            inArray(commerceOperations.operationType, [
+              "REGISTER_JOB",
+              "SET_BUDGET",
+              "FUND",
+            ]),
+            inArray(commerceOperations.state, input.from),
+          ),
+        )
+        .limit(1);
+      if (
+        operation === undefined ||
+        operation.activationId === null ||
+        operation.transactionHash?.toLowerCase() !==
+          input.transactionHash.toLowerCase()
+      )
+        return null;
+      const observedAt = new Date();
+      const receiptEvidence = {
+        ...input.evidence,
+        transactionHash: input.transactionHash,
+        blockNumber: input.blockNumber.toString(),
+        blockHash: input.blockHash,
+        confirmationCount: input.confirmationCount,
+        fundsMoved: false,
+        settlementCreated: false,
+      };
+      const [finalized] = await transaction
+        .update(commerceOperations)
+        .set({
+          state: "FINALIZED",
+          blockNumber: input.blockNumber,
+          blockHash: input.blockHash,
+          confirmationCount: input.confirmationCount,
+          finalityState: "FINALIZED",
+          failure: null,
+          evidence: sql`${commerceOperations.evidence} || ${JSON.stringify(receiptEvidence)}::jsonb`,
+          nextAttemptAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          updatedAt: observedAt,
+        })
+        .where(
+          and(
+            eq(commerceOperations.id, operation.id),
+            eq(commerceOperations.leaseOwner, input.workerId),
+            inArray(commerceOperations.state, input.from),
+          ),
+        )
+        .returning();
+      if (finalized === undefined)
+        throw new Error("Commerce setup operation changed during finalization");
+      if (input.nextOperation !== undefined) {
+        const [nextAttemptResult] = await transaction
+          .select({
+            value: sql<number>`coalesce(max(${commerceOperations.attempt}), 0)::int + 1`,
+          })
+          .from(commerceOperations)
+          .where(
+            and(
+              eq(commerceOperations.agreementId, operation.agreementId),
+              eq(
+                commerceOperations.operationType,
+                input.nextOperation.operationType,
+              ),
+            ),
+          );
+        await transaction
+          .insert(commerceOperations)
+          .values({
+            agreementId: operation.agreementId,
+            activationId: operation.activationId,
+            executionRequestId: operation.executionRequestId,
+            operationType: input.nextOperation.operationType,
+            state: input.nextOperation.state,
+            idempotencyKey: input.nextOperation.idempotencyKey,
+            attempt: nextAttemptResult?.value ?? 1,
+            preparedPayloadHash: input.nextOperation.preparedPayloadHash,
+            failure: input.nextOperation.failure,
+            evidence: input.nextOperation.evidence,
+            nextAttemptAt:
+              input.nextOperation.state === "AWAITING_SIGNATURE"
+                ? observedAt
+                : null,
+          })
+          .onConflictDoNothing({
+            target: [
+              commerceOperations.agreementId,
+              commerceOperations.idempotencyKey,
+            ],
+          });
+        if (input.nextOperation.state === "CANCELLED") {
+          const [activation] = await transaction
+            .select()
+            .from(activations)
+            .where(eq(activations.id, operation.activationId))
+            .limit(1);
+          if (
+            activation === undefined ||
+            activation.purpose !== "USER_COMMERCE" ||
+            activation.commerceAgreementId === null ||
+            activation.principalId === null ||
+            activation.lifecycleState !== "ONCHAIN_CREATED"
+          )
+            throw new Error(
+              "Cancelled setup operation does not match an active commerce attempt",
+            );
+          assertActivationLifecycleTransition("ONCHAIN_CREATED", "FAILED");
+          const failure = {
+            ...input.nextOperation.failure,
+            failedAfterOperation: operation.operationType,
+            fundsMoved: false,
+            settlementCreated: false,
+            observedAt: observedAt.toISOString(),
+          };
+          const [failedActivation] = await transaction
+            .update(activations)
+            .set({
+              lifecycleState: "FAILED",
+              status: legacyActivationStatusForLifecycle("FAILED"),
+              reconciliationState: "FAILED",
+              failure,
+              updatedAt: observedAt,
+            })
+            .where(
+              and(
+                eq(activations.id, activation.id),
+                eq(activations.lifecycleState, "ONCHAIN_CREATED"),
+              ),
+            )
+            .returning({ id: activations.id });
+          if (failedActivation === undefined)
+            throw new Error(
+              "Commerce activation changed while closing its setup window",
+            );
+          await transaction.insert(activationLifecycleTransitions).values({
+            activationId: activation.id,
+            fromState: "ONCHAIN_CREATED",
+            toState: "FAILED",
+            transactionHash: input.transactionHash,
+            blockNumber: input.blockNumber,
+            evidence: failure,
+          });
+          await transaction.insert(activationTransitions).values({
+            activationId: activation.id,
+            status: legacyActivationStatusForLifecycle("FAILED"),
+            transactionHash: input.transactionHash,
+            blockNumber: input.blockNumber,
+            evidence: {
+              compatibilityProjection: true,
+              canonicalLifecycleState: "FAILED",
+              terminalReason: input.nextOperation.failure?.code,
+            },
+          });
+          await transaction.insert(commerceAgreementEvents).values({
+            agreementId: activation.commerceAgreementId,
+            fromStatus: "ACTIVE",
+            toStatus: "ACTIVE",
+            eventType: "ERC8183_SETUP_WINDOW_CLOSED",
+            actorPrincipalId: activation.principalId,
+            evidence: { ...failure, agreementPreserved: true },
+          });
+        }
+      }
+      if (operation.operationType === "FUND") {
+        const [activation] = await transaction
+          .select()
+          .from(activations)
+          .where(eq(activations.id, operation.activationId))
+          .limit(1);
+        if (
+          activation === undefined ||
+          activation.purpose !== "USER_COMMERCE" ||
+          activation.commerceAgreementId === null ||
+          activation.principalId === null ||
+          activation.lifecycleState !== "ONCHAIN_CREATED"
+        )
+          throw new Error(
+            "Finalized FUND does not match an onchain-created commerce activation",
+          );
+        assertActivationLifecycleTransition("ONCHAIN_CREATED", "ACTIVE");
+        const lifecycleEvidence = {
+          operationId: operation.id,
+          transactionHash: input.transactionHash,
+          blockNumber: input.blockNumber.toString(),
+          blockHash: input.blockHash,
+          confirmationCount: input.confirmationCount,
+          budgetBaseUnits: "0",
+          fundsMoved: false,
+          settlementCreated: false,
+          zeroValueProtocolTransition: true,
+        };
+        const [activeActivation] = await transaction
+          .update(activations)
+          .set({
+            lifecycleState: "ACTIVE",
+            status: legacyActivationStatusForLifecycle("ACTIVE"),
+            reconciliationState: "CURRENT",
+            budget: "0",
+            failure: null,
+            updatedAt: observedAt,
+          })
+          .where(
+            and(
+              eq(activations.id, activation.id),
+              eq(activations.lifecycleState, "ONCHAIN_CREATED"),
+            ),
+          )
+          .returning({ id: activations.id });
+        if (activeActivation === undefined)
+          throw new Error(
+            "Commerce activation changed while finalizing zero-value FUND",
+          );
+        await transaction.insert(activationLifecycleTransitions).values({
+          activationId: activation.id,
+          fromState: "ONCHAIN_CREATED",
+          toState: "ACTIVE",
+          transactionHash: input.transactionHash,
+          blockNumber: input.blockNumber,
+          evidence: lifecycleEvidence,
+        });
+        await transaction.insert(activationTransitions).values({
+          activationId: activation.id,
+          status: legacyActivationStatusForLifecycle("ACTIVE"),
+          transactionHash: input.transactionHash,
+          blockNumber: input.blockNumber,
+          evidence: {
+            compatibilityProjection: true,
+            canonicalLifecycleState: "ACTIVE",
+            zeroValueProtocolTransition: true,
+            fundsMoved: false,
+          },
+        });
+        await transaction.insert(commerceAgreementEvents).values({
+          agreementId: activation.commerceAgreementId,
+          fromStatus: "ACTIVE",
+          toStatus: "ACTIVE",
+          eventType: "ERC8183_ZERO_VALUE_FUNDED",
+          actorPrincipalId: activation.principalId,
+          evidence: lifecycleEvidence,
+        });
+      }
+      return finalized;
+    });
   }
 
   public async recordValueMovement(input: {
@@ -1452,8 +2971,10 @@ export class DrizzleCommerceStore {
       | "developer_declared"
       | "secondary_unverified";
   }) {
-    if (BigInt(input.amountBaseUnits) < 0n)
-      throw new Error("Value movements cannot be negative");
+    if (BigInt(input.amountBaseUnits) <= 0n)
+      throw new Error(
+        "Economic value movements must be positive; record zero-value protocol transitions as lifecycle evidence",
+      );
     const [row] = await this.database
       .insert(commerceValueMovements)
       .values(input)

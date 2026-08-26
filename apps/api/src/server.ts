@@ -16,6 +16,7 @@ import { MandateApplicationService } from "./mandates.js";
 import { ExecutionApplicationService } from "./executions.js";
 import {
   CommerceApplicationService,
+  USER_COMMERCE_JOB_LIFETIME_SECONDS,
   WalletAuthenticationService,
 } from "./commerce.js";
 
@@ -105,6 +106,15 @@ const commerce =
                 environment.RELIC_ERC8183_COMMERCE_ADDRESS as `0x${string}`,
               evaluatorAddress:
                 environment.RELIC_ERC8183_EVALUATOR_ADDRESS as `0x${string}`,
+              ...(environment.ERC8183_POLICY_ADDRESS === undefined
+                ? {}
+                : {
+                    policyAddress:
+                      environment.ERC8183_POLICY_ADDRESS as `0x${string}`,
+                  }),
+              ...(process.env.BSC_TESTNET_RPC_URL === undefined
+                ? {}
+                : { rpcUrl: process.env.BSC_TESTNET_RPC_URL }),
             },
       );
 const mandateApiSecret =
@@ -122,6 +132,14 @@ const app = createApp(repository, onboarding, mandates, {
 });
 
 serve({ fetch: app.fetch, port: environment.API_PORT }, (info) => {
+  console.info(
+    JSON.stringify({
+      event: "relic_api_runtime_config",
+      userCommerceJobLifetimeSeconds:
+        USER_COMMERCE_JOB_LIFETIME_SECONDS.toString(),
+      jobExpiryIncludesPolicyDisputeWindow: true,
+    }),
+  );
   console.info(`Relic API listening on http://localhost:${info.port}`);
 });
 

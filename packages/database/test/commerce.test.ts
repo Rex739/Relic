@@ -15,6 +15,7 @@ const serviceId = "01945b1e-7e80-7000-8000-000000000302";
 const mandateId = "01945b1e-7e80-7000-8000-000000000303";
 const buyer = "01945b1e-7e80-7000-8000-000000000304";
 const owner = "0x1111111111111111111111111111111111111111";
+const buyerAddress = "0x4444444444444444444444444444444444444444";
 const operator = "01945b1e-7e80-7000-8000-000000000305";
 
 beforeEach(async () => {
@@ -80,6 +81,53 @@ const request = () => ({
   expiresAt: null,
 });
 
+async function authorizedExecution() {
+  const offer = await store.createOffer({
+    operatorPrincipalId: operator,
+    operatorAddress: owner,
+    request: request(),
+  });
+  await store.activateOffer({
+    offerId: offer!.id,
+    operatorPrincipalId: operator,
+    operatorAddress: owner,
+  });
+  const agreement = await store.createAgreement({
+    principalId: buyer,
+    offerId: offer!.id,
+    mandateId,
+  });
+  const authorizationId = "01945b1e-7e80-7000-8000-000000000320";
+  const executionId = "01945b1e-7e80-7000-8000-000000000321";
+  await database.exec(`
+    update commerce_agreements
+      set status = 'AUTHORIZED', authorization_artifact_id = null
+      where id = '${agreement!.id}';
+    insert into authorization_artifacts
+      (id, principal_id, agreement_id, mandate_id, mandate_version,
+       authorization_type, signer_address, chain_id, normalized_payload,
+       signature, message_hash, terms_hash, nonce_hash, verification_status,
+       evidence_reference, expires_at)
+      values
+      ('${authorizationId}', '${buyer}', '${agreement!.id}', '${mandateId}', 1,
+       'WALLET_SIGNATURE', '${buyerAddress}', 97, '{}', '0x01',
+       '0x${"ab".repeat(32)}', '${agreement!.termsHash}', 'nonce-activation',
+       'VERIFIED', '{}', now() + interval '1 hour');
+    update commerce_agreements
+      set authorization_artifact_id = '${authorizationId}'
+      where id = '${agreement!.id}';
+    insert into execution_requests
+      (id, mandate_id, mandate_version, agent_id, principal_id, chain_id,
+       idempotency_key, raw_request, normalized_action, normalized_hash,
+       status, decision, decision_reasons, deadline)
+      values
+      ('${executionId}', '${mandateId}', 1, '${agentId}', '${buyer}', 97,
+       'real-buyer-observation', '{}', '{}', '${"cd".repeat(32)}',
+       'SUCCEEDED', 'ALLOW', '[]', now() + interval '5 minutes');
+  `);
+  return { agreement: agreement!, authorizationId, executionId };
+}
+
 describe("production commerce persistence", () => {
   it("rejects unauthorized and stale offer publication", async () => {
     await expect(
@@ -135,7 +183,7 @@ describe("production commerce persistence", () => {
     });
   });
 
-  it("deduplicates operations, leases them once, and deduplicates onchain movements", async () => {
+  it("deduplicates operations, leases them once, and never records zero-value protocol transitions as money", async () => {
     const offer = await store.createOffer({
       operatorPrincipalId: operator,
       operatorAddress: owner,
@@ -164,12 +212,53 @@ describe("production commerce persistence", () => {
       state: "READY",
     });
     expect(replay.id).toBe(first.id);
+    const nextAttempt = await store.createOperation({
+      agreementId: agreement!.id,
+      operationType: "CREATE_JOB",
+      idempotencyKey: "job-replacement-once",
+      state: "CREATED",
+    });
+    expect(first.attempt).toBe(1);
+    expect(nextAttempt.attempt).toBe(2);
+    expect(
+      (
+        await store.createOperation({
+          agreementId: agreement!.id,
+          operationType: "CREATE_JOB",
+          idempotencyKey: "job-replacement-once",
+          state: "CREATED",
+        })
+      ).id,
+    ).toBe(nextAttempt.id);
     const [left, right] = await Promise.all([
       store.leaseOperations({ workerId: "left", limit: 1, leaseSeconds: 60 }),
       store.leaseOperations({ workerId: "right", limit: 1, leaseSeconds: 60 }),
     ]);
     expect(left.length + right.length).toBe(1);
-    const movement = {
+    const firstLease = left[0] ?? right[0];
+    const firstWorker = left.length === 1 ? "left" : "right";
+    expect(firstLease).toBeDefined();
+    await store.transitionOperation({
+      id: String(firstLease!.id),
+      workerId: firstWorker,
+      from: ["READY"],
+      to: "CONFIRMED",
+      transactionHash: `0x${"cd".repeat(32)}`,
+      blockNumber: 100n,
+      blockHash: `0x${"ef".repeat(32)}`,
+      confirmationCount: 5,
+      finalityState: "CONFIRMED",
+      nextAttemptAt: new Date(Date.now() - 1_000),
+    });
+    const confirmedLease = await store.leaseOperations({
+      workerId: "finality-worker",
+      operationId: String(firstLease!.id),
+      limit: 1,
+      leaseSeconds: 60,
+    });
+    expect(confirmedLease).toHaveLength(1);
+    expect(confirmedLease[0]).toMatchObject({ state: "CONFIRMED" });
+    const zeroMovement = {
       agreementId: agreement!.id,
       movementType: "FUNDING" as const,
       chainId: 97,
@@ -181,8 +270,312 @@ describe("production commerce persistence", () => {
       finalityState: "FINALIZED" as const,
       provenance: "onchain_verified" as const,
     };
+    await expect(store.recordValueMovement(zeroMovement)).rejects.toThrow(
+      /must be positive/i,
+    );
+    const movement = { ...zeroMovement, amountBaseUnits: "1" };
     expect(await store.recordValueMovement(movement)).not.toBeNull();
     expect(await store.recordValueMovement(movement)).toBeNull();
+  });
+
+  it("records one wallet hash atomically and rejects a competing hash", async () => {
+    const offer = await store.createOffer({
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+      request: request(),
+    });
+    await store.activateOffer({
+      offerId: offer!.id,
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+    });
+    const agreement = await store.createAgreement({
+      principalId: buyer,
+      offerId: offer!.id,
+      mandateId,
+    });
+    const preparedPayloadHash = `0x${"12".repeat(32)}`;
+    const operation = await store.createOperation({
+      agreementId: agreement!.id,
+      operationType: "REGISTER_JOB",
+      idempotencyKey: "register-job-once",
+      state: "AWAITING_SIGNATURE",
+      preparedPayloadHash,
+    });
+    const transactionHash = `0x${"34".repeat(32)}`;
+    const input = {
+      operationId: operation.id,
+      agreementId: agreement!.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash,
+      transactionHash,
+      nonce: 7n,
+    };
+    await expect(
+      store.recordWalletSubmittedOperation(input),
+    ).resolves.toMatchObject({
+      operationType: "REGISTER_JOB",
+      state: "SUBMITTED",
+      transactionHash,
+      signerAddress: buyerAddress,
+      nonce: 7n,
+    });
+    await expect(
+      store.recordWalletSubmittedOperation(input),
+    ).resolves.toMatchObject({ transactionHash });
+    await expect(
+      store.recordWalletSubmittedOperation({
+        ...input,
+        transactionHash: `0x${"56".repeat(32)}`,
+      }),
+    ).rejects.toThrow(/different transaction hash/i);
+    const persisted = await store.findAgreement(agreement!.id, buyer);
+    expect(persisted?.operations[0]).toMatchObject({
+      nonce: "7",
+      blockNumber: null,
+    });
+    expect(() => JSON.stringify(persisted)).not.toThrow();
+  });
+
+  it("records one SET_BUDGET wallet hash atomically", async () => {
+    const offer = await store.createOffer({
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+      request: request(),
+    });
+    await store.activateOffer({
+      offerId: offer!.id,
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+    });
+    const agreement = await store.createAgreement({
+      principalId: buyer,
+      offerId: offer!.id,
+      mandateId,
+    });
+    const preparedPayloadHash = `0x${"78".repeat(32)}`;
+    const operation = await store.createOperation({
+      agreementId: agreement!.id,
+      operationType: "SET_BUDGET",
+      idempotencyKey: "set-zero-budget-once",
+      state: "AWAITING_SIGNATURE",
+      preparedPayloadHash,
+    });
+    const transactionHash = `0x${"90".repeat(32)}`;
+    const input = {
+      operationId: operation.id,
+      agreementId: agreement!.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash,
+      transactionHash,
+      nonce: 2n,
+    };
+    await expect(
+      store.recordWalletSubmittedOperation(input),
+    ).resolves.toMatchObject({
+      operationType: "SET_BUDGET",
+      state: "SUBMITTED",
+      transactionHash,
+      signerAddress: buyerAddress,
+      nonce: 2n,
+    });
+    await expect(
+      store.recordWalletSubmittedOperation(input),
+    ).resolves.toMatchObject({ transactionHash });
+    await expect(
+      store.recordWalletSubmittedOperation({
+        ...input,
+        transactionHash: `0x${"91".repeat(32)}`,
+      }),
+    ).rejects.toThrow(/different transaction hash/i);
+  });
+
+  it("records one FUND wallet hash atomically", async () => {
+    const offer = await store.createOffer({
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+      request: request(),
+    });
+    await store.activateOffer({
+      offerId: offer!.id,
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+    });
+    const agreement = await store.createAgreement({
+      principalId: buyer,
+      offerId: offer!.id,
+      mandateId,
+    });
+    const preparedPayloadHash = `0x${"79".repeat(32)}`;
+    const operation = await store.createOperation({
+      agreementId: agreement!.id,
+      operationType: "FUND",
+      idempotencyKey: "fund-zero-budget-once",
+      state: "AWAITING_SIGNATURE",
+      preparedPayloadHash,
+    });
+    const transactionHash = `0x${"92".repeat(32)}`;
+    const input = {
+      operationId: operation.id,
+      agreementId: agreement!.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash,
+      transactionHash,
+      nonce: 3n,
+    };
+    await expect(
+      store.recordWalletSubmittedOperation(input),
+    ).resolves.toMatchObject({
+      operationType: "FUND",
+      state: "SUBMITTED",
+      transactionHash,
+      signerAddress: buyerAddress,
+      nonce: 3n,
+    });
+    await expect(
+      store.recordWalletSubmittedOperation(input),
+    ).resolves.toMatchObject({ transactionHash });
+    await expect(
+      store.recordWalletSubmittedOperation({
+        ...input,
+        transactionHash: `0x${"93".repeat(32)}`,
+      }),
+    ).rejects.toThrow(/different transaction hash/i);
+  });
+
+  it("projects finalized zero-value FUND into an active activation without economic movement", async () => {
+    const fixture = await authorizedExecution();
+    const activation = await store.createUserCommerceActivation({
+      agreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      authorizationId: fixture.authorizationId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    });
+    await store.transitionCommerceActivation({
+      activationId: activation.id,
+      from: "PREPARING",
+      to: "ONCHAIN_CREATED",
+      externalJobId: "647",
+      reconciliationState: "CURRENT",
+      evidence: { source: "test-create-job" },
+    });
+    const transactionHash = `0x${"94".repeat(32)}`;
+    const operation = await store.createOperation({
+      agreementId: fixture.agreement.id,
+      activationId: activation.id,
+      executionRequestId: fixture.executionId,
+      operationType: "FUND",
+      idempotencyKey: `activation:${activation.id}:fund:647`,
+      state: "AWAITING_SIGNATURE",
+      preparedPayloadHash: `0x${"95".repeat(32)}`,
+      evidence: { budgetBaseUnits: "0", fundsMoved: false },
+    });
+    await store.recordWalletSubmittedOperation({
+      operationId: operation.id,
+      agreementId: fixture.agreement.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash: operation.preparedPayloadHash!,
+      transactionHash,
+      nonce: 14n,
+    });
+    await store.leaseOperations({
+      workerId: "fund-finality-worker",
+      operationId: operation.id,
+      limit: 1,
+      leaseSeconds: 60,
+    });
+    await store.finalizeSetupOperation({
+      id: operation.id,
+      workerId: "fund-finality-worker",
+      from: ["SUBMITTED"],
+      transactionHash,
+      blockNumber: 127178300n,
+      blockHash: `0x${"96".repeat(32)}`,
+      confirmationCount: 15,
+      evidence: { receiptStatus: "success" },
+    });
+    expect(
+      await store.walletOperationActivation({
+        activationId: activation.id,
+        agreementId: fixture.agreement.id,
+        principalId: buyer,
+      }),
+    ).toMatchObject({
+      lifecycleState: "ACTIVE",
+      status: "FUNDED",
+      reconciliationState: "CURRENT",
+      budget: "0",
+      failure: null,
+    });
+    const persisted = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(persisted).toMatchObject({ status: "ACTIVE" });
+    expect(persisted?.movements).toHaveLength(0);
+    expect(persisted?.settlements).toHaveLength(0);
+  });
+
+  it("persists one immutable provider delivery and one unsubmitted provider operation", async () => {
+    const fixture = await authorizedExecution();
+    const activation = await store.createUserCommerceActivation({
+      agreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      authorizationId: fixture.authorizationId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    });
+    await database.exec(`
+      update activations
+      set lifecycle_state = 'ACTIVE', status = 'FUNDED', reconciliation_state = 'CURRENT',
+          external_job_id = '647', provider_address = '${owner}'
+      where id = '${activation.id}';
+      update commerce_agreements set status = 'ACTIVE'
+      where id = '${fixture.agreement.id}';
+    `);
+    const input = {
+      agreementId: fixture.agreement.id,
+      activationId: activation.id,
+      executionRequestId: fixture.executionId,
+      externalJobId: "647",
+      providerAddress: owner,
+      idempotencyKey: `activation:${activation.id}:submit-delivery:647`,
+      manifestHash: `0x${"61".repeat(32)}`,
+      manifestReference: "https://example.invalid/erc8183/job/647/response",
+      manifest: {
+        version: 1,
+        job_id: 647,
+        response: { riskLevel: "critical" },
+      },
+      observedAt: new Date("2026-08-25T12:00:00.000Z"),
+      preparedPayloadHash: `0x${"62".repeat(32)}`,
+      operationEvidence: {
+        contract: "0x5555555555555555555555555555555555555555",
+        functionName: "submit",
+      },
+    };
+    const prepared = await store.prepareProviderDelivery(input);
+    const replay = await store.prepareProviderDelivery(input);
+    expect(replay.artifact.id).toBe(prepared.artifact.id);
+    expect(replay.operation.id).toBe(prepared.operation.id);
+    expect(prepared.artifact).toMatchObject({
+      artifactType: "DELIVERY",
+      contentHash: input.manifestHash,
+      provenance: "independently_observed",
+    });
+    expect(prepared.operation).toMatchObject({
+      operationType: "SUBMIT_DELIVERY",
+      state: "AWAITING_SIGNATURE",
+      signerAddress: owner,
+      transactionHash: null,
+    });
+    const agreement = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(agreement?.movements).toHaveLength(0);
+    expect(agreement?.settlements).toHaveLength(0);
   });
 
   it("does not let historical verification activations create paid reputation", async () => {
@@ -217,5 +610,521 @@ describe("production commerce persistence", () => {
         observedAt: new Date(),
       }),
     ).rejects.toThrow(/verification/i);
+  });
+
+  it("binds one idempotent USER_COMMERCE activation to the buyer agreement, mandate, execution, and authorization", async () => {
+    const fixture = await authorizedExecution();
+    const input = {
+      agreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      authorizationId: fixture.authorizationId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    };
+    const activation = await store.createUserCommerceActivation(input);
+    const replay = await store.createUserCommerceActivation(input);
+    expect(replay.id).toBe(activation.id);
+    expect(activation).toMatchObject({
+      purpose: "USER_COMMERCE",
+      commerceAgreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      mandateId,
+      mandateVersion: 1,
+      principalId: buyer,
+      authorizationId: fixture.authorizationId,
+      clientAddress: buyerAddress,
+      providerAddress: owner,
+      budgetBaseUnits: "0",
+    });
+    const persisted = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(persisted!.operations).toHaveLength(1);
+    expect(persisted!.operations[0]).toMatchObject({
+      operationType: "PREPARE_JOB",
+      state: "CREATED",
+      executionRequestId: fixture.executionId,
+    });
+  });
+
+  it("atomically finalizes CREATE_JOB and projects its activation without losing evidence", async () => {
+    const fixture = await authorizedExecution();
+    const activation = await store.createUserCommerceActivation({
+      agreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      authorizationId: fixture.authorizationId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    });
+    const preparedPayloadHash = `0x${"12".repeat(32)}`;
+    const transactionHash = `0x${"34".repeat(32)}`;
+    const operation = await store.createOperation({
+      agreementId: fixture.agreement.id,
+      activationId: activation.id,
+      executionRequestId: fixture.executionId,
+      operationType: "CREATE_JOB",
+      idempotencyKey: `activation:${activation.id}:create-job`,
+      state: "AWAITING_SIGNATURE",
+      preparedPayloadHash,
+      evidence: { preparationProvenance: "preserved" },
+    });
+    await store.recordWalletSubmittedOperation({
+      operationId: operation.id,
+      agreementId: fixture.agreement.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash,
+      transactionHash,
+      nonce: 2n,
+    });
+    const [leased] = await store.leaseOperations({
+      workerId: "create-finality-worker",
+      operationId: operation.id,
+      limit: 1,
+      leaseSeconds: 60,
+    });
+    expect(leased).toBeDefined();
+    const finalized = await store.finalizeCreateJobOperation({
+      id: operation.id,
+      workerId: "create-finality-worker",
+      from: ["SUBMITTED"],
+      transactionHash,
+      blockNumber: 127035676n,
+      blockHash: `0x${"56".repeat(32)}`,
+      confirmationCount: 15,
+      externalJobId: "618",
+      evidence: { receiptStatus: "success" },
+      nextOperation: {
+        operationType: "REGISTER_JOB",
+        idempotencyKey: `activation:${activation.id}:register-job:618`,
+        state: "AWAITING_SIGNATURE",
+        preparedPayloadHash: `0x${"78".repeat(32)}`,
+        evidence: {
+          setupSession: true,
+          quoteExpiresAt: 1_787_632_200,
+        },
+      },
+    });
+    expect(finalized?.operation).toMatchObject({
+      state: "FINALIZED",
+      finalityState: "FINALIZED",
+      transactionHash,
+      confirmationCount: 15,
+      evidence: {
+        preparationProvenance: "preserved",
+        receiptStatus: "success",
+        externalJobId: "618",
+      },
+    });
+    expect(finalized?.activation).toMatchObject({
+      lifecycleState: "ONCHAIN_CREATED",
+      reconciliationState: "CURRENT",
+      externalJobId: "618",
+    });
+    const persisted = await store.findAgreement(fixture.agreement.id, buyer);
+    const registerOperation = persisted?.operations.find(
+      ({ operationType }) => operationType === "REGISTER_JOB",
+    );
+    expect(registerOperation).toMatchObject({
+      state: "AWAITING_SIGNATURE",
+      transactionHash: null,
+      evidence: { setupSession: true },
+    });
+    await store.recordWalletSubmittedOperation({
+      operationId: registerOperation!.id,
+      agreementId: fixture.agreement.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash: registerOperation!.preparedPayloadHash!,
+      transactionHash: `0x${"9a".repeat(32)}`,
+      nonce: 3n,
+    });
+    await store.leaseOperations({
+      workerId: "setup-finality-worker",
+      operationId: registerOperation!.id,
+      limit: 1,
+      leaseSeconds: 60,
+    });
+    await store.finalizeSetupOperation({
+      id: registerOperation!.id,
+      workerId: "setup-finality-worker",
+      from: ["SUBMITTED"],
+      transactionHash: `0x${"9a".repeat(32)}`,
+      blockNumber: 127035691n,
+      blockHash: `0x${"bc".repeat(32)}`,
+      confirmationCount: 15,
+      evidence: { receiptStatus: "success" },
+      nextOperation: {
+        operationType: "SET_BUDGET",
+        idempotencyKey: `activation:${activation.id}:set-budget:618`,
+        state: "AWAITING_SIGNATURE",
+        preparedPayloadHash: `0x${"de".repeat(32)}`,
+        evidence: { setupSession: true, quoteExpiresAt: 1_787_632_200 },
+      },
+    });
+    const afterRegister = await store.findAgreement(
+      fixture.agreement.id,
+      buyer,
+    );
+    expect(
+      afterRegister?.operations.find(
+        ({ operationType }) => operationType === "SET_BUDGET",
+      ),
+    ).toMatchObject({ state: "AWAITING_SIGNATURE", transactionHash: null });
+    const setBudgetOperation = afterRegister?.operations.find(
+      ({ operationType }) => operationType === "SET_BUDGET",
+    );
+    await store.recordWalletSubmittedOperation({
+      operationId: setBudgetOperation!.id,
+      agreementId: fixture.agreement.id,
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      preparedPayloadHash: setBudgetOperation!.preparedPayloadHash!,
+      transactionHash: `0x${"12".repeat(32)}`,
+      nonce: 4n,
+    });
+    await store.leaseOperations({
+      workerId: "expired-fund-window-worker",
+      operationId: setBudgetOperation!.id,
+      limit: 1,
+      leaseSeconds: 60,
+    });
+    await store.finalizeSetupOperation({
+      id: setBudgetOperation!.id,
+      workerId: "expired-fund-window-worker",
+      from: ["SUBMITTED"],
+      transactionHash: `0x${"12".repeat(32)}`,
+      blockNumber: 127035706n,
+      blockHash: `0x${"34".repeat(32)}`,
+      confirmationCount: 15,
+      evidence: { receiptStatus: "success" },
+      nextOperation: {
+        operationType: "FUND",
+        idempotencyKey: `activation:${activation.id}:fund:618`,
+        state: "CANCELLED",
+        preparedPayloadHash: `0x${"56".repeat(32)}`,
+        failure: {
+          code: "SIGNED_QUOTE_WINDOW_UNSAFE",
+          remainingSeconds: 30,
+          requiredSeconds: 120,
+        },
+        evidence: { setupSession: true, quoteExpiresAt: 1_787_632_200 },
+      },
+    });
+    const failedActivation = await store.walletOperationActivation({
+      activationId: activation.id,
+      agreementId: fixture.agreement.id,
+      principalId: buyer,
+    });
+    expect(failedActivation).toMatchObject({
+      lifecycleState: "FAILED",
+      reconciliationState: "FAILED",
+      failure: {
+        code: "SIGNED_QUOTE_WINDOW_UNSAFE",
+        failedAfterOperation: "SET_BUDGET",
+        fundsMoved: false,
+        settlementCreated: false,
+      },
+    });
+    const afterExpiry = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(afterExpiry).toMatchObject({ status: "ACTIVE" });
+    expect(
+      afterExpiry?.operations.find(
+        ({ operationType }) => operationType === "FUND",
+      ),
+    ).toMatchObject({ state: "CANCELLED", transactionHash: null });
+    expect(persisted?.movements).toHaveLength(0);
+    expect(persisted?.settlements).toHaveLength(0);
+  });
+
+  it("closes an expired onchain attempt without failing its reusable agreement or inventing movement", async () => {
+    const fixture = await authorizedExecution();
+    const activation = await store.createUserCommerceActivation({
+      agreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      authorizationId: fixture.authorizationId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    });
+    await store.transitionCommerceActivation({
+      activationId: activation.id,
+      from: "PREPARING",
+      to: "ONCHAIN_CREATED",
+      externalJobId: "608",
+      reconciliationState: "CURRENT",
+      evidence: { source: "test-create-job" },
+    });
+    const operation = await store.createOperation({
+      agreementId: fixture.agreement.id,
+      activationId: activation.id,
+      executionRequestId: fixture.executionId,
+      operationType: "SET_BUDGET",
+      idempotencyKey: `activation:${activation.id}:set-budget:608`,
+      state: "AWAITING_SIGNATURE",
+      preparedPayloadHash: `0x${"12".repeat(32)}`,
+      evidence: { jobId: "608", transactionSubmitted: false },
+    });
+    const observedAt = new Date("2026-08-24T21:47:05.000Z");
+    const input = {
+      activationId: activation.id,
+      operationId: operation.id,
+      externalJobId: "608",
+      observedAt,
+      observedBlock: 127025736n,
+      observedBlockHash: `0x${"34".repeat(32)}`,
+      jobExpiry: new Date("2026-08-24T19:22:55.000Z"),
+      evidence: {
+        jobState: "OPEN",
+        policyRegistered: true,
+        budgetBaseUnits: "0",
+        jobHasBudget: false,
+        funded: false,
+        submittedAt: "0",
+      },
+    };
+    const closed = await store.expireUnsubmittedCommerceAttempt(input);
+    const replay = await store.expireUnsubmittedCommerceAttempt(input);
+    expect(closed.activation).toMatchObject({
+      lifecycleState: "FAILED",
+      reconciliationState: "FAILED",
+      externalJobId: "608",
+    });
+    expect(closed.operation).toMatchObject({
+      state: "CANCELLED",
+      transactionHash: null,
+    });
+    expect(replay.operation.id).toBe(operation.id);
+    const persisted = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(persisted).toMatchObject({ status: "ACTIVE" });
+    expect(persisted!.movements).toHaveLength(0);
+    expect(persisted!.settlements).toHaveLength(0);
+    expect(
+      persisted!.operations.find((item) => item.id === operation.id),
+    ).toMatchObject({ state: "CANCELLED", transactionHash: null });
+
+    const replacementExecutionId = "01945b1e-7e80-7000-8000-000000000322";
+    const replacementHash = `0x${"ef".repeat(32)}` as const;
+    await database.exec(`
+      insert into execution_requests
+        (id, mandate_id, mandate_version, agent_id, principal_id, chain_id,
+         idempotency_key, raw_request, normalized_action, normalized_hash,
+         status, decision, decision_reasons, deadline)
+        values
+        ('${replacementExecutionId}', '${mandateId}', 1, '${agentId}', '${buyer}', 97,
+         'expired-job-replacement', '{}',
+         '{"parameters":{"account":"0x2A1317EC5fb5557A4cAd0B97fd851630aD8EDA87"}}',
+         '${replacementHash.slice(2)}', 'SUCCEEDED', 'ALLOW', '[]',
+         now() + interval '30 minutes');
+    `);
+    const authorization = await store.recordAuthorization({
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      authorization: {
+        agreementId: fixture.agreement.id,
+        principal: buyerAddress,
+        agentId,
+        mandateId,
+        mandateVersion: 1,
+        offerVersionId: fixture.agreement.offerVersionId,
+        termsHash: fixture.agreement.termsHash,
+        actionHash: replacementHash,
+        tokenAddress: "0x0000000000000000000000000000000000000000",
+        amountBaseUnits: "0",
+        chainId: 97,
+        nonce: "expired-job-replacement-nonce",
+        expiresAt: String(Math.floor(Date.now() / 1_000) + 3_600),
+      },
+      signature: "0x01",
+      messageHash: `0x${"ab".repeat(32)}`,
+      nonceHash: "expired-job-replacement-nonce-hash",
+      evidenceReference: { source: "test-expired-job-recovery" },
+    });
+    const replacement = await store.createUserCommerceActivation({
+      agreementId: fixture.agreement.id,
+      executionRequestId: replacementExecutionId,
+      authorizationId: authorization.artifactId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    });
+    expect(replacement.id).not.toBe(activation.id);
+    const recovered = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(recovered).toMatchObject({ status: "ACTIVE" });
+    expect(
+      recovered!.operations.find(
+        (item) =>
+          item.activationId === replacement.id &&
+          item.operationType === "CREATE_JOB",
+      ),
+    ).toMatchObject({
+      state: "AWAITING_SIGNATURE",
+      transactionHash: null,
+      executionRequestId: replacementExecutionId,
+    });
+  });
+
+  it("records exact wallet approval for a completed read-only action without rewriting execution history", async () => {
+    const fixture = await authorizedExecution();
+    const actionHash = `0x${"cd".repeat(32)}` as const;
+    const authorization = {
+      agreementId: fixture.agreement.id,
+      principal: buyerAddress,
+      agentId,
+      mandateId,
+      mandateVersion: 1,
+      offerVersionId: fixture.agreement.offerVersionId,
+      termsHash: fixture.agreement.termsHash,
+      actionHash,
+      tokenAddress: "0x0000000000000000000000000000000000000000" as const,
+      amountBaseUnits: "0",
+      chainId: 97 as const,
+      nonce: "completed-read-only-action-nonce",
+      expiresAt: String(Math.floor(Date.now() / 1_000) + 600),
+    };
+    const recorded = await store.recordAuthorization({
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      authorization,
+      signature: "0x01",
+      messageHash: `0x${"ef".repeat(32)}`,
+      nonceHash: "completed-read-only-action-nonce-hash",
+      evidenceReference: { source: "test-eip712-recovery" },
+    });
+    expect(recorded.artifactId).toBeTruthy();
+    const execution = await database.query(
+      `select status from execution_requests where id = '${fixture.executionId}'`,
+    );
+    expect(execution.rows[0]).toMatchObject({ status: "SUCCEEDED" });
+    const refreshed = await store.recordAuthorization({
+      principalId: buyer,
+      signerAddress: buyerAddress,
+      authorization: {
+        ...authorization,
+        nonce: "completed-read-only-action-refresh-nonce",
+      },
+      signature: "0x01",
+      messageHash: `0x${"aa".repeat(32)}`,
+      nonceHash: "completed-read-only-action-refresh-nonce-hash",
+      evidenceReference: { source: "test-authorization-refresh" },
+    });
+    expect(refreshed.artifactId).not.toBe(recorded.artifactId);
+    const approvals = await database.query(
+      `select id from execution_approvals where execution_request_id = '${fixture.executionId}'`,
+    );
+    expect(approvals.rows).toHaveLength(1);
+  });
+
+  it("fails a funded attempt outside its signed quote window without rewriting observed provider work", async () => {
+    const fixture = await authorizedExecution();
+    const activation = await store.createUserCommerceActivation({
+      agreementId: fixture.agreement.id,
+      executionRequestId: fixture.executionId,
+      authorizationId: fixture.authorizationId,
+      commerceAddress: "0x5555555555555555555555555555555555555555",
+      clientAddress: buyerAddress,
+      evaluatorAddress: "0x6666666666666666666666666666666666666666",
+    });
+    await store.transitionCommerceActivation({
+      activationId: activation.id,
+      from: "PREPARING",
+      to: "ONCHAIN_CREATED",
+      externalJobId: "618",
+      reconciliationState: "CURRENT",
+      evidence: { source: "test-create-job" },
+    });
+    await store.createOperation({
+      agreementId: fixture.agreement.id,
+      activationId: activation.id,
+      executionRequestId: fixture.executionId,
+      operationType: "FUND",
+      idempotencyKey: `activation:${activation.id}:fund:618`,
+      state: "FINALIZED",
+      preparedPayloadHash: `0x${"34".repeat(32)}`,
+      evidence: { budgetBaseUnits: "0", fundsMoved: false },
+    });
+    const providerArtifactId = "01945b1e-7e80-7000-8000-000000000324";
+    const providerArtifactHash = `0x${"56".repeat(32)}`;
+    await database.exec(`
+      insert into commerce_artifacts
+        (id, agreement_id, activation_id, execution_request_id, artifact_type,
+         source, content_hash, safe_content, provenance)
+      values
+        ('${providerArtifactId}', '${fixture.agreement.id}', '${activation.id}',
+         '${fixture.executionId}', 'DELIVERY', 'test-real-observation',
+         '${providerArtifactHash}', '{"riskLevel":"critical"}',
+         'independently_observed');
+    `);
+    const input = {
+      activationId: activation.id,
+      externalJobId: "618",
+      providerArtifactId,
+      negotiatedAt: new Date("2026-08-25T00:00:00.000Z"),
+      quoteExpiresAt: new Date("2026-08-25T00:15:00.000Z"),
+      fundedAt: new Date("2026-08-25T03:00:00.000Z"),
+      observedAt: new Date("2026-08-25T03:05:00.000Z"),
+      observedBlock: 127066486n,
+      observedBlockHash: `0x${"78".repeat(32)}`,
+      evidence: {
+        onchainJobState: "FUNDED",
+        budgetBaseUnits: "0",
+        jobHasBudget: true,
+      },
+    };
+    const failed = await store.failFundedCommerceAttemptForQuoteWindow(input);
+    const replay = await store.failFundedCommerceAttemptForQuoteWindow(input);
+    expect(failed.activation).toMatchObject({
+      lifecycleState: "FAILED",
+      reconciliationState: "FAILED",
+      failure: { code: "SIGNED_QUOTE_WINDOW_EXPIRED" },
+    });
+    expect(replay.providerArtifact).toMatchObject({
+      id: providerArtifactId,
+      contentHash: providerArtifactHash,
+      source: "test-real-observation",
+    });
+    const persisted = await store.findAgreement(fixture.agreement.id, buyer);
+    expect(persisted).toMatchObject({ status: "ACTIVE" });
+    expect(persisted!.movements).toHaveLength(0);
+    expect(persisted!.settlements).toHaveLength(0);
+    expect(
+      persisted!.artifacts.find(({ id }) => id === providerArtifactId),
+    ).toMatchObject({
+      contentHash: providerArtifactHash,
+      source: "test-real-observation",
+    });
+  });
+
+  it("rejects Development principals and seller-as-buyer activation", async () => {
+    const development = await authorizedExecution();
+    await database.exec(
+      `update mandates set principal_type = 'DEVELOPMENT_SESSION' where id = '${mandateId}'`,
+    );
+    await expect(
+      store.createUserCommerceActivation({
+        agreementId: development.agreement.id,
+        executionRequestId: development.executionId,
+        authorizationId: development.authorizationId,
+        commerceAddress: "0x5555555555555555555555555555555555555555",
+        clientAddress: buyerAddress,
+        evaluatorAddress: "0x6666666666666666666666666666666666666666",
+      }),
+    ).rejects.toThrow(/Development principals/i);
+
+    await database.exec(`
+      update mandates set principal_type = 'WALLET' where id = '${mandateId}';
+      update authorization_artifacts set signer_address = '${owner}'
+        where id = '${development.authorizationId}';
+    `);
+    await expect(
+      store.createUserCommerceActivation({
+        agreementId: development.agreement.id,
+        executionRequestId: development.executionId,
+        authorizationId: development.authorizationId,
+        commerceAddress: "0x5555555555555555555555555555555555555555",
+        clientAddress: owner,
+        evaluatorAddress: "0x6666666666666666666666666666666666666666",
+      }),
+    ).rejects.toThrow(/seller wallet/i);
   });
 });

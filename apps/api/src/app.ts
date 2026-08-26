@@ -526,6 +526,46 @@ const getAgreementRoute = createRoute({
   },
   responses: { 200: json(z.object({ data: z.any() }), "Commerce agreement") },
 });
+const preparedWalletTransactionRoute = createRoute({
+  method: "get",
+  path: "/v1/commerce-agreements/{id}/operations/{operationId}/wallet-transaction",
+  request: {
+    params: z.object({ id: z.uuid(), operationId: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.any() }),
+      "Fresh wallet transaction preflight",
+    ),
+  },
+});
+const recordWalletTransactionRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/operations/{operationId}/wallet-transaction",
+  request: {
+    params: z.object({ id: z.uuid(), operationId: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+            signerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+            preparedPayloadHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+            nonce: z
+              .string()
+              .regex(/^(?:0x[0-9a-fA-F]+|\d+)$/)
+              .optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Wallet transaction recorded"),
+  },
+});
 const acceptAgreementTermsRoute = createRoute({
   method: "post",
   path: "/v1/commerce-agreements/{id}/accept-terms",
@@ -1292,6 +1332,53 @@ export function createApp(
     );
   });
 
+  app.openapi(preparedWalletTransactionRoute, async (context) => {
+    const params = z
+      .object({ id: z.uuid(), operationId: z.uuid() })
+      .parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().refreshPreparedWalletTransaction(
+          await walletPrincipal(context),
+          params.id,
+          params.operationId,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(recordWalletTransactionRoute, async (context) => {
+    const params = z
+      .object({ id: z.uuid(), operationId: z.uuid() })
+      .parse(context.req.param());
+    const body = z
+      .object({
+        transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+        signerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+        preparedPayloadHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+        nonce: z
+          .string()
+          .regex(/^(?:0x[0-9a-fA-F]+|\d+)$/)
+          .optional(),
+      })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().recordWalletSubmission(
+          await walletPrincipal(context),
+          params.id,
+          params.operationId,
+          body.transactionHash,
+          body.signerAddress,
+          body.preparedPayloadHash,
+          body.nonce === undefined ? undefined : BigInt(body.nonce),
+        ),
+      },
+      200,
+    );
+  });
+
   app.openapi(acceptAgreementTermsRoute, async (context) => {
     const { id } = agreementParams.parse(context.req.param());
     const body = z
@@ -1410,8 +1497,14 @@ export function createApp(
     const body = createMandateRequestSchema.parse(await context.req.json());
     const walletBacked =
       context.req.header("authorization")?.startsWith("Bearer ") === true;
+    const wallet = walletBacked ? await walletPrincipal(context) : null;
+    if (wallet !== null && wallet.chainId !== body.chainId)
+      throw new MandateValidationError(
+        "wallet_network_mismatch",
+        "Wallet session network does not match the mandate network.",
+      );
     const data = await requireMandates().create(
-      await principal(context),
+      wallet?.principalId ?? (await principal(context)),
       body,
       walletBacked ? "WALLET" : "DEVELOPMENT_SESSION",
     );
