@@ -1,6 +1,15 @@
-import type { DrizzleCommerceStore } from "@relic/database";
+import type {
+  DrizzleCommerceStore,
+  PreparedSetupOperation,
+} from "@relic/database";
 import type { CommerceOperationState } from "@relic/domain";
 import type { PublicClient } from "viem";
+import {
+  encodeFunctionData,
+  getAddress,
+  keccak256,
+  parseEventLogs,
+} from "viem";
 
 type OperationRow = Record<string, unknown>;
 
@@ -9,6 +18,257 @@ const field = <T>(row: OperationRow, camel: string, snake: string) =>
 
 const backoff = (retryCount: number, now: Date) =>
   new Date(now.getTime() + Math.min(30 * 60_000, 2 ** retryCount * 5_000));
+
+const jobCreatedAbi = [
+  {
+    type: "event",
+    name: "JobCreated",
+    inputs: [
+      { indexed: true, name: "jobId", type: "uint256" },
+      { indexed: true, name: "client", type: "address" },
+      { indexed: true, name: "provider", type: "address" },
+      { indexed: false, name: "evaluator", type: "address" },
+      { indexed: false, name: "expiredAt", type: "uint256" },
+      { indexed: false, name: "hook", type: "address" },
+    ],
+  },
+] as const;
+
+const registerJobAbi = [
+  {
+    type: "function",
+    name: "registerJob",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "jobId", type: "uint256" },
+      { name: "policy", type: "address" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const setupJobAbi = [
+  {
+    type: "function",
+    name: "setBudget",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "jobId", type: "uint256" },
+      { name: "amount", type: "uint256" },
+      { name: "optParams", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "fund",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "jobId", type: "uint256" },
+      { name: "expectedBudget", type: "uint256" },
+      { name: "optParams", type: "bytes" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const setupHeadroom = {
+  REGISTER_JOB: 8 * 60,
+  SET_BUDGET: 4 * 60,
+  FUND: 2 * 60,
+} as const;
+
+const nextSetupOperation = (input: {
+  operation: OperationRow;
+  externalJobId: string | undefined;
+  policyAddress: string | undefined;
+  now: Date;
+}): PreparedSetupOperation | undefined => {
+  const currentType = field<string>(
+    input.operation,
+    "operationType",
+    "operation_type",
+  );
+  if (currentType === "FUND") return undefined;
+  const nextType =
+    currentType === "CREATE_JOB"
+      ? "REGISTER_JOB"
+      : currentType === "REGISTER_JOB"
+        ? "SET_BUDGET"
+        : currentType === "SET_BUDGET"
+          ? "FUND"
+          : undefined;
+  if (nextType === undefined) return undefined;
+  const activationId = field<string>(
+    input.operation,
+    "activationId",
+    "activation_id",
+  );
+  const evidence = field<Record<string, unknown>>(
+    input.operation,
+    "evidence",
+    "evidence",
+  );
+  const currentArguments = evidence?.functionArguments as
+    Record<string, unknown> | undefined;
+  const jobId =
+    input.externalJobId ??
+    (typeof currentArguments?.jobId === "string"
+      ? currentArguments.jobId
+      : undefined);
+  const quoteExpiresAt = evidence?.quoteExpiresAt;
+  const negotiatedAt = evidence?.negotiatedAt;
+  const commerceAddress =
+    currentType === "CREATE_JOB"
+      ? evidence?.contract
+      : (evidence?.commerceAddress ?? evidence?.contract);
+  const routerAddress =
+    currentType === "CREATE_JOB"
+      ? currentArguments?.evaluator
+      : evidence?.routerAddress;
+  if (
+    activationId === undefined ||
+    jobId === undefined ||
+    typeof quoteExpiresAt !== "number" ||
+    typeof negotiatedAt !== "number" ||
+    typeof commerceAddress !== "string" ||
+    typeof routerAddress !== "string" ||
+    input.policyAddress === undefined
+  )
+    throw new Error("Commerce setup session evidence is incomplete");
+  const policy = getAddress(input.policyAddress);
+  const commerce = getAddress(commerceAddress);
+  const router = getAddress(routerAddress);
+  const id = BigInt(jobId);
+  const data =
+    nextType === "REGISTER_JOB"
+      ? encodeFunctionData({
+          abi: registerJobAbi,
+          functionName: "registerJob",
+          args: [id, policy],
+        })
+      : nextType === "SET_BUDGET"
+        ? encodeFunctionData({
+            abi: setupJobAbi,
+            functionName: "setBudget",
+            args: [id, 0n, "0x"],
+          })
+        : encodeFunctionData({
+            abi: setupJobAbi,
+            functionName: "fund",
+            args: [id, 0n, "0x"],
+          });
+  const remaining = quoteExpiresAt - Math.floor(input.now.getTime() / 1_000);
+  const safe = remaining >= setupHeadroom[nextType];
+  const failure = safe
+    ? undefined
+    : {
+        code: "SIGNED_QUOTE_WINDOW_UNSAFE",
+        quoteExpiresAt,
+        remainingSeconds: remaining,
+        requiredSeconds: setupHeadroom[nextType],
+      };
+  return {
+    operationType: nextType,
+    idempotencyKey: `activation:${activationId}:${nextType.toLowerCase().replaceAll("_", "-")}:${jobId}`,
+    state: safe ? "AWAITING_SIGNATURE" : "CANCELLED",
+    preparedPayloadHash: keccak256(data),
+    ...(failure === undefined ? {} : { failure }),
+    evidence: {
+      setupSession: true,
+      transactionPrepared: true,
+      transactionSubmitted: false,
+      contract: nextType === "REGISTER_JOB" ? router : commerce,
+      commerceAddress: commerce,
+      routerAddress: router,
+      policyAddress: policy,
+      negotiatedAt,
+      quoteExpiresAt,
+      quoteMinimumRemainingSeconds: setupHeadroom[nextType],
+      calldata: data,
+      preparedPayloadHash: keccak256(data),
+      functionArguments:
+        nextType === "REGISTER_JOB"
+          ? { jobId, policy }
+          : nextType === "SET_BUDGET"
+            ? { jobId, amount: "0", optParams: "0x" }
+            : { jobId, expectedBudget: "0", optParams: "0x" },
+      ...(failure === undefined ? {} : { setupSessionFailure: failure }),
+    },
+  };
+};
+
+const createJobProjection = (
+  operation: OperationRow,
+  receipt: Awaited<ReturnType<PublicClient["getTransactionReceipt"]>>,
+) => {
+  const evidence = field<Record<string, unknown>>(
+    operation,
+    "evidence",
+    "evidence",
+  );
+  const expected = evidence?.functionArguments as
+    Record<string, unknown> | undefined;
+  const contract = evidence?.contract;
+  const signerAddress = field<string>(
+    operation,
+    "signerAddress",
+    "signer_address",
+  );
+  if (
+    typeof contract !== "string" ||
+    typeof signerAddress !== "string" ||
+    expected === undefined ||
+    typeof expected.provider !== "string" ||
+    typeof expected.evaluator !== "string" ||
+    typeof expected.hook !== "string" ||
+    typeof expected.expiredAt !== "string"
+  )
+    throw new Error("Finalized CREATE_JOB evidence is incomplete");
+  const events = parseEventLogs({
+    abi: jobCreatedAbi,
+    eventName: "JobCreated",
+    logs: receipt.logs,
+    strict: false,
+  }).filter(
+    (event) =>
+      getAddress(event.address) === getAddress(contract) &&
+      event.eventName === "JobCreated",
+  );
+  if (events.length !== 1)
+    throw new Error("CREATE_JOB receipt must contain exactly one JobCreated");
+  const event = events[0]!;
+  const { jobId, client, provider, evaluator, expiredAt, hook } = event.args;
+  if (
+    jobId === undefined ||
+    client === undefined ||
+    provider === undefined ||
+    evaluator === undefined ||
+    expiredAt === undefined ||
+    hook === undefined ||
+    getAddress(client) !== getAddress(signerAddress) ||
+    getAddress(provider) !== getAddress(expected.provider) ||
+    getAddress(evaluator) !== getAddress(expected.evaluator) ||
+    getAddress(hook) !== getAddress(expected.hook) ||
+    expiredAt.toString() !== expected.expiredAt
+  )
+    throw new Error("JobCreated event does not match prepared CREATE_JOB");
+  return {
+    externalJobId: jobId.toString(),
+    evidence: {
+      receiptStatus: receipt.status,
+      jobCreated: {
+        jobId: jobId.toString(),
+        client,
+        provider,
+        evaluator,
+        expiredAt: expiredAt.toString(),
+        hook,
+        logIndex: event.logIndex,
+      },
+    },
+  };
+};
 
 export interface CommerceOperationWorkerResult {
   leased: number;
@@ -32,7 +292,9 @@ export async function reconcileCommerceOperations(input: {
   confirmationDepth: number;
   limit?: number;
   maxRetries?: number;
+  operationId?: string;
   now?: Date;
+  policyAddress?: string;
 }): Promise<CommerceOperationWorkerResult> {
   const now = input.now ?? new Date();
   const maxRetries = input.maxRetries ?? 8;
@@ -40,6 +302,9 @@ export async function reconcileCommerceOperations(input: {
     workerId: input.workerId,
     limit: input.limit ?? 25,
     leaseSeconds: 60,
+    ...(input.operationId === undefined
+      ? {}
+      : { operationId: input.operationId }),
     now,
   });
   const result: CommerceOperationWorkerResult = {
@@ -106,7 +371,7 @@ export async function reconcileCommerceOperations(input: {
         hash: transactionHash as `0x${string}`,
       });
       if (
-        recordedBlockHash !== undefined &&
+        recordedBlockHash != null &&
         recordedBlockHash.toLowerCase() !== receipt.blockHash.toLowerCase()
       ) {
         await input.store.transitionOperation({
@@ -144,6 +409,58 @@ export async function reconcileCommerceOperations(input: {
       const head = await input.client.getBlockNumber();
       const confirmations = Number(head - receipt.blockNumber + 1n);
       const finalized = confirmations >= input.confirmationDepth;
+      const operationType = field<string>(
+        operation,
+        "operationType",
+        "operation_type",
+      );
+      if (finalized && operationType === "CREATE_JOB") {
+        const projection = createJobProjection(operation, receipt);
+        const nextOperation = nextSetupOperation({
+          operation,
+          externalJobId: projection.externalJobId,
+          policyAddress: input.policyAddress,
+          now,
+        });
+        await input.store.finalizeCreateJobOperation({
+          id,
+          workerId: input.workerId,
+          from: [state],
+          transactionHash,
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+          confirmationCount: confirmations,
+          externalJobId: projection.externalJobId,
+          evidence: projection.evidence,
+          ...(nextOperation === undefined ? {} : { nextOperation }),
+        });
+        result.finalized++;
+        continue;
+      }
+      if (
+        finalized &&
+        ["REGISTER_JOB", "SET_BUDGET", "FUND"].includes(String(operationType))
+      ) {
+        const nextOperation = nextSetupOperation({
+          operation,
+          policyAddress: input.policyAddress,
+          externalJobId: undefined,
+          now,
+        });
+        await input.store.finalizeSetupOperation({
+          id,
+          workerId: input.workerId,
+          from: [state],
+          transactionHash,
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+          confirmationCount: confirmations,
+          evidence: { receiptStatus: receipt.status },
+          ...(nextOperation === undefined ? {} : { nextOperation }),
+        });
+        result.finalized++;
+        continue;
+      }
       await input.store.transitionOperation({
         id,
         workerId: input.workerId,
@@ -154,6 +471,7 @@ export async function reconcileCommerceOperations(input: {
         blockHash: receipt.blockHash,
         confirmationCount: confirmations,
         finalityState: finalized ? "FINALIZED" : "CONFIRMED",
+        failure: null,
         evidence: { receiptStatus: receipt.status },
         nextAttemptAt: finalized ? null : new Date(now.getTime() + 15_000),
       });

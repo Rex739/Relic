@@ -527,19 +527,26 @@ try {
       status: await repository.corpusStatus(chainId),
     });
   } else if (command === "commerce-operations") {
-    if (chainId !== 97 && !booleanFlag("allow-mainnet-read-only"))
-      throw new Error(
-        "Commerce operation reconciliation is restricted to BSC Testnet unless explicitly enabled for read-only Mainnet reconciliation",
-      );
+    const commerceClient = createBscPublicClient(
+      97,
+      environment.BSC_TESTNET_RPC_URL,
+    );
     log({
       event: "commerce_operations_reconciled",
       ...(await reconcileCommerceOperations({
         store: new DrizzleCommerceStore(connection.db),
-        client,
+        client: commerceClient,
         workerId: `indexer-${process.pid}`,
         confirmationDepth: environment.ERC8004_CONFIRMATION_DEPTH,
+        ...(environment.ERC8183_POLICY_ADDRESS === undefined
+          ? {}
+          : { policyAddress: environment.ERC8183_POLICY_ADDRESS }),
         limit: positiveIntegerFlag("limit", 25)!,
+        ...(flag("operation-id") === undefined
+          ? {}
+          : { operationId: flag("operation-id")! }),
       })),
+      chainId: 97,
       transactionSubmissionEnabled: false,
     });
   } else if (command === "backfill" || command === "sync") {
