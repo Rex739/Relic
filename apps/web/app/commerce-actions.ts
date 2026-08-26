@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   acceptTerms,
   cancelAgreement,
+  createCommerceActivation,
   hireOffer,
   revokeAgreementAuthorization,
 } from "../lib/commerce";
@@ -43,4 +44,21 @@ export async function revokeAuthorizationAction(formData: FormData) {
   const agreementId = field(formData, "agreementId");
   await revokeAgreementAuthorization(agreementId);
   redirect(`/commerce/agreements/${agreementId}`);
+}
+
+export async function prepareCommerceActivationAction(formData: FormData) {
+  const agreementId = field(formData, "agreementId");
+  const executionRequestId = field(formData, "executionRequestId");
+  const authorizationId = field(formData, "authorizationId");
+  await createCommerceActivation(
+    agreementId,
+    executionRequestId,
+    authorizationId,
+  );
+  const mandateId = formData.get("mandateId");
+  redirect(
+    typeof mandateId === "string" && mandateId.length > 0
+      ? `/my-agents/mandates/${mandateId}`
+      : `/commerce/agreements/${agreementId}`,
+  );
 }

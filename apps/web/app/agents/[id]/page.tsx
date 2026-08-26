@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { formatBaseUnits } from "@relic/domain";
+import { commercePriceLabel } from "../../../lib/commerce-display";
 import {
   labelForCategory,
   marketplaceAgent,
@@ -168,13 +168,7 @@ export default async function AgentIntelligencePage({
                   <dl>
                     <div>
                       <dt>Price</dt>
-                      <dd>
-                        {formatBaseUnits(
-                          offer.version.price.amountBaseUnits,
-                          offer.version.price.decimals,
-                        )}{" "}
-                        {offer.version.price.symbol}
-                      </dd>
+                      <dd>{commercePriceLabel(offer.version.price)}</dd>
                     </div>
                     <div>
                       <dt>Network</dt>

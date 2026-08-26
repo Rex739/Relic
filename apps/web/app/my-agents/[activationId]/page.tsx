@@ -3,20 +3,24 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import {
-  formatBaseUnits,
-  type ExecutionRecord,
-  type PolicyReason,
-} from "@relic/domain";
+import type { ExecutionRecord, PolicyReason } from "@relic/domain";
 
 import { agreements, type CommerceAgreementView } from "../../../lib/commerce";
+import { commercePriceLabel, isFreePrice } from "../../../lib/commerce-display";
 import { getMandate, listExecutions } from "../../../lib/mandates";
 import { relativeTime } from "../../../lib/marketplace";
-import { requestHealthObservation } from "../../execution-actions";
+import {
+  requestForbiddenTransfer,
+  requestHealthObservation,
+} from "../../execution-actions";
 import { transitionMandateAction } from "../../mandate-actions";
+import { prepareCommerceActivationAction } from "../../commerce-actions";
+import { CommerceAuthorization } from "../../_components/commerce-authorization";
+import { WalletCommerceOperation } from "../../_components/wallet-commerce-operation";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Execution Room" };
+const ACTIVATION_SETUP_AUTHORIZATION_HEADROOM_MS = 12 * 60_000;
 
 const sentenceCase = (value: string) => {
   const sentence = value.replaceAll("_", " ").toLowerCase();
@@ -76,7 +80,14 @@ const executionPresentation = (execution: ExecutionRecord) => {
   const denied = execution.status === "DENIED";
   const failed = execution.status === "FAILED";
   const readOnly = execution.action.transactional === false;
+  const safetyValidation =
+    execution.action.source.kind ===
+    "execution_room_forbidden_action_validation";
   const noPosition = outcome.noPosition === true;
+  const enteredMarketCount =
+    typeof outcome.enteredMarketCount === "number"
+      ? outcome.enteredMarketCount
+      : null;
   const riskLevel =
     typeof outcome.riskLevel === "string" ? outcome.riskLevel : null;
   const observedProtocol =
@@ -85,23 +96,37 @@ const executionPresentation = (execution: ExecutionRecord) => {
       : execution.action.protocol;
 
   let result = sentenceCase(execution.status);
-  if (denied) result = "Request blocked before execution";
+  if (denied && safetyValidation)
+    result = "Safety check passed — token transfer blocked";
+  else if (denied) result = "Request blocked before execution";
   else if (failed) result = "The requested check could not be completed";
   else if (succeeded && noPosition)
     result = "No active Venus lending position was found";
+  else if (
+    succeeded &&
+    observedProtocol?.toLowerCase().includes("venus") &&
+    enteredMarketCount !== null
+  )
+    result = `Active Venus position found in ${enteredMarketCount} ${enteredMarketCount === 1 ? "market" : "markets"}`;
   else if (succeeded) result = "The requested check completed successfully";
   else if (execution.status === "APPROVAL_REQUIRED")
     result = "Waiting for explicit approval";
 
   let risk = sentenceCase(execution.status);
-  if (denied) risk = "Protected by policy";
+  if (denied && safetyValidation) risk = "Protection confirmed";
+  else if (denied) risk = "Protected by policy";
   else if (failed) risk = "Result unavailable";
   else if (noPosition) risk = "No active position";
+  else if (riskLevel === "critical") risk = "Shortfall detected";
+  else if (riskLevel === "none") risk = "No shortfall detected";
   else if (riskLevel !== null) risk = sentenceCase(riskLevel);
   else if (succeeded) risk = "Check completed";
 
   let action = sentenceCase(execution.action.actionType);
-  if (denied)
+  if (denied && safetyValidation)
+    action =
+      "Tested whether the observe-only mandate would permit a token transfer";
+  else if (denied)
     action = `Evaluated ${sentenceCase(execution.action.actionType).toLowerCase()} against the mandate`;
   else if (readOnly && observedProtocol?.toLowerCase().includes("venus"))
     action = "Checked the supplied public address for a Venus Core position";
@@ -123,8 +148,18 @@ const executionPresentation = (execution: ExecutionRecord) => {
   if (why.length === 0) why = "Relic has not recorded a policy decision yet.";
 
   let context = "Relic has persisted this request and its policy state.";
-  if (denied) context = "Relic stopped this before the agent could act.";
+  if (denied && safetyValidation)
+    context =
+      "Relic confirmed the mandate stopped this forbidden action before signing or execution.";
+  else if (denied) context = "Relic stopped this before the agent could act.";
   else if (failed) context = "No successful result was persisted.";
+  else if (
+    succeeded &&
+    !noPosition &&
+    enteredMarketCount !== null &&
+    riskLevel === "none"
+  )
+    context = `Venus reports ${enteredMarketCount} entered ${enteredMarketCount === 1 ? "market" : "markets"} and no account shortfall at the observed block.`;
   else if (execution.receipt?.source === "independently_observed")
     context = "Relic independently observed this result.";
   else if (execution.receipt?.source === "onchain_verified")
@@ -133,15 +168,34 @@ const executionPresentation = (execution: ExecutionRecord) => {
     context =
       "The provider reported this result; technical evidence shows its source.";
 
-  return { action, context, funds, result, risk, why };
+  return {
+    action,
+    context,
+    funds,
+    result,
+    risk,
+    why,
+    statusLabel:
+      denied && safetyValidation
+        ? "Safety check passed"
+        : sentenceCase(execution.status),
+    decisionLabel:
+      denied && safetyValidation
+        ? "BLOCKED"
+        : (execution.decision ?? "PENDING"),
+  };
 };
 
 export default async function ExecutionRoomPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ activationId: string }>;
+  searchParams: Promise<{ exactAuthorizationId?: string }>;
 }) {
   const { activationId } = await params;
+  const { exactAuthorizationId: requestedRecoveryAuthorizationId } =
+    await searchParams;
   let mandate;
   let executions;
   try {
@@ -157,14 +211,116 @@ export default async function ExecutionRoomPage({
   let commerceAgreement: CommerceAgreementView | null = null;
   if (walletAuthenticated) {
     try {
+      const matchingAgreements = (await agreements()).filter(
+        (item): item is CommerceAgreementView =>
+          item !== null && item.mandateId === mandate.id,
+      );
       commerceAgreement =
-        (await agreements()).find((item) => item?.mandateId === mandate.id) ??
+        matchingAgreements.find((item) =>
+          item.operations.some(
+            (operation) =>
+              operation.operationType === "REGISTER_JOB" &&
+              operation.state === "AWAITING_SIGNATURE",
+          ),
+        ) ??
+        matchingAgreements.find((item) =>
+          item.operations.some(
+            (operation) => operation.state === "AWAITING_SIGNATURE",
+          ),
+        ) ??
+        matchingAgreements.find((item) => item.status === "ACTIVE") ??
+        matchingAgreements[0] ??
         null;
     } catch {
       commerceAgreement = null;
     }
   }
   const latest = executions[0] ?? null;
+  const attemptedCommerceExecutionIds = new Set(
+    commerceAgreement?.operations
+      .filter(
+        (operation) =>
+          typeof operation.activationId === "string" &&
+          typeof operation.executionRequestId === "string",
+      )
+      .map((operation) => String(operation.executionRequestId)) ?? [],
+  );
+  const freshReplacementExecution =
+    latest?.status === "SUCCEEDED" &&
+    !attemptedCommerceExecutionIds.has(latest.id);
+  const latestObservedAccount = latest?.action.parameters.account;
+  const recoveryObservedAccount =
+    typeof latestObservedAccount === "string" &&
+    /^0x[0-9a-fA-F]{40}$/.test(latestObservedAccount)
+      ? latestObservedAccount
+      : undefined;
+  const awaitingActionOperation = commerceAgreement?.operations
+    .toReversed()
+    .find(
+      (operation) =>
+        (operation.state === "AWAITING_SIGNATURE" ||
+          operation.state === "SUBMITTED" ||
+          operation.state === "PENDING" ||
+          operation.state === "CONFIRMED") &&
+        typeof operation.executionRequestId === "string" &&
+        (operation.operationType === "CREATE_JOB" ||
+          operation.operationType === "REGISTER_JOB" ||
+          operation.operationType === "SET_BUDGET" ||
+          operation.operationType === "FUND"),
+    );
+  const commerceExecution = executions.find(
+    (execution) => execution.id === awaitingActionOperation?.executionRequestId,
+  );
+  const awaitingOperationEvidence = awaitingActionOperation?.evidence as
+    Record<string, unknown> | undefined;
+  const operationQuoteExpiresAt = awaitingOperationEvidence?.quoteExpiresAt;
+  const operationNegotiatedAt = awaitingOperationEvidence?.negotiatedAt;
+  const initialQuoteExpiresAt =
+    typeof operationQuoteExpiresAt === "number"
+      ? new Date(operationQuoteExpiresAt * 1_000).toISOString()
+      : undefined;
+  const initialQuoteNegotiatedAt =
+    typeof operationNegotiatedAt === "number"
+      ? new Date(operationNegotiatedAt * 1_000).toISOString()
+      : undefined;
+  const awaitingOperationType = awaitingActionOperation?.operationType;
+  const operationAuthorizationId =
+    awaitingOperationEvidence?.exactActionAuthorizationId;
+  const operationAuthorizationExpiry =
+    awaitingOperationEvidence?.authorizationExpiresAt;
+  const operationActionHash = awaitingOperationEvidence?.actionHash;
+  const expectedActionHash = commerceExecution?.action.normalizedHash;
+  const latestExactAuthorizationId =
+    typeof operationAuthorizationId === "string" &&
+    typeof operationAuthorizationExpiry === "string" &&
+    Date.parse(operationAuthorizationExpiry) >
+      Date.now() + ACTIVATION_SETUP_AUTHORIZATION_HEADROOM_MS &&
+    typeof operationActionHash === "string" &&
+    expectedActionHash !== undefined &&
+    operationActionHash.replace(/^0x/, "").toLowerCase() ===
+      expectedActionHash.replace(/^0x/, "").toLowerCase()
+      ? operationAuthorizationId
+      : undefined;
+  const persistedRecoveryAuthorization = commerceAgreement?.authorizations
+    .toReversed()
+    .find(
+      (authorization) =>
+        authorization.executionRequestId === latest?.id &&
+        authorization.verificationStatus === "VERIFIED" &&
+        authorization.revokedAt === null &&
+        Date.parse(authorization.expiresAt) >
+          Date.now() + ACTIVATION_SETUP_AUTHORIZATION_HEADROOM_MS &&
+        authorization.actionHash !== null &&
+        latest !== null &&
+        authorization.actionHash.replace(/^0x/, "").toLowerCase() ===
+          latest.action.normalizedHash.replace(/^0x/, "").toLowerCase(),
+    );
+  const recoveryAuthorizationId =
+    persistedRecoveryAuthorization !== undefined &&
+    (requestedRecoveryAuthorizationId === undefined ||
+      requestedRecoveryAuthorizationId === persistedRecoveryAuthorization.id)
+      ? persistedRecoveryAuthorization.id
+      : undefined;
   const movementBaseUnits = (movement: Record<string, unknown>) => {
     const value = movement.amountBaseUnits;
     if (typeof value !== "string" || !/^\d+$/.test(value))
@@ -218,13 +374,7 @@ export default async function ExecutionRoomPage({
           <dl className="commerce-facts">
             <div>
               <dt>Expected price</dt>
-              <dd>
-                {formatBaseUnits(
-                  commerceAgreement.pricingSnapshot.amountBaseUnits,
-                  commerceAgreement.pricingSnapshot.decimals,
-                )}{" "}
-                {commerceAgreement.pricingSnapshot.symbol}
-              </dd>
+              <dd>{commercePriceLabel(commerceAgreement.pricingSnapshot)}</dd>
             </div>
             <div>
               <dt>Authorization</dt>
@@ -237,31 +387,40 @@ export default async function ExecutionRoomPage({
             <div>
               <dt>Funded</dt>
               <dd>
-                {formatBaseUnits(
-                  movementTotal(["FUNDING", "ESCROW_LOCK"]),
-                  commerceAgreement.pricingSnapshot.decimals,
-                )}{" "}
-                {commerceAgreement.pricingSnapshot.symbol}
+                {isFreePrice(commerceAgreement.pricingSnapshot)
+                  ? "None"
+                  : commercePriceLabel({
+                      ...commerceAgreement.pricingSnapshot,
+                      amountBaseUnits: movementTotal([
+                        "FUNDING",
+                        "ESCROW_LOCK",
+                      ]).toString(),
+                    })}
               </dd>
             </div>
             <div>
               <dt>Settled</dt>
               <dd>
-                {formatBaseUnits(
-                  movementTotal(["PAYMENT", "ESCROW_RELEASE"]),
-                  commerceAgreement.pricingSnapshot.decimals,
-                )}{" "}
-                {commerceAgreement.pricingSnapshot.symbol}
+                {isFreePrice(commerceAgreement.pricingSnapshot)
+                  ? "None"
+                  : commercePriceLabel({
+                      ...commerceAgreement.pricingSnapshot,
+                      amountBaseUnits: movementTotal([
+                        "PAYMENT",
+                        "ESCROW_RELEASE",
+                      ]).toString(),
+                    })}
               </dd>
             </div>
             <div>
               <dt>Refunded</dt>
               <dd>
-                {formatBaseUnits(
-                  movementTotal(["REFUND"]),
-                  commerceAgreement.pricingSnapshot.decimals,
-                )}{" "}
-                {commerceAgreement.pricingSnapshot.symbol}
+                {isFreePrice(commerceAgreement.pricingSnapshot)
+                  ? "None"
+                  : commercePriceLabel({
+                      ...commerceAgreement.pricingSnapshot,
+                      amountBaseUnits: movementTotal(["REFUND"]).toString(),
+                    })}
               </dd>
             </div>
             <div>
@@ -280,6 +439,180 @@ export default async function ExecutionRoomPage({
           <Link href={`/commerce/agreements/${commerceAgreement.id}`}>
             Inspect agreement and technical evidence →
           </Link>
+          {commerceExecution?.status === "SUCCEEDED" &&
+          awaitingOperationType === "CREATE_JOB" ? (
+            <div className="authorization-action">
+              <strong>Exact-action approval</strong>
+              <p>
+                Bind this buyer approval to execution {commerceExecution.id},
+                including its monitored account, mandate version, network, and
+                canonical action hash.
+              </p>
+              {latestExactAuthorizationId === undefined ? (
+                <CommerceAuthorization
+                  agreementId={commerceAgreement.id}
+                  continuationHref={`/my-agents/mandates/${mandate.id}`}
+                  actionHash={`0x${commerceExecution.action.normalizedHash.replace(/^0x/, "")}`}
+                />
+              ) : (
+                <p>
+                  Exact-action signature verified and persisted as artifact{" "}
+                  <code>{latestExactAuthorizationId}</code>.
+                </p>
+              )}
+            </div>
+          ) : null}
+          {awaitingActionOperation !== undefined &&
+          (awaitingOperationType === "REGISTER_JOB" ||
+            awaitingOperationType === "SET_BUDGET" ||
+            awaitingOperationType === "FUND" ||
+            (awaitingOperationType === "CREATE_JOB" &&
+              latestExactAuthorizationId !== undefined)) ? (
+            <div className="authorization-action">
+              <strong>
+                {awaitingOperationType === "REGISTER_JOB"
+                  ? "Register job policy"
+                  : awaitingOperationType === "SET_BUDGET"
+                    ? "Set job budget"
+                    : awaitingOperationType === "FUND"
+                      ? "Fund free job"
+                      : "Create the zero-price ERC-8183 job"}
+              </strong>
+              <p>
+                {awaitingOperationType === "REGISTER_JOB"
+                  ? "Bind the approved evaluation and dispute policy to the existing job. The service remains free and no funds move; the buyer pays BSC Testnet gas only."
+                  : awaitingOperationType === "SET_BUDGET"
+                    ? "Record the free job's explicit zero budget before funding eligibility. This moves no tokens and is not funding; the buyer pays BSC Testnet gas only."
+                    : awaitingOperationType === "FUND"
+                      ? "Advance the free job to FUNDED with an explicit zero-value protocol call. No tokens or commerce funds move; the buyer pays BSC Testnet gas only."
+                      : "Relic rechecks the exact authorization, seller quote, payload hash, operation state, and network immediately before opening your wallet."}
+              </p>
+              <WalletCommerceOperation
+                agreementId={commerceAgreement.id}
+                operationId={String(awaitingActionOperation.id)}
+                operationType={awaitingOperationType}
+                operationState={
+                  awaitingActionOperation.state as
+                    "AWAITING_SIGNATURE" | "SUBMITTED" | "PENDING" | "CONFIRMED"
+                }
+                {...(initialQuoteExpiresAt === undefined
+                  ? {}
+                  : { initialQuoteExpiresAt })}
+                {...(initialQuoteNegotiatedAt === undefined
+                  ? {}
+                  : { initialQuoteNegotiatedAt })}
+              />
+            </div>
+          ) : null}
+          {commerceAgreement.status === "AUTHORIZED" &&
+          commerceAgreement.authorizationArtifactId !== null &&
+          commerceAgreement.operations.length === 0 &&
+          latest?.status === "SUCCEEDED" ? (
+            <form action={prepareCommerceActivationAction}>
+              <input
+                type="hidden"
+                name="agreementId"
+                value={commerceAgreement.id}
+              />
+              <input
+                type="hidden"
+                name="executionRequestId"
+                value={latest.id}
+              />
+              <input
+                type="hidden"
+                name="authorizationId"
+                value={commerceAgreement.authorizationArtifactId}
+              />
+              <button type="submit">
+                Prepare free commerce lifecycle <span>→</span>
+              </button>
+              <small>
+                Creates durable offchain preparation only. It does not request a
+                wallet transaction or write to BSC Testnet.
+              </small>
+            </form>
+          ) : null}
+          {commerceAgreement.status === "ACTIVE" &&
+          awaitingActionOperation === undefined &&
+          latest?.status === "SUCCEEDED" ? (
+            <div className="authorization-action">
+              <strong>Start a fresh quote-bound attempt</strong>
+              <p>
+                Job 621 remains historical. Its signed quote expired before
+                setup completed, so Relic will not prepare another operation for
+                it. Recovery reuses the active agreement and mandate but
+                requires a fresh observation, exact-action signature,
+                activation, and quote-bound setup session.
+              </p>
+              {!freshReplacementExecution ? (
+                <>
+                  <p>
+                    First, create a fresh policy-controlled observation for the
+                    same public account. Relic will then offer exact-action
+                    approval before requesting the time-limited seller quote.
+                  </p>
+                  {recoveryObservedAccount === undefined ? (
+                    <a className="button-link" href="#request-observation">
+                      Continue to fresh observation <span>→</span>
+                    </a>
+                  ) : (
+                    <form
+                      action={requestHealthObservation.bind(null, mandate.id)}
+                    >
+                      <input
+                        type="hidden"
+                        name="account"
+                        value={recoveryObservedAccount}
+                      />
+                      <button type="submit">
+                        Run fresh observation <span>→</span>
+                      </button>
+                      <small>
+                        Read-only BSC Testnet check for{" "}
+                        {recoveryObservedAccount}. No wallet signature,
+                        transaction, or funds are involved.
+                      </small>
+                    </form>
+                  )}
+                </>
+              ) : recoveryAuthorizationId === undefined ? (
+                <CommerceAuthorization
+                  agreementId={commerceAgreement.id}
+                  continuationHref={`/my-agents/mandates/${mandate.id}`}
+                  actionHash={`0x${latest.action.normalizedHash.replace(/^0x/, "")}`}
+                />
+              ) : (
+                <form action={prepareCommerceActivationAction}>
+                  <input
+                    type="hidden"
+                    name="agreementId"
+                    value={commerceAgreement.id}
+                  />
+                  <input
+                    type="hidden"
+                    name="executionRequestId"
+                    value={latest.id}
+                  />
+                  <input
+                    type="hidden"
+                    name="authorizationId"
+                    value={recoveryAuthorizationId}
+                  />
+                  <input type="hidden" name="mandateId" value={mandate.id} />
+                  <button type="submit">
+                    Prepare activation setup session <span>→</span>
+                  </button>
+                  <small>
+                    Offchain preparation only. Relic will request a fresh
+                    SDK-signed quote and require at least 12 minutes of
+                    remaining setup time before exposing CREATE_JOB. It creates
+                    no blockchain job and moves no funds.
+                  </small>
+                </form>
+              )}
+            </div>
+          ) : null}
         </section>
       )}
 
@@ -309,8 +642,8 @@ export default async function ExecutionRoomPage({
                       <span>{relativeTime(execution.updatedAt)}</span>
                     </div>
                     <div className="execution-status-line">
-                      <strong>{sentenceCase(execution.status)}</strong>
-                      <span>{execution.decision ?? "PENDING"}</span>
+                      <strong>{presentation.statusLabel}</strong>
+                      <span>{presentation.decisionLabel}</span>
                     </div>
                     <section
                       className="execution-summary"
@@ -421,11 +754,15 @@ export default async function ExecutionRoomPage({
               </div>
               <div>
                 <dt>Latest result</dt>
-                <dd>{latest?.status ?? "None"}</dd>
+                <dd>
+                  {latest === null
+                    ? "None"
+                    : executionPresentation(latest).result}
+                </dd>
               </div>
             </dl>
           </section>
-          <section>
+          <section id="request-observation">
             <span className="overline">Request observation</span>
             <form
               action={requestHealthObservation.bind(null, mandate.id)}
@@ -486,6 +823,32 @@ export default async function ExecutionRoomPage({
                 <button className="danger-link">Revoke</button>
               </form>
             ) : null}
+          </section>
+          <section>
+            <span className="overline">Safety proof</span>
+            <h2>Test a forbidden action</h2>
+            <p>
+              Ask Relic to evaluate a token transfer. This observe-only mandate
+              must deny it before wallet signing, job preparation, or execution.
+            </p>
+            <form
+              action={requestForbiddenTransfer.bind(null, mandate.id)}
+              className="execution-request-form"
+            >
+              <label>
+                Public destination used in the policy request
+                <input
+                  name="destination"
+                  required
+                  pattern="0x[0-9a-fA-F]{40}"
+                  placeholder="0x…"
+                />
+              </label>
+              <button disabled={mandate.status !== "ACTIVE"}>
+                Verify transfer is denied
+              </button>
+            </form>
+            <small>No transaction is constructed or submitted.</small>
           </section>
         </aside>
       </section>

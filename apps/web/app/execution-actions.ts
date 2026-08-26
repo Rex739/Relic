@@ -33,3 +33,34 @@ export async function requestHealthObservation(
   revalidatePath(`/my-agents/${mandateId}`);
   revalidatePath("/my-agents");
 }
+
+export async function requestForbiddenTransfer(
+  mandateId: string,
+  formData: FormData,
+) {
+  const mandate = await getMandate(mandateId);
+  const destination = formData.get("destination");
+  if (
+    typeof destination !== "string" ||
+    !/^0x[0-9a-fA-F]{40}$/.test(destination)
+  )
+    throw new Error("A valid public BSC destination address is required");
+  await requestExecution(mandateId, `forbidden-transfer:${randomUUID()}`, {
+    mandateId,
+    mandateVersion: mandate.currentVersion,
+    agentId: mandate.agentId,
+    chainId: mandate.chainId,
+    actionType: "TOKEN_TRANSFER",
+    capability: "transfer_tokens",
+    protocol: "Venus",
+    target: null,
+    asset: "TBNB",
+    amount: null,
+    destination,
+    parameters: { validationOnly: true },
+    deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
+    source: { kind: "execution_room_forbidden_action_validation" },
+  });
+  revalidatePath(`/my-agents/${mandateId}`);
+  revalidatePath("/my-agents");
+}

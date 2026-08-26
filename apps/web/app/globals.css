@@ -13,6 +13,9 @@
   --green-soft: #243316;
   --amber: #e9b95f;
   --blue: #88b8ff;
+  /* Compatibility aliases used by the mandate and commerce surfaces. */
+  --accent: var(--green);
+  --foreground: var(--ink);
 }
 
 * {
@@ -2165,6 +2168,16 @@ summary:focus-visible {
 .wallet-session {
   position: relative;
 }
+.wallet-session-connected {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.wallet-session-connected > span {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 11px;
+}
 .wallet-session button,
 .commerce-form button,
 .authorization-action button {
@@ -2260,6 +2273,26 @@ summary:focus-visible {
   border-left: 3px solid var(--accent);
   background: #12150f;
 }
+.technical-price {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.technical-price > div {
+  display: grid;
+  gap: 4px;
+}
+.technical-price dt {
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.technical-price dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+  font-size: 11px;
+}
 .terms-copy {
   white-space: pre-wrap;
 }
@@ -2328,6 +2361,29 @@ summary:focus-visible {
 }
 .agreement-controls button {
   padding: 9px 12px;
+}
+.agreement-next-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.42fr);
+  gap: 28px;
+  align-items: end;
+  margin: 28px 0;
+  padding: 24px;
+  border: 1px solid #668038;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #141a0e, #10120f);
+}
+.agreement-next-step h2 {
+  margin: 9px 0;
+}
+.agreement-next-step p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.agreement-next-step .primary-action {
+  text-decoration: none;
 }
 .execution-commerce-context {
   display: grid;
@@ -2436,5 +2492,45 @@ summary:focus-visible {
   .agreement-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+  .agreement-next-step {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+.activation-setup-session {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.activation-setup-session > div:first-child {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.activation-setup-countdown {
+  display: grid;
+  justify-items: end;
+  min-width: 10rem;
+  color: var(--accent);
+}
+
+.activation-setup-countdown strong {
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .activation-setup-session {
+    flex-direction: column;
+  }
+
+  .activation-setup-countdown {
+    justify-items: start;
   }
 }

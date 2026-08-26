@@ -2,9 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { formatBaseUnits } from "@relic/domain";
-
 import { agreement } from "../../../../lib/commerce";
+import {
+  commercePriceLabel,
+  isFreePrice,
+  paymentRequirementLabel,
+} from "../../../../lib/commerce-display";
 import { CommerceAuthorization } from "../../../_components/commerce-authorization";
 import {
   acceptTermsAction,
@@ -30,6 +33,7 @@ export default async function CommerceAgreementPage({
   if (item === null) notFound();
   const status = String(item.status);
   const pricing = item.pricingSnapshot as {
+    chainId: 56 | 97;
     amountBaseUnits: string;
     decimals: number;
     symbol: string;
@@ -44,6 +48,10 @@ export default async function CommerceAgreementPage({
   const movements = Array.isArray(item.movements)
     ? (item.movements as Array<Record<string, unknown>>)
     : [];
+  const mandateId = typeof item.mandateId === "string" ? item.mandateId : null;
+  const executionRoomHref =
+    mandateId === null ? null : `/my-agents/mandates/${mandateId}`;
+  const authorized = ["AUTHORIZED", "ACTIVE"].includes(status);
   return (
     <main className="page-shell agreement-page">
       <header className="operations-header">
@@ -61,14 +69,11 @@ export default async function CommerceAgreementPage({
           <dl className="commerce-facts">
             <div>
               <dt>Price</dt>
-              <dd>
-                {formatBaseUnits(pricing.amountBaseUnits, pricing.decimals)}{" "}
-                {pricing.symbol}
-              </dd>
+              <dd>{commercePriceLabel(pricing)}</dd>
             </div>
             <div>
-              <dt>Payment token</dt>
-              <dd>{pricing.tokenAddress}</dd>
+              <dt>Payment</dt>
+              <dd>{paymentRequirementLabel(pricing)}</dd>
             </div>
             <div>
               <dt>Network</dt>
@@ -115,10 +120,29 @@ export default async function CommerceAgreementPage({
             </form>
           ) : null}
           {status === "AUTHORIZATION_REQUIRED" ? (
-            <CommerceAuthorization agreementId={id} />
+            <CommerceAuthorization
+              agreementId={id}
+              continuationHref={executionRoomHref ?? "/my-agents"}
+            />
           ) : null}
         </section>
       </div>
+      {authorized && executionRoomHref !== null ? (
+        <section className="agreement-next-step" aria-labelledby="next-step">
+          <div>
+            <span className="overline">Authorization complete</span>
+            <h2 id="next-step">Your agent is ready to use</h2>
+            <p>
+              Open the Execution Room to submit a policy-controlled request
+              under this mandate. Every request remains constrained by the
+              authority you approved.
+            </p>
+          </div>
+          <Link className="primary-action" href={executionRoomHref}>
+            Open Execution Room <span aria-hidden="true">→</span>
+          </Link>
+        </section>
+      ) : null}
       <section className="profile-section execution-commerce">
         <span className="overline">Execution & settlement</span>
         <h2>Durable commercial state</h2>
@@ -151,6 +175,13 @@ export default async function CommerceAgreementPage({
                 operations,
                 movements,
                 artifacts: item.artifacts,
+                paymentRepresentation: isFreePrice(pricing)
+                  ? {
+                      amountBaseUnits: pricing.amountBaseUnits,
+                      tokenAddress: pricing.tokenAddress,
+                      decimals: pricing.decimals,
+                    }
+                  : pricing,
               },
               null,
               2,

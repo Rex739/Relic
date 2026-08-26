@@ -6,7 +6,7 @@ import { transitionMandateAction } from "../mandate-actions";
 import { listExecutions, listMyAgents } from "../../lib/mandates";
 import { relativeTime } from "../../lib/marketplace";
 import { agreements, type CommerceAgreementView } from "../../lib/commerce";
-import { formatBaseUnits } from "@relic/domain";
+import { commercePriceLabel, isFreePrice } from "../../lib/commerce-display";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "My Agents" };
@@ -134,13 +134,7 @@ export default async function MyAgentsPage() {
                   </div>
                   <div>
                     <dt>Offer price</dt>
-                    <dd>
-                      {formatBaseUnits(
-                        agreement.pricingSnapshot.amountBaseUnits,
-                        agreement.pricingSnapshot.decimals,
-                      )}{" "}
-                      {agreement.pricingSnapshot.symbol}
-                    </dd>
+                    <dd>{commercePriceLabel(agreement.pricingSnapshot)}</dd>
                   </div>
                   <div>
                     <dt>Last execution</dt>
@@ -176,11 +170,12 @@ export default async function MyAgentsPage() {
                   <div>
                     <dt>Settled spend</dt>
                     <dd>
-                      {formatBaseUnits(
-                        settled,
-                        agreement.pricingSnapshot.decimals,
-                      )}{" "}
-                      {agreement.pricingSnapshot.symbol}
+                      {isFreePrice(agreement.pricingSnapshot)
+                        ? "None"
+                        : commercePriceLabel({
+                            ...agreement.pricingSnapshot,
+                            amountBaseUnits: settled.toString(),
+                          })}
                     </dd>
                   </div>
                   <div>

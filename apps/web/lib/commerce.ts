@@ -69,6 +69,18 @@ export type CommerceAgreementView = Record<string, unknown> & {
     tokenAddress: string;
   };
   operations: Array<Record<string, unknown>>;
+  events: Array<Record<string, unknown>>;
+  artifacts: Array<Record<string, unknown>>;
+  authorizations: Array<{
+    id: string;
+    executionRequestId: string | null;
+    verificationStatus: string;
+    signerAddress: string | null;
+    actionHash: string | null;
+    expiresAt: string;
+    revokedAt: string | null;
+    createdAt: string;
+  }>;
   movements: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
 };
@@ -97,6 +109,19 @@ export const revokeAgreementAuthorization = (id: string) =>
   request<CommerceAgreementView>(
     `/v1/commerce-agreements/${encodeURIComponent(id)}/revoke-authorization`,
     { method: "POST" },
+  );
+
+export const createCommerceActivation = (
+  id: string,
+  executionRequestId: string,
+  authorizationId: string,
+) =>
+  request<Record<string, unknown>>(
+    `/v1/commerce-agreements/${encodeURIComponent(id)}/activations`,
+    {
+      method: "POST",
+      body: JSON.stringify({ executionRequestId, authorizationId }),
+    },
   );
 
 export const operatorOffers = () =>

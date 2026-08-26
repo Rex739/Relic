@@ -3,9 +3,12 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { formatBaseUnits } from "@relic/domain";
-
 import { activeOffers } from "../../../../lib/commerce";
+import {
+  commercePriceLabel,
+  isFreePrice,
+  paymentRequirementLabel,
+} from "../../../../lib/commerce-display";
 import { listMyAgents } from "../../../../lib/mandates";
 import { marketplaceAgent } from "../../../../lib/marketplace";
 import { hireOfferAction } from "../../../commerce-actions";
@@ -71,13 +74,7 @@ export default async function HireAgentPage({
           <dl className="commerce-facts">
             <div>
               <dt>Price</dt>
-              <dd>
-                {formatBaseUnits(
-                  offer.version.price.amountBaseUnits,
-                  offer.version.price.decimals,
-                )}{" "}
-                {offer.version.price.symbol}
-              </dd>
+              <dd>{commercePriceLabel(offer.version.price)}</dd>
             </div>
             <div>
               <dt>Billing</dt>
@@ -90,8 +87,8 @@ export default async function HireAgentPage({
               </dd>
             </div>
             <div>
-              <dt>Payment token</dt>
-              <dd>{offer.version.price.tokenAddress}</dd>
+              <dt>Payment</dt>
+              <dd>{paymentRequirementLabel(offer.version.price)}</dd>
             </div>
             <div>
               <dt>Verification</dt>
@@ -110,6 +107,18 @@ export default async function HireAgentPage({
             <summary>Immutable operator terms</summary>
             <p>{offer.version.terms}</p>
             <code>{offer.version.termsHash}</code>
+            {isFreePrice(offer.version.price) ? (
+              <dl className="technical-price">
+                <div>
+                  <dt>Protocol amount</dt>
+                  <dd>{offer.version.price.amountBaseUnits} base units</dd>
+                </div>
+                <div>
+                  <dt>Protocol token representation</dt>
+                  <dd>{offer.version.price.tokenAddress}</dd>
+                </div>
+              </dl>
+            ) : null}
           </details>
         </section>
         <section className="profile-section">
