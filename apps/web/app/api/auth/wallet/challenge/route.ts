@@ -6,20 +6,36 @@ const apiUrl = () =>
   ).replace(/\/$/, "");
 
 export async function POST(request: Request) {
-  const response = await fetch(`${apiUrl()}/v1/auth/wallet/challenge`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: await request.text(),
-    cache: "no-store",
-  });
-  const payload = (await response.json()) as {
-    data?: { id: string; message: string; address: string; chainId: number };
-    error?: { message?: string };
-  };
-  return Response.json(
-    payload.data ?? {
-      error: payload.error?.message ?? "Wallet challenge failed",
-    },
-    { status: response.status },
-  );
+  try {
+    const response = await fetch(`${apiUrl()}/v1/auth/wallet/challenge`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: await request.text(),
+      cache: "no-store",
+    });
+    const payload = await readJsonResponse<{
+      data?: { id: string; message: string; address: string; chainId: number };
+      error?: { message?: string };
+    }>(response);
+    if (payload === null)
+      return Response.json(
+        { error: "Wallet authentication service returned an empty response" },
+        { status: 502 },
+      );
+    return Response.json(
+      payload.data ?? {
+        error: payload.error?.message ?? "Wallet challenge failed",
+      },
+      { status: response.status },
+    );
+  } catch {
+    return Response.json(
+      { error: "Wallet authentication service is unavailable" },
+      { status: 503 },
+    );
+  }
 }
+import { readJsonResponse } from "../../../../../lib/http-json";

@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
 
+import { readJsonResponse } from "../../../../../lib/http-json";
+
 const apiUrl = () =>
   (
     process.env.RELIC_API_URL ??
@@ -8,13 +10,24 @@ const apiUrl = () =>
   ).replace(/\/$/, "");
 
 export async function POST(request: Request) {
-  const response = await fetch(`${apiUrl()}/v1/auth/wallet/verify`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: await request.text(),
-    cache: "no-store",
-  });
-  const payload = (await response.json()) as {
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl()}/v1/auth/wallet/verify`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: await request.text(),
+      cache: "no-store",
+    });
+  } catch {
+    return Response.json(
+      { error: "Wallet authentication service is unavailable" },
+      { status: 503 },
+    );
+  }
+  const payload = await readJsonResponse<{
     data?: {
       sessionToken: string;
       expiresAt: string;
@@ -25,7 +38,12 @@ export async function POST(request: Request) {
       };
     };
     error?: { message?: string };
-  };
+  }>(response);
+  if (payload === null)
+    return Response.json(
+      { error: "Wallet authentication service returned an empty response" },
+      { status: 502 },
+    );
   if (!response.ok || payload.data === undefined)
     return Response.json(
       { error: payload.error?.message ?? "Wallet verification failed" },
