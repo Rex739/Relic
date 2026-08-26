@@ -55,18 +55,19 @@ creates the durable `reference_agent_artifacts` table.
 
 Non-secret values:
 
-| Variable                        | Required value or meaning                              |
-| ------------------------------- | ------------------------------------------------------ |
-| `NODE_ENV`                      | `production` (set by the image)                        |
-| `NETWORK`                       | Exactly `bsc-testnet`                                  |
-| `PORT`                          | Northflank-injected port; defaults to `8003`           |
-| `WALLET_ADDRESS`                | Public address matching the injected keystore filename |
-| `WALLET_KEYSTORE_DIR`           | Directory containing the injected secret file          |
-| `ERC8183_SERVICE_PRICE`         | Exactly `0`                                            |
-| `ERC8183_AGENT_URL`             | `https://p01--relic--b28z25yb24gx.code.run/erc8183`    |
-| `ERC8183_POLICY_ADDRESS`        | `0xd6a4217588f6b1f5657a92a3e94e6422ad771cea`           |
-| `ERC8183_FUNDED_POLL_INTERVAL`  | Poll interval in seconds; defaults to `15`             |
-| `VENUS_BSC_TESTNET_COMPTROLLER` | `0x94d1820b2D1c7c7452A163983Dc888CEC546b77D`           |
+| Variable                           | Required value or meaning                              |
+| ---------------------------------- | ------------------------------------------------------ |
+| `NODE_ENV`                         | `production` (set by the image)                        |
+| `NETWORK`                          | Exactly `bsc-testnet`                                  |
+| `PORT`                             | Northflank-injected port; defaults to `8003`           |
+| `WALLET_ADDRESS`                   | Public address matching the injected keystore filename |
+| `WALLET_KEYSTORE_DIR`              | Directory containing the injected secret file          |
+| `ERC8183_SERVICE_PRICE`            | Exactly `0`                                            |
+| `ERC8183_AGENT_URL`                | `https://p01--relic--b28z25yb24gx.code.run/erc8183`    |
+| `ERC8183_POLICY_ADDRESS`           | `0xd6a4217588f6b1f5657a92a3e94e6422ad771cea`           |
+| `ERC8183_FUNDED_POLL_INTERVAL`     | Poll interval in seconds; defaults to `15`             |
+| `ERC8183_SIGNED_QUOTE_TTL_SECONDS` | `900`; the SDK-enforced maximum signed-quote lifetime  |
+| `VENUS_BSC_TESTNET_COMPTROLLER`    | `0x94d1820b2D1c7c7452A163983Dc888CEC546b77D`           |
 
 ### Pinned public deployment addresses
 
