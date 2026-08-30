@@ -35,6 +35,7 @@ const serverEnvironmentSchema = z.object({
   ERC8004_RPC_RETRIES: optionalInteger.default(3),
   INDEXER_MAX_BLOCKS: optionalInteger,
   "8004SCAN_API_KEY": z.string().min(1).optional(),
+  RELIC_AGENTCORE_OAUTH_CLIENTS_JSON: z.string().min(2).optional(),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   NEXT_PUBLIC_API_URL: optionalUrl,

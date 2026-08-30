@@ -1,5 +1,6 @@
 import type { DrizzleSupplyStore } from "@relic/database";
 
+import { agentcoreAuthenticationRequirements } from "./agentcore-oauth.js";
 import {
   assertCandidateTransition,
   normalizeCuratedInterface,
@@ -59,6 +60,9 @@ export async function materializeLaunchServices(
         networkChainId: null,
         sla: service.sla,
         protocolSupport: normalizedProtocolSupport(interfaceProtocol),
+        authenticationRequirements: agentcoreAuthenticationRequirements(
+          service.endpoint,
+        ),
         source: "direct-registration-file",
         provenance: "developer_declared",
         raw: service,
@@ -79,6 +83,9 @@ export async function materializeLaunchServices(
         endpoint: declaration.endpoint,
         networkChainId: null,
         protocolSupport: normalizedProtocolSupport(interfaceProtocol),
+        authenticationRequirements: agentcoreAuthenticationRequirements(
+          declaration.endpoint,
+        ),
         source: declaration.source,
         provenance: declaration.provenance,
         raw: declaration.raw,

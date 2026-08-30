@@ -150,6 +150,15 @@ export interface SafeHttpResult {
   errorCode: string | null;
 }
 
+export interface SafeHttpOptions {
+  method?: "GET" | "HEAD" | "OPTIONS" | "POST";
+  timeoutMs?: number;
+  maxRedirects?: number;
+  maxResponseBytes?: number;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
 function boundedRequest(
   url: URL,
   addresses: Awaited<ReturnType<typeof resolvePublicAddresses>>,
@@ -245,16 +254,10 @@ function boundedRequest(
   });
 }
 
-export async function safeHttpRequest(
+async function boundedSafeHttpRequest(
   endpoint: string,
-  options: {
-    method?: "GET" | "HEAD" | "OPTIONS" | "POST";
-    timeoutMs?: number;
-    maxRedirects?: number;
-    maxResponseBytes?: number;
-    headers?: Record<string, string>;
-    body?: string;
-  } = {},
+  options: SafeHttpOptions,
+  allowAuthorization: boolean,
 ): Promise<SafeHttpResult> {
   const method = options.method ?? "GET";
   const timeoutMs = options.timeoutMs ?? 5_000;
@@ -262,6 +265,7 @@ export async function safeHttpRequest(
   const maxResponseBytes = options.maxResponseBytes ?? 64 * 1024;
   const headers = options.headers ?? {};
   if (
+    !allowAuthorization &&
     Object.keys(headers).some((key) =>
       ["authorization", "cookie", "proxy-authorization"].includes(
         key.toLowerCase(),
@@ -350,6 +354,57 @@ export async function safeHttpRequest(
     }
   }
   throw new Error("Unreachable safe request state");
+}
+
+export async function safeHttpRequest(
+  endpoint: string,
+  options: SafeHttpOptions = {},
+): Promise<SafeHttpResult> {
+  return boundedSafeHttpRequest(endpoint, options, false);
+}
+
+/**
+ * Send one bearer-authenticated request to an explicitly pinned HTTPS origin.
+ *
+ * This is intentionally separate from `safeHttpRequest`: the generic service
+ * inspector remains credential-free. Redirects are always refused so a bearer
+ * can never be forwarded to another host, and callers cannot inject any other
+ * credential-bearing header.
+ */
+export async function safeBearerHttpRequest(
+  endpoint: string,
+  bearerToken: string,
+  options: Omit<SafeHttpOptions, "maxRedirects"> & { allowedOrigin: string },
+): Promise<SafeHttpResult> {
+  if (bearerToken.trim() === "") throw new Error("Bearer token is required");
+  const endpointValidation = validateEndpointUrl(endpoint);
+  const originValidation = validateEndpointUrl(options.allowedOrigin);
+  if (!endpointValidation.ok || !originValidation.ok)
+    throw new Error("Authenticated endpoint must be a valid HTTPS URL");
+  if (
+    endpointValidation.url.protocol !== "https:" ||
+    originValidation.url.protocol !== "https:" ||
+    endpointValidation.url.origin !== originValidation.url.origin
+  )
+    throw new Error("Authenticated endpoint is outside the pinned origin");
+  const headers = options.headers ?? {};
+  if (
+    Object.keys(headers).some((key) =>
+      ["authorization", "cookie", "proxy-authorization"].includes(
+        key.toLowerCase(),
+      ),
+    )
+  )
+    throw new Error("Authenticated request headers are managed internally");
+  return boundedSafeHttpRequest(
+    endpoint,
+    {
+      ...options,
+      maxRedirects: 0,
+      headers: { ...headers, authorization: `Bearer ${bearerToken}` },
+    },
+    true,
+  );
 }
 
 export async function observeEndpoint(

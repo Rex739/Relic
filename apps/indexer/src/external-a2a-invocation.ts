@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createDatabase, DrizzleSupplyStore } from "@relic/database";
 import { z } from "zod";
 
-import { safeHttpRequest } from "./endpoint-observer.js";
+import { createAgentcoreAwareRequester } from "./agentcore-oauth.js";
 
 const arg = (name: string) =>
   process.argv
@@ -49,7 +49,7 @@ const cardSchema = z.object({
   skills: z.array(z.object({ id: z.string() })),
 });
 
-const tasks: Record<
+export const invocationTasks: Record<
   string,
   { task_description: string; terms: Record<string, unknown> }
 > = {
@@ -71,6 +71,16 @@ const tasks: Record<
         "JSON grid levels, allocation per level, fee assumptions, and risk constraints",
       quality_standards:
         "Use current observed BSC market data, include timestamp provenance, and do not execute transactions",
+    },
+  },
+  "yield-optimisation": {
+    task_description:
+      "Produce a read-only Venus Core supply-yield opportunity analysis on BSC Testnet; do not move funds or execute transactions.",
+    terms: {
+      deliverables:
+        "JSON ranked supply markets with APY, liquidity, pinned block number, and raw evidence",
+      quality_standards:
+        "Use observed Venus Core BSC Testnet data, preserve block provenance, explain unavailable fields, and do not move funds",
     },
   },
 };
@@ -108,13 +118,16 @@ async function main() {
       throw new Error("Service must have a currently available endpoint");
     if (selected.candidate.status !== "SERVICE_OBSERVED")
       throw new Error("Candidate must be in SERVICE_OBSERVED state");
-    const task = tasks[selected.candidate.categorySlug];
+    const task = invocationTasks[selected.candidate.categorySlug];
     if (!task)
       throw new Error(
         "No bounded invocation template exists for this category",
       );
 
-    const cardResponse = await safeHttpRequest(selected.service.endpoint, {
+    const requestService = createAgentcoreAwareRequester(
+      selected.service.endpoint,
+    );
+    const cardResponse = await requestService(selected.service.endpoint, {
       method: "GET",
       timeoutMs: 5_000,
       maxRedirects: 2,
@@ -146,7 +159,7 @@ async function main() {
         },
       },
     };
-    const response = await safeHttpRequest(invocationUrl.toString(), {
+    const response = await requestService(invocationUrl.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),

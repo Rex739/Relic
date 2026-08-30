@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSignedA2aQuote } from "../src/external-a2a-invocation.js";
+import {
+  invocationTasks,
+  parseSignedA2aQuote,
+} from "../src/external-a2a-invocation.js";
 
 describe("external A2A invocation evidence", () => {
   it("accepts a signed negotiation envelope without treating it as commerce", () => {
@@ -44,5 +47,11 @@ describe("external A2A invocation evidence", () => {
         result: { taskId: "task", contextId: "context", parts: [] },
       }),
     ).toThrow(/no data part/);
+  });
+
+  it("has a bounded read-only yield negotiation template", () => {
+    const task = invocationTasks["yield-optimisation"];
+    expect(task?.task_description).toMatch(/read-only Venus Core/);
+    expect(JSON.stringify(task)).toMatch(/do not move funds/);
   });
 });

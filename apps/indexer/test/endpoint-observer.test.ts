@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isPublicIpAddress,
+  safeBearerHttpRequest,
   safeHttpRequest,
   validateEndpointUrl,
 } from "../src/endpoint-observer.js";
@@ -42,5 +43,13 @@ describe("safe endpoint observation boundaries", () => {
         headers: { authorization: "Bearer secret" },
       }),
     ).rejects.toThrow(/cannot send credentials/);
+  });
+
+  it("refuses a bearer request outside its pinned origin", async () => {
+    await expect(
+      safeBearerHttpRequest("https://other.example/card", "secret", {
+        allowedOrigin: "https://agent.example",
+      }),
+    ).rejects.toThrow(/outside the pinned origin/);
   });
 });

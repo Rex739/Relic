@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import type { DrizzleSupplyStore } from "@relic/database";
 import type { ServiceVerificationLevel } from "@relic/domain";
 
-import { safeHttpRequest, type SafeHttpResult } from "./endpoint-observer.js";
+import {
+  agentcoreRuntime,
+  createAgentcoreAwareRequester,
+} from "./agentcore-oauth.js";
+import type { safeHttpRequest, SafeHttpResult } from "./endpoint-observer.js";
 import {
   assertCandidateTransition,
   verificationLevelRank,
@@ -126,7 +130,7 @@ function understoodSchema(
 
 export async function inspectMarketplaceService(
   service: InspectableService,
-  request: SafeRequester = safeHttpRequest,
+  request?: SafeRequester,
 ): Promise<ServiceInspectionResult> {
   const protocol = service.interfaceProtocol.toLowerCase();
   if (service.endpoint === null || service.endpoint.trim() === "")
@@ -163,7 +167,9 @@ export async function inspectMarketplaceService(
 
   const method =
     protocol === "mcp" ? "POST" : protocol === "generic" ? "OPTIONS" : "GET";
-  const response = await request(endpoint, {
+  const authenticated = agentcoreRuntime(endpoint) !== null;
+  const requester = request ?? createAgentcoreAwareRequester(endpoint);
+  const response = await requester(endpoint, {
     method,
     timeoutMs: 5_000,
     maxRedirects: protocol === "mcp" ? 0 : 2,
@@ -190,7 +196,9 @@ export async function inspectMarketplaceService(
     boundary:
       protocol === "mcp"
         ? "MCP initialize only; no tool invocation"
-        : "credential-free metadata/status inspection; no paid invocation",
+        : authenticated
+          ? "operator-authenticated metadata inspection; no paid invocation"
+          : "credential-free metadata/status inspection; no paid invocation",
   };
   const expectedPaymentChallenge =
     (protocol === "x402" || protocol === "b402") && response.status === 402;
