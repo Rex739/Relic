@@ -5,6 +5,7 @@ import type {
   ScanOperationalMode,
   ScanRateLimit,
 } from "@relic/blockchain";
+import { ScanRequestBudgetError } from "@relic/blockchain";
 
 import {
   classifyAgent,
@@ -244,10 +245,10 @@ export async function bootstrapCorpus(
       });
       if (
         options.requirePro === true &&
-        provider.operationalMode !== "pro_authenticated"
+        provider.accessMode !== "authenticated"
       )
         throw new Error(
-          "Full-corpus ingestion requires an API key observed at the 8004scan Pro tier",
+          "Full-corpus ingestion requires authenticated 8004scan access",
         );
       totalReported = page.total;
       const fetchedAt = new Date();
@@ -354,6 +355,31 @@ export async function bootstrapCorpus(
       timings,
     };
   } catch (error) {
+    if (error instanceof ScanRequestBudgetError && counters.pages > 0) {
+      await store.finishRun({
+        runId,
+        chainId: options.chainId,
+        registryAddress: options.registryAddress,
+        status: "partial",
+        counters,
+        accessMode: provider.accessMode,
+        operationalMode: provider.operationalMode,
+        requestCount: provider.requestCount,
+        rateLimit: provider.lastRateLimit,
+      });
+      return {
+        runId,
+        ...counters,
+        startPage,
+        endPage,
+        totalReported,
+        complete: false,
+        accessMode: provider.accessMode,
+        operationalMode: provider.operationalMode,
+        requestCount: provider.requestCount,
+        timings,
+      };
+    }
     await store.finishRun({
       runId,
       chainId: options.chainId,

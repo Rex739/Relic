@@ -32,6 +32,7 @@ class MemoryStore implements BootstrapStore {
   readonly sourceIds = new Set<string>();
   readonly completedPages: number[] = [];
   rejected = 0;
+  finishedStatus: "succeeded" | "partial" | "failed" | null = null;
   checkpoint() {
     return Promise.resolve({ nextPage: this.nextPage, pageSize: 2 });
   }
@@ -79,7 +80,8 @@ class MemoryStore implements BootstrapStore {
       durationMs: 1,
     });
   }
-  finishRun() {
+  finishRun(input: Parameters<BootstrapStore["finishRun"]>[0]) {
+    this.finishedStatus = input.status;
     return Promise.resolve();
   }
 }
@@ -152,7 +154,7 @@ describe("resumable corpus bootstrap", () => {
     expect(store.nextPage).toBe(6);
   });
 
-  it("fails closed before persistence when full mode does not observe Pro", async () => {
+  it("accepts authenticated full mode when rate-limit headers are not exposed", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(response(3, [valid("3")], false));
@@ -162,8 +164,27 @@ describe("resumable corpus bootstrap", () => {
       requestBudget: 1,
     });
     const store = new MemoryStore();
+    const result = await bootstrapCorpus(provider, store, {
+      chainId: 56,
+      registryAddress: registry,
+      pageSize: 2,
+      maxPages: 1,
+      requestBudget: 1,
+      requirePro: true,
+    });
+    expect(result.accessMode).toBe("authenticated");
+    expect(result.operationalMode).toBe("authenticated");
+    expect(store.sourceIds).toEqual(new Set(["scan-3"]));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed before persistence when full mode is anonymous", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(3, [valid("3")], false));
+    const store = new MemoryStore();
     await expect(
-      bootstrapCorpus(provider, store, {
+      bootstrapCorpus(new Scan8004Provider({ fetch: fetchMock }), store, {
         chainId: 56,
         registryAddress: registry,
         pageSize: 2,
@@ -171,8 +192,40 @@ describe("resumable corpus bootstrap", () => {
         requestBudget: 1,
         requirePro: true,
       }),
-    ).rejects.toThrow(/requires an API key observed at the 8004scan Pro tier/);
+    ).rejects.toThrow(/requires authenticated 8004scan access/);
     expect(store.sourceIds.size).toBe(0);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("finishes as partial at the last committed page when retries exhaust the request budget", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(3, [valid("3")], true))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const store = new MemoryStore();
+    const result = await bootstrapCorpus(
+      new Scan8004Provider({
+        apiKey: "fixture-key",
+        fetch: fetchMock,
+        maxRetries: 1,
+        requestBudget: 2,
+        sleep: () => Promise.resolve(),
+      }),
+      store,
+      {
+        chainId: 56,
+        registryAddress: registry,
+        pageSize: 2,
+        maxPages: 2,
+        requestBudget: 2,
+      },
+    );
+    expect(result).toMatchObject({
+      pages: 1,
+      endPage: 3,
+      complete: false,
+      requestCount: 2,
+    });
+    expect(store.nextPage).toBe(4);
+    expect(store.finishedStatus).toBe("partial");
   });
 });

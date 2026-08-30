@@ -164,4 +164,61 @@ describe("bulk corpus discovery persistence", () => {
     `);
     expect(source.rows).toEqual([{ version: "bsc-corpus-v2" }]);
   });
+
+  it("refreshes duplicate signals idempotently when one agent repeats an endpoint", async () => {
+    const fetchedAt = new Date("2026-08-20T00:00:00.000Z");
+    const records = [fixture(1), fixture(2)].map((agent) => ({
+      agent,
+      raw: agent,
+      fetchedAt,
+    }));
+    await store.persistDiscoveryPage({ records, malformed: [] });
+    await database.exec(`
+      insert into service_declarations
+        (agent_id, source, raw_name, normalized_type, endpoint, malformed, provenance, raw, observed_at)
+      values
+        ((select id from agents where name='Bulk fixture 1'), 'fixture', 'first', 'a2a', 'https://shared.example/a2a', false, 'independently_observed', '{}', now()),
+        ((select id from agents where name='Bulk fixture 1'), 'fixture', 'second', 'a2a', 'https://shared.example/a2a', false, 'independently_observed', '{}', now()),
+        ((select id from agents where name='Bulk fixture 2'), 'fixture', 'first', 'a2a', 'https://shared.example/a2a', false, 'independently_observed', '{}', now());
+    `);
+
+    expect(await store.refreshDuplicateSignals("fixture-rule")).toBe(2);
+    expect(await store.refreshDuplicateSignals("fixture-rule")).toBe(2);
+    const signals = await database.query<{
+      agents: number;
+      minimum_group_size: number;
+    }>(`
+      select count(*)::int agents, min(group_size)::int minimum_group_size
+      from duplicate_signals
+      where rule_version='fixture-rule' and kind='endpoint'
+    `);
+    expect(signals.rows).toEqual([{ agents: 2, minimum_group_size: 2 }]);
+  });
+
+  it("prioritizes endpoint checks for four-category candidates", async () => {
+    const fetchedAt = new Date("2026-08-20T00:00:00.000Z");
+    const records = [fixture(1), fixture(2)].map((agent) => ({
+      agent,
+      raw: agent,
+      fetchedAt,
+    }));
+    await store.persistDiscoveryPage({ records, malformed: [] });
+    await database.exec(`
+      insert into service_declarations
+        (agent_id, source, raw_name, normalized_type, endpoint, malformed, provenance, raw, observed_at)
+      values
+        ((select id from agents where name='Bulk fixture 1'), 'fixture', 'api', 'http-api', 'https://general.example/api', false, 'secondary_unverified', '{}', now()),
+        ((select id from agents where name='Bulk fixture 2'), 'fixture', 'api', 'http-api', 'https://yield.example/api', false, 'secondary_unverified', '{}', now());
+      insert into classification_evidence
+        (agent_id, category_slug, confidence, evidence_type, matched_source, matched_value, rule_version, observed_at)
+      values
+        ((select id from agents where name='Bulk fixture 2'), 'yield-optimisation', 'high', 'structured_declaration', 'service', 'yield', 'fixture-rule', now());
+    `);
+
+    const candidates = await store.endpointCandidates(2);
+    expect(candidates.map(({ endpoint }) => endpoint)).toEqual([
+      "https://yield.example/api",
+      "https://general.example/api",
+    ]);
+  });
 });

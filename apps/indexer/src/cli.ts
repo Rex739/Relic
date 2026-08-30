@@ -113,15 +113,16 @@ try {
       requestedCategory === undefined
         ? categories
         : [requestedCategory as LaunchCategory];
-    const secondary = new Scan8004Provider(
-      environment["8004SCAN_API_KEY"] === undefined
-        ? { timeoutMs: 10_000, maxRetries: 0 }
-        : {
-            apiKey: environment["8004SCAN_API_KEY"],
-            timeoutMs: 10_000,
-            maxRetries: 0,
-          },
-    );
+    const apiKey = environment["8004SCAN_API_KEY"];
+    if (apiKey === undefined)
+      throw new Error(
+        "Targeted supply discovery requires authenticated 8004scan access",
+      );
+    const secondary = new Scan8004Provider({
+      apiKey,
+      timeoutMs: 10_000,
+      maxRetries: 0,
+    });
     const corpusStore = new DrizzleCorpusStore(connection.db);
     const supplyStore = new DrizzleSupplyStore(connection.db);
     const recoveredRuns = await supplyStore.failRunningDiscoveryRuns(

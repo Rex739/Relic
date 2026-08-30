@@ -92,6 +92,18 @@ export interface CorpusEnrichmentRecord {
   fetchedAt: Date;
 }
 
+function executedRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "rows" in result &&
+    Array.isArray(result.rows)
+  )
+    return result.rows as T[];
+  throw new TypeError("Database execution did not return rows");
+}
+
 export interface CorpusPersistenceMetrics {
   persisted: number;
   malformed: number;
@@ -1436,6 +1448,14 @@ export class DrizzleCorpusStore {
         ),
       )
       .orderBy(
+        sql`case when exists (
+          select 1 from classification_evidence ce
+          where ce.agent_id = ${verificationQueue.agentId}
+            and ce.category_slug in (
+              'rebalancing', 'grid-trading', 'yield-optimisation',
+              'health-factor-monitoring'
+            )
+        ) then 0 else 1 end`,
         desc(verificationQueue.priority),
         asc(agentIdentities.externalAgentId),
       )
@@ -1583,7 +1603,7 @@ export class DrizzleCorpusStore {
       await transaction
         .delete(duplicateSignals)
         .where(eq(duplicateSignals.ruleVersion, ruleVersion));
-      const groups = await transaction.execute<{
+      const groupResult = await transaction.execute<{
         kind: string;
         fingerprint: string;
         group_size: number;
@@ -1602,9 +1622,18 @@ export class DrizzleCorpusStore {
           from agents
           where metadata_uri is not null and length(trim(metadata_uri)) > 0
         )
-        select kind, fingerprint, count(*)::int as group_size, array_agg(agent_id::text) as agent_ids
-        from signals group by kind, fingerprint having count(*) > 1
+        select kind, fingerprint, count(distinct agent_id)::int as group_size,
+          array_agg(distinct agent_id::text) as agent_ids
+        from signals
+        group by kind, fingerprint
+        having count(distinct agent_id) > 1
       `);
+      const groups = executedRows<{
+        kind: string;
+        fingerprint: string;
+        group_size: number;
+        agent_ids: string[];
+      }>(groupResult);
       let inserted = 0;
       for (const group of groups) {
         await transaction.insert(duplicateSignals).values(
@@ -1620,13 +1649,14 @@ export class DrizzleCorpusStore {
         );
         inserted += group.agent_ids.length;
       }
-      const empty = await transaction.execute<{ id: string }>(sql`
+      const emptyResult = await transaction.execute<{ id: string }>(sql`
         select id::text
         from agents
         where length(trim(coalesce(name, ''))) = 0
           and length(trim(coalesce(description, ''))) = 0
           and length(trim(coalesce(image_url, ''))) = 0
       `);
+      const empty = executedRows<{ id: string }>(emptyResult);
       if (empty.length > 0) {
         await transaction.insert(duplicateSignals).values(
           empty.map(({ id }) => ({
@@ -1646,11 +1676,12 @@ export class DrizzleCorpusStore {
   }
 
   async endpointCandidates(limit: number) {
-    return this.database.execute<{
+    return executedRows<{
       agent_id: string;
       service_declaration_id: string | null;
       endpoint: string;
-    }>(sql`
+    }>(
+      await this.database.execute(sql`
       with candidates as (
         select agent_id, id as service_declaration_id, endpoint
         from service_declarations
@@ -1667,9 +1698,17 @@ export class DrizzleCorpusStore {
         where eo.agent_id = c.agent_id and eo.endpoint = c.endpoint
           and eo.observed_at > now() - interval '24 hours'
       )
-      order by c.agent_id, c.endpoint
+      order by case when exists (
+        select 1 from classification_evidence ce
+        where ce.agent_id = c.agent_id
+          and ce.category_slug in (
+            'rebalancing', 'grid-trading', 'yield-optimisation',
+            'health-factor-monitoring'
+          )
+      ) then 0 else 1 end, c.agent_id, c.endpoint
       limit ${limit}
-    `);
+    `),
+    );
   }
 
   async recordEndpointObservation(input: {
