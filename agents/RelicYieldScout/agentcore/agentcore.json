@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "RelicYieldScout",
+  "version": 1,
+  "managedBy": "CDK",
+  "runtimes": [
+    {
+      "name": "RelicYieldScout",
+      "build": "CodeZip",
+      "entrypoint": "dist/unifiedMain.js",
+      "codeLocation": "app/agent/",
+      "networkMode": "PUBLIC",
+      "protocol": "A2A",
+      "envVars": [
+        {
+          "name": "OTEL_TRACES_EXPORTER",
+          "value": "none"
+        },
+        {
+          "name": "OAUTH_TOKEN_URL",
+          "value": "https://bnbagent-699289398114.auth.us-east-1.amazoncognito.com/oauth2/token"
+        },
+        {
+          "name": "OAUTH_SCOPE",
+          "value": "bnbagent-seller/invoke"
+        }
+      ],
+      "runtimeVersion": "NODE_22",
+      "authorizerType": "CUSTOM_JWT",
+      "authorizerConfiguration": {
+        "customJwtAuthorizer": {
+          "discoveryUrl": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_kM2SHi2Qz/.well-known/openid-configuration",
+          "allowedClients": [
+            "5l1tc2g39911prqdt5os8ak87"
+          ]
+        }
+      }
+    }
+  ]
+}

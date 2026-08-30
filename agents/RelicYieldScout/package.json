@@ -1,0 +1,9 @@
+{
+  "name": "RelicYieldScout-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.24.0",
+  "scripts": {
+    "build": "pnpm --filter RelicYieldScout-agent build",
+    "test": "pnpm --filter RelicYieldScout-agent test"
+  }
+}
