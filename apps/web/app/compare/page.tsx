@@ -128,13 +128,23 @@ export default async function ComparePage({
                 {agents.map((agent) => (
                   <td
                     key={agent.id}
-                    className={
-                      agent.tier === "Actionable" ? "positive" : "muted-cell"
-                    }
+                    className={agent.hireable ? "positive" : "muted-cell"}
                   >
-                    {agent.tier === "Actionable"
-                      ? "Setup path verified"
-                      : "Not yet hireable"}
+                    {agent.hireable
+                      ? "Available to hire"
+                      : agent.tier === "Actionable"
+                        ? "Verified; no active offer"
+                        : "Not yet hireable"}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <th>Completion rate</th>
+                {agents.map((agent) => (
+                  <td key={agent.id}>
+                    {agent.completionRatePercent === null
+                      ? "No job history yet"
+                      : `${agent.completionRatePercent}% Completion · ${agent.completedCommerceJobCount} of ${agent.eligibleAcceptedJobCount} jobs`}
                   </td>
                 ))}
               </tr>
@@ -165,12 +175,12 @@ export default async function ComparePage({
                 ))}
               </tr>
               <tr>
-                <th>Track-record feedback</th>
+                <th>Reviews</th>
                 {agents.map((agent) => (
                   <td key={agent.id}>
-                    {agent.feedbackCount > 0
-                      ? `${agent.feedbackCount} feedback records`
-                      : "No credible feedback yet"}
+                    {agent.reviewCount > 0
+                      ? `${agent.reviewCount} ${agent.reviewCount === 1 ? "review" : "reviews"} · ${agent.reviewGoodCount} good · ${agent.reviewBadCount} bad`
+                      : "No verified reviews yet"}
                   </td>
                 ))}
               </tr>

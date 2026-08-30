@@ -30,6 +30,8 @@ import {
   publicMarketplaceListSchema,
   publicMarketplaceQuerySchema,
   publicMarketplaceAgentSchema,
+  createMarketplaceReviewSchema,
+  marketplaceReviewSchema,
   serviceDetailResponseSchema,
   serviceFilterQuerySchema,
   serviceListResponseSchema,
@@ -169,6 +171,63 @@ const publicMarketplaceAgentRoute = createRoute({
       "Verified agent intelligence profile",
     ),
     404: json(errorResponseSchema, "Agent is not publicly eligible"),
+  },
+});
+const publicMarketplaceReviewsRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/agents/{id}/reviews",
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    200: json(
+      z.object({
+        data: z.object({
+          summary: z.object({
+            total: z.number().int().nonnegative(),
+            good: z.number().int().nonnegative(),
+            bad: z.number().int().nonnegative(),
+          }),
+          reviews: z.array(marketplaceReviewSchema),
+        }),
+      }),
+      "Verified marketplace reviews",
+    ),
+    404: json(errorResponseSchema, "Agent is not publicly eligible"),
+  },
+});
+const marketplaceReviewEligibilityRoute = createRoute({
+  method: "get",
+  path: "/v1/marketplace/reviews/eligibility/{activationId}",
+  request: {
+    params: z.object({ activationId: z.uuid() }),
+    query: z.object({ reviewerRole: z.enum(["BUYER", "AGENT"]) }),
+    headers: z.object({ authorization: z.string().optional() }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.record(z.string(), z.unknown()) }),
+      "Review eligibility",
+    ),
+    409: json(errorResponseSchema, "Review is not eligible"),
+  },
+});
+const createMarketplaceReviewRoute = createRoute({
+  method: "post",
+  path: "/v1/marketplace/reviews",
+  request: {
+    headers: z.object({ authorization: z.string().optional() }),
+    body: {
+      content: {
+        "application/json": { schema: createMarketplaceReviewSchema },
+      },
+    },
+  },
+  responses: {
+    201: json(
+      z.object({ data: marketplaceReviewSchema }),
+      "Verified review created",
+    ),
+    400: json(errorResponseSchema, "Invalid review"),
+    409: json(errorResponseSchema, "Review is not eligible"),
   },
 });
 const publicMarketplaceCategoriesRoute = createRoute({
@@ -452,6 +511,17 @@ const listOperatorOffersRoute = createRoute({
   request: { headers: z.object({ authorization: z.string() }) },
   responses: {
     200: json(z.object({ data: z.array(z.any()) }), "Operator offers"),
+  },
+});
+const operatorReadinessRoute = createRoute({
+  method: "get",
+  path: "/v1/operator/readiness",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(
+      z.object({ data: z.array(z.record(z.string(), z.unknown())) }),
+      "Owner-scoped marketplace readiness",
+    ),
   },
 });
 const reviseOfferRoute = createRoute({
@@ -1020,6 +1090,38 @@ export function createApp(
     return context.json(publicMarketplaceDetailSchema.parse(agent), 200);
   });
 
+  app.openapi(publicMarketplaceReviewsRoute, async (context) => {
+    const id = z.uuid().parse(context.req.param("id"));
+    const agent =
+      repository.findPublicMarketplaceAgent === undefined
+        ? null
+        : await repository.findPublicMarketplaceAgent(id);
+    if (agent === null)
+      return context.json(
+        {
+          error: {
+            code: "marketplace_agent_not_found",
+            message:
+              "Agent is not currently eligible for the public marketplace",
+          },
+        },
+        404,
+      );
+    return context.json(
+      {
+        data: {
+          summary: {
+            total: agent.reviewCount,
+            good: agent.reviewGoodCount,
+            bad: agent.reviewBadCount,
+          },
+          reviews: agent.reviews,
+        },
+      },
+      200,
+    );
+  });
+
   app.openapi(publicMarketplaceCategoriesRoute, async (context) => {
     const data =
       repository.listPublicCategories === undefined
@@ -1184,6 +1286,38 @@ export function createApp(
     context.json({ data: await walletPrincipal(context) }, 200),
   );
 
+  app.openapi(marketplaceReviewEligibilityRoute, async (context) => {
+    const { activationId } = z
+      .object({ activationId: z.uuid() })
+      .parse(context.req.param());
+    const { reviewerRole } = z
+      .object({ reviewerRole: z.enum(["BUYER", "AGENT"]) })
+      .parse(context.req.query());
+    return context.json(
+      {
+        data: await requireCommerce().marketplaceReviewEligibility(
+          await walletPrincipal(context),
+          activationId,
+          reviewerRole,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(createMarketplaceReviewRoute, async (context) => {
+    const body = createMarketplaceReviewSchema.parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().createMarketplaceReview(
+          await walletPrincipal(context),
+          body,
+        ),
+      },
+      201,
+    );
+  });
+
   app.openapi(walletLogoutRoute, async (context) => {
     await walletPrincipal(context);
     const authorization = context.req.header("authorization")!;
@@ -1223,6 +1357,15 @@ export function createApp(
       200,
     ),
   );
+
+  app.openapi(operatorReadinessRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    const data =
+      repository.sellerReadiness === undefined
+        ? []
+        : await repository.sellerReadiness(session.walletAddress);
+    return context.json({ data }, 200);
+  });
 
   app.openapi(reviseOfferRoute, async (context) => {
     const { id } = offerParams.parse(context.req.param());

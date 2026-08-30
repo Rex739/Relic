@@ -178,6 +178,72 @@ describe("production wallet authentication", () => {
   });
 });
 
+describe("verified marketplace review authorization", () => {
+  const principal = {
+    principalId: principalIdForWallet(account.address, 97),
+    walletAddress: account.address,
+    chainId: 97,
+    sessionId: "01945b1e-7e80-7000-8000-000000000090",
+  };
+
+  it("rejects tags outside the authoritative role and sentiment vocabulary", async () => {
+    const store = { marketplaceReviewEligibility: vi.fn() };
+    const service = new CommerceApplicationService(
+      store as never,
+      account.address,
+    );
+    await expect(
+      service.createMarketplaceReview(principal, {
+        activationId: "01945b1e-7e80-7000-8000-000000000091",
+        reviewerRole: "BUYER",
+        sentiment: "GOOD",
+        tags: ["did-not-work"],
+        message: null,
+      }),
+    ).rejects.toThrow(/tags/i);
+    expect(store.marketplaceReviewEligibility).not.toHaveBeenCalled();
+  });
+
+  it("derives the agent subject from persisted eligible marketplace work", async () => {
+    const createMarketplaceReview = vi.fn((input) => Promise.resolve(input));
+    const store = {
+      marketplaceReviewEligibility: () =>
+        Promise.resolve({
+          eligible: true,
+          reason: "eligible",
+          reviewerRole: "BUYER",
+          subjectType: "AGENT",
+          activationId: "01945b1e-7e80-7000-8000-000000000091",
+          agreementId: "01945b1e-7e80-7000-8000-000000000092",
+          agentId: "01945b1e-7e80-7000-8000-000000000093",
+          buyerPrincipalId: principal.principalId,
+          existingReviewId: null,
+        }),
+      createMarketplaceReview,
+    };
+    const service = new CommerceApplicationService(
+      store as never,
+      account.address,
+    );
+    await service.createMarketplaceReview(principal, {
+      activationId: "01945b1e-7e80-7000-8000-000000000091",
+      reviewerRole: "BUYER",
+      sentiment: "GOOD",
+      tags: ["reliable"],
+      message: " Reliable result. ",
+    });
+    expect(createMarketplaceReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectType: "AGENT",
+        subjectAgentId: "01945b1e-7e80-7000-8000-000000000093",
+        subjectPrincipalId: null,
+        reviewerPrincipalId: principal.principalId,
+        message: "Reliable result.",
+      }),
+    );
+  });
+});
+
 class MemoryCommerceStore {
   challenge: Record<string, unknown> | null = null;
   consumed = false;

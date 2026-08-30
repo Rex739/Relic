@@ -3,6 +3,7 @@ import {
   agentListItemSchema,
   marketplaceServiceSchema,
   marketplaceCategories,
+  marketplaceReviewTags,
 } from "@relic/domain";
 import { z } from "zod";
 
@@ -151,7 +152,12 @@ export const publicMarketplaceAgentSchema = z.object({
     .nullable(),
   hireable: z.boolean(),
   verifiedInvocationCount: z.number().int().nonnegative(),
+  eligibleAcceptedJobCount: z.number().int().nonnegative(),
   completedCommerceJobCount: z.number().int().nonnegative(),
+  completionRatePercent: z.number().int().min(0).max(100).nullable(),
+  reviewCount: z.number().int().nonnegative(),
+  reviewGoodCount: z.number().int().nonnegative(),
+  reviewBadCount: z.number().int().nonnegative(),
   deliveryCompletedCount: z.number().int().nonnegative(),
   settlementCompletedCount: z.number().int().nonnegative(),
   unsuccessfulCommerceJobCount: z.number().int().nonnegative(),
@@ -159,6 +165,41 @@ export const publicMarketplaceAgentSchema = z.object({
   lastVerifiedAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
+
+export const marketplaceReviewSchema = z.object({
+  id: z.uuid(),
+  activationId: z.uuid(),
+  reviewerRole: z.enum(["BUYER", "AGENT"]),
+  subjectType: z.enum(["AGENT", "BUYER"]),
+  sentiment: z.enum(["GOOD", "BAD"]),
+  tags: z.array(z.string()),
+  message: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+
+export const createMarketplaceReviewSchema = z
+  .object({
+    activationId: z.uuid(),
+    reviewerRole: z.enum(["BUYER", "AGENT"]),
+    sentiment: z.enum(["GOOD", "BAD"]),
+    tags: z.array(z.string()).max(6).default([]),
+    message: z.string().trim().max(1_000).nullable().optional(),
+  })
+  .superRefine((value, context) => {
+    for (const tag of value.tags)
+      if (
+        !(
+          marketplaceReviewTags[value.reviewerRole][
+            value.sentiment
+          ] as readonly string[]
+        ).includes(tag)
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["tags"],
+          message: `Tag ${tag} is not valid for this review`,
+        });
+  });
 
 export const publicMarketplaceListSchema = z.object({
   data: z.array(publicMarketplaceAgentSchema),
@@ -213,6 +254,7 @@ export const publicMarketplaceDetailSchema =
         observedAt: z.iso.datetime(),
       }),
     ),
+    reviews: z.array(marketplaceReviewSchema),
     surfacedBecause: z.array(z.string()),
     checks: z.object({
       identityVerified: z.boolean(),
@@ -229,6 +271,10 @@ export const publicCategoryCountsSchema = z.object({
     z.object({
       slug: z.string(),
       label: z.string(),
+      discovered: z.number().int().nonnegative(),
+      verified: z.number().int().nonnegative(),
+      ready: z.number().int().nonnegative(),
+      hireable: z.number().int().nonnegative(),
       working: z.number().int().nonnegative(),
       actionable: z.number().int().nonnegative(),
       protocols: z.array(z.string()),

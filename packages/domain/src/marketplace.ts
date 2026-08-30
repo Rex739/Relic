@@ -1,5 +1,73 @@
 export type PublicVerificationTier = "Working" | "Actionable" | "Proven";
 
+export type MarketplaceReviewSentiment = "GOOD" | "BAD";
+export type MarketplaceReviewRole = "BUYER" | "AGENT";
+export type MarketplaceReviewSubjectType = "AGENT" | "BUYER";
+
+export interface MarketplaceReview {
+  id: string;
+  activationId: string;
+  reviewerRole: MarketplaceReviewRole;
+  subjectType: MarketplaceReviewSubjectType;
+  sentiment: MarketplaceReviewSentiment;
+  tags: string[];
+  message: string | null;
+  createdAt: string;
+}
+
+export interface MarketplaceReviewSummary {
+  total: number;
+  good: number;
+  bad: number;
+}
+
+export const marketplaceReviewTags = {
+  BUYER: {
+    GOOD: [
+      "accurate-result",
+      "clear-output",
+      "fast-response",
+      "good-value",
+      "reliable",
+      "worked-as-expected",
+    ],
+    BAD: [
+      "slow-response",
+      "incorrect-result",
+      "didnt-follow-instructions",
+      "poor-output",
+      "service-issue",
+      "other",
+    ],
+  },
+  AGENT: {
+    GOOD: [
+      "clear-request",
+      "valid-setup",
+      "smooth-transaction",
+      "good-parameters",
+      "easy-to-work-with",
+    ],
+    BAD: [
+      "invalid-request",
+      "conflicting-instructions",
+      "repeated-cancellation",
+      "poor-parameters",
+      "transaction-issue",
+    ],
+  },
+} as const;
+
+export function isMarketplaceReviewTag(input: {
+  role: MarketplaceReviewRole;
+  sentiment: MarketplaceReviewSentiment;
+  tag: string;
+}) {
+  return (
+    marketplaceReviewTags[input.role][input.sentiment] as readonly string[]
+  ).includes(input.tag);
+}
+
 export interface PublicMarketplaceQuery {
   readonly page: number;
   readonly limit: number;
@@ -39,13 +107,43 @@ export interface PublicMarketplaceAgent {
   } | null;
   hireable: boolean;
   verifiedInvocationCount: number;
+  eligibleAcceptedJobCount: number;
   completedCommerceJobCount: number;
+  completionRatePercent: number | null;
+  reviewCount: number;
+  reviewGoodCount: number;
+  reviewBadCount: number;
   deliveryCompletedCount: number;
   settlementCompletedCount: number;
   unsuccessfulCommerceJobCount: number;
   feedbackCount: number;
   lastVerifiedAt: string;
   updatedAt: string;
+}
+
+export function completionRateStats(input: {
+  eligibleAcceptedJobs: number;
+  successfullyCompletedJobs: number;
+}) {
+  if (
+    !Number.isInteger(input.eligibleAcceptedJobs) ||
+    !Number.isInteger(input.successfullyCompletedJobs) ||
+    input.eligibleAcceptedJobs < 0 ||
+    input.successfullyCompletedJobs < 0 ||
+    input.successfullyCompletedJobs > input.eligibleAcceptedJobs
+  )
+    throw new Error("Invalid completion-rate history");
+  return {
+    eligibleAcceptedJobCount: input.eligibleAcceptedJobs,
+    completedCommerceJobCount: input.successfullyCompletedJobs,
+    completionRatePercent:
+      input.eligibleAcceptedJobs === 0
+        ? null
+        : Math.round(
+            (input.successfullyCompletedJobs / input.eligibleAcceptedJobs) *
+              100,
+          ),
+  };
 }
 
 export interface PublicMarketplaceResult {
@@ -98,6 +196,7 @@ export interface PublicMarketplaceAgentDetail extends PublicMarketplaceAgent {
   services: PublicMarketplaceService[];
   evidence: PublicMarketplaceEvidence[];
   outcomes: PublicMarketplaceOutcome[];
+  reviews: MarketplaceReview[];
   surfacedBecause: string[];
   checks: {
     identityVerified: boolean;
@@ -112,9 +211,174 @@ export interface PublicMarketplaceAgentDetail extends PublicMarketplaceAgent {
 export interface PublicCategoryCount {
   slug: string;
   label: string;
+  discovered: number;
+  verified: number;
+  ready: number;
+  hireable: number;
   working: number;
   actionable: number;
   protocols: string[];
+}
+
+export type SellerReadinessState = "complete" | "attention" | "blocked";
+
+export interface SellerReadinessRequirement {
+  state: SellerReadinessState;
+  label: string;
+  explanation: string;
+  nextAction: string | null;
+}
+
+export interface SellerAgentReadiness {
+  agentId: string;
+  serviceId: string | null;
+  name: string;
+  description: string;
+  imageUrl: string | null;
+  category: string;
+  chainId: 56 | 97;
+  externalAgentId: string;
+  testDeployment: boolean;
+  requirements: {
+    identity: SellerReadinessRequirement;
+    service: SellerReadinessRequirement;
+    verification: SellerReadinessRequirement;
+    commerce: SellerReadinessRequirement;
+    offer: SellerReadinessRequirement;
+  };
+  marketplaceStatus: "PUBLIC" | "NOT_READY";
+  hireable: boolean;
+  lastVerifiedAt: string | null;
+}
+
+export interface SellerReadinessFacts {
+  agentId: string;
+  serviceId: string | null;
+  name: string;
+  description: string;
+  imageUrl: string | null;
+  category: string;
+  chainId: number;
+  externalAgentId: string;
+  identityVerified: boolean;
+  serviceAvailable: boolean;
+  verificationPassed: boolean;
+  lastVerifiedAt: string | null;
+  commerceValidated: boolean;
+  activeOffer: boolean;
+  publicEligible: boolean;
+}
+
+export function sellerReadinessProjection(
+  facts: SellerReadinessFacts,
+): SellerAgentReadiness {
+  if (facts.chainId !== 56 && facts.chainId !== 97)
+    throw new Error(`Unsupported seller readiness chain ${facts.chainId}`);
+  const testDeployment = /test deployment|not for production use/i.test(
+    `${facts.name} ${facts.description}`,
+  );
+  const identity: SellerReadinessRequirement = facts.identityVerified
+    ? {
+        state: "complete",
+        label: "Agent identity verified",
+        explanation:
+          "Your connected wallet matches this agent's registered BNB Chain owner.",
+        nextAction: null,
+      }
+    : {
+        state: "blocked",
+        label: "Agent ownership needs verification",
+        explanation:
+          "Relic must verify the current registered owner before seller controls are available.",
+        nextAction: "Verify ownership",
+      };
+  const service: SellerReadinessRequirement = facts.serviceAvailable
+    ? {
+        state: "complete",
+        label: "Service endpoint available",
+        explanation: "Relic has a usable secure endpoint for this agent.",
+        nextAction: null,
+      }
+    : {
+        state: "blocked",
+        label: "Service is not available",
+        explanation:
+          "Buyers cannot use this agent until its advertised service is reachable.",
+        nextAction: "Waiting for agent owner",
+      };
+  const verification: SellerReadinessRequirement = facts.verificationPassed
+    ? {
+        state: "complete",
+        label: "Verification is current",
+        explanation: "Relic recently checked this service successfully.",
+        nextAction: null,
+      }
+    : {
+        state: "attention",
+        label:
+          facts.lastVerifiedAt === null
+            ? "Service verification is missing"
+            : "Verification expired — refresh required",
+        explanation:
+          "A recent independent service check is required before this agent can appear to buyers.",
+        nextAction: "Waiting for Relic verification",
+      };
+  const commerce: SellerReadinessRequirement = facts.commerceValidated
+    ? {
+        state: "complete",
+        label: "Commerce validation completed",
+        explanation:
+          "Relic has genuine evidence that this service completed the commerce lifecycle.",
+        nextAction: null,
+      }
+    : {
+        state: "blocked",
+        label: "No completed customer job yet",
+        explanation:
+          "Hireability requires genuine successful commerce evidence, not a service check or engineering test.",
+        nextAction: "Complete genuine commerce validation",
+      };
+  const offer: SellerReadinessRequirement = facts.activeOffer
+    ? {
+        state: "complete",
+        label: "Marketplace offer published",
+        explanation: "Buyers can review current price and terms.",
+        nextAction: null,
+      }
+    : {
+        state: "blocked",
+        label: "Marketplace offer not published",
+        explanation:
+          "The registered owner must publish current price and terms before buyers can hire this agent.",
+        nextAction:
+          facts.identityVerified &&
+          facts.serviceAvailable &&
+          facts.verificationPassed &&
+          facts.commerceValidated &&
+          !testDeployment
+            ? "Create marketplace offer"
+            : "Waiting for readiness checks",
+      };
+  return {
+    agentId: facts.agentId,
+    serviceId: facts.serviceId,
+    name: facts.name,
+    description: facts.description,
+    imageUrl: facts.imageUrl,
+    category: facts.category,
+    chainId: facts.chainId,
+    externalAgentId: facts.externalAgentId,
+    testDeployment,
+    requirements: { identity, service, verification, commerce, offer },
+    marketplaceStatus:
+      facts.publicEligible && !testDeployment ? "PUBLIC" : "NOT_READY",
+    hireable:
+      facts.publicEligible &&
+      facts.commerceValidated &&
+      facts.activeOffer &&
+      !testDeployment,
+    lastVerifiedAt: facts.lastVerifiedAt,
+  };
 }
 
 export interface InternalMarketplaceStatus {
@@ -143,4 +407,5 @@ export interface PublicMarketplaceRepository {
     ids: string[],
   ): Promise<PublicMarketplaceAgent[]>;
   internalMarketplaceStatus(): Promise<InternalMarketplaceStatus>;
+  sellerReadiness(ownerAddress: string): Promise<SellerAgentReadiness[]>;
 }

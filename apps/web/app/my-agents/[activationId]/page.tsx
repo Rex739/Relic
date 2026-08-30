@@ -3,7 +3,11 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import type { ExecutionRecord, PolicyReason } from "@relic/domain";
+import {
+  marketplaceReviewTags,
+  type ExecutionRecord,
+  type PolicyReason,
+} from "@relic/domain";
 
 import { agreements, type CommerceAgreementView } from "../../../lib/commerce";
 import { commercePriceLabel, isFreePrice } from "../../../lib/commerce-display";
@@ -22,6 +26,7 @@ import { transitionMandateAction } from "../../mandate-actions";
 import { prepareCommerceActivationAction } from "../../commerce-actions";
 import { CommerceAuthorization } from "../../_components/commerce-authorization";
 import { WalletCommerceOperation } from "../../_components/wallet-commerce-operation";
+import { MarketplaceReviewPrompt } from "../../_components/marketplace-review-prompt";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Active agent" };
@@ -334,6 +339,13 @@ export default async function ExecutionRoomPage({
     mandate,
     agreement: commerceAgreement,
   });
+  const reviewableActivationId = commerceAgreement?.operations
+    .toReversed()
+    .find(
+      (operation) =>
+        typeof operation.activationId === "string" &&
+        operation.state === "FINALIZED",
+    )?.activationId;
   return (
     <main className="page-shell execution-room">
       <nav className="breadcrumbs">
@@ -404,6 +416,15 @@ export default async function ExecutionRoomPage({
             </p>
           </div>
         </section>
+      ) : null}
+
+      {relationshipState === "Completed" &&
+      walletAuthenticated &&
+      typeof reviewableActivationId === "string" ? (
+        <MarketplaceReviewPrompt
+          activationId={reviewableActivationId}
+          tagOptions={marketplaceReviewTags.BUYER}
+        />
       ) : null}
 
       {commerceAgreement === null || setupComplete ? null : (

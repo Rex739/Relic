@@ -41,6 +41,8 @@ import {
   mandates,
   mandateEvents,
   marketplaceServices,
+  marketplaceOutcomes,
+  marketplaceReviews,
   settlementRecords,
   walletAuthChallenges,
   walletSessions,
@@ -155,6 +157,146 @@ export class DrizzleWalletAuthStore {
 
 export class DrizzleCommerceStore {
   public constructor(private readonly database: RelicDatabase) {}
+
+  public async marketplaceReviewEligibility(input: {
+    activationId: string;
+    principalId: string;
+    walletAddress: string;
+    reviewerRole: "BUYER" | "AGENT";
+  }) {
+    const [record] = await this.database
+      .select({
+        activationId: activations.id,
+        agreementId: activations.commerceAgreementId,
+        agentId: activations.agentId,
+        purpose: activations.purpose,
+        marketplaceHistoryEligible: activations.marketplaceHistoryEligible,
+        lifecycleState: activations.lifecycleState,
+        status: activations.status,
+        buyerPrincipalId: activations.principalId,
+        providerAddress: activations.providerAddress,
+        operatorPrincipalId: agentOffers.operatorPrincipalId,
+        commerceSuccessful: marketplaceOutcomes.commerceSuccessful,
+        acceptedResponsibility: sql<boolean>`exists (
+          select 1 from ${commerceOperations} review_fund
+          where review_fund.activation_id = ${activations.id}
+            and review_fund.operation_type = 'FUND'
+            and review_fund.state = 'FINALIZED'
+        )`,
+      })
+      .from(activations)
+      .leftJoin(
+        commerceAgreements,
+        eq(commerceAgreements.id, activations.commerceAgreementId),
+      )
+      .leftJoin(agentOffers, eq(agentOffers.id, commerceAgreements.offerId))
+      .leftJoin(
+        marketplaceOutcomes,
+        eq(marketplaceOutcomes.activationId, activations.id),
+      )
+      .where(eq(activations.id, input.activationId))
+      .limit(1);
+    if (record === undefined)
+      return { eligible: false as const, reason: "job_not_found" };
+    if (
+      record.purpose !== "USER_COMMERCE" ||
+      !record.marketplaceHistoryEligible
+    )
+      return { eligible: false as const, reason: "not_marketplace_work" };
+    if (
+      record.lifecycleState !== "COMPLETED" ||
+      record.status !== "COMPLETED" ||
+      record.commerceSuccessful !== true ||
+      !record.acceptedResponsibility
+    )
+      return { eligible: false as const, reason: "job_not_completed" };
+    if (record.agreementId === null)
+      return { eligible: false as const, reason: "agreement_missing" };
+    const isBuyer = record.buyerPrincipalId === input.principalId;
+    const isAgent =
+      record.operatorPrincipalId === input.principalId &&
+      record.providerAddress?.toLowerCase() ===
+        input.walletAddress.toLowerCase();
+    if (
+      (input.reviewerRole === "BUYER" && !isBuyer) ||
+      (input.reviewerRole === "AGENT" && !isAgent)
+    )
+      return { eligible: false as const, reason: "reviewer_not_a_party" };
+    const subjectType: "AGENT" | "BUYER" =
+      input.reviewerRole === "BUYER" ? "AGENT" : "BUYER";
+    const [existingReview] = await this.database
+      .select({ id: marketplaceReviews.id })
+      .from(marketplaceReviews)
+      .where(
+        and(
+          eq(marketplaceReviews.activationId, input.activationId),
+          eq(marketplaceReviews.reviewerRole, input.reviewerRole),
+          eq(marketplaceReviews.subjectType, subjectType),
+        ),
+      )
+      .limit(1);
+    return {
+      eligible: existingReview === undefined,
+      reason:
+        existingReview === undefined
+          ? ("eligible" as const)
+          : ("already_reviewed" as const),
+      reviewerRole: input.reviewerRole,
+      subjectType,
+      activationId: record.activationId,
+      agreementId: record.agreementId,
+      agentId: record.agentId,
+      buyerPrincipalId: record.buyerPrincipalId!,
+      existingReviewId: existingReview?.id ?? null,
+    };
+  }
+
+  public async createMarketplaceReview(input: {
+    activationId: string;
+    agreementId: string;
+    reviewerPrincipalId: string;
+    reviewerRole: "BUYER" | "AGENT";
+    subjectType: "AGENT" | "BUYER";
+    subjectAgentId: string | null;
+    subjectPrincipalId: string | null;
+    sentiment: "GOOD" | "BAD";
+    tags: string[];
+    message: string | null;
+    eligibilityProvenance: Record<string, unknown>;
+  }) {
+    const [review] = await this.database
+      .insert(marketplaceReviews)
+      .values({
+        activationId: input.activationId,
+        commerceAgreementId: input.agreementId,
+        reviewerPrincipalId: input.reviewerPrincipalId,
+        reviewerRole: input.reviewerRole,
+        subjectType: input.subjectType,
+        subjectAgentId: input.subjectAgentId,
+        subjectPrincipalId: input.subjectPrincipalId,
+        sentiment: input.sentiment,
+        tags: input.tags,
+        message: input.message,
+        eligibilityProvenance: input.eligibilityProvenance,
+        marketplaceHistoryEligible: true,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (review === undefined)
+      throw new Error(
+        "This marketplace job has already been reviewed by this party",
+      );
+    return {
+      id: review.id,
+      activationId: review.activationId,
+      reviewerRole: review.reviewerRole,
+      subjectType: review.subjectType,
+      sentiment: review.sentiment,
+      tags: review.tags,
+      message: review.message,
+      createdAt: review.createdAt.toISOString(),
+    };
+  }
 
   public async createOffer(input: {
     operatorPrincipalId: string;
@@ -1766,6 +1908,7 @@ export class DrizzleCommerceStore {
           serviceId: agreement.serviceId,
           chainId: agreement.chainId,
           purpose: "USER_COMMERCE",
+          marketplaceHistoryEligible: true,
           commerceAgreementId: agreement.id,
           executionRequestId: execution.id,
           mandateId: agreement.mandateId,

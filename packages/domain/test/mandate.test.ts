@@ -21,6 +21,7 @@ const actionableAgent = (
     name: "Relic Health Factor Monitor",
     description:
       "Read-only Venus position monitoring and health factor alerts.",
+    imageUrl: null,
     category: "health-factor-monitoring",
     tier: "Actionable",
     availability: "available",
@@ -41,7 +42,12 @@ const actionableAgent = (
     },
     hireable: true,
     verifiedInvocationCount: 1,
+    eligibleAcceptedJobCount: 0,
     completedCommerceJobCount: 0,
+    completionRatePercent: null,
+    reviewCount: 0,
+    reviewGoodCount: 0,
+    reviewBadCount: 0,
     deliveryCompletedCount: 0,
     settlementCompletedCount: 0,
     unsuccessfulCommerceJobCount: 0,
@@ -69,6 +75,7 @@ const actionableAgent = (
     ],
     evidence: [],
     outcomes: [],
+    reviews: [],
     surfacedBecause: ["protocol: Venus"],
     checks: {
       identityVerified: true,

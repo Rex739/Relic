@@ -1,0 +1,1 @@
+ALTER TABLE "activations" ADD COLUMN "marketplace_history_eligible" boolean DEFAULT false NOT NULL;

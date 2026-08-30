@@ -8,8 +8,11 @@ import type {
   PublicMarketplaceAgentDetail,
   PublicMarketplaceQuery,
   PublicMarketplaceResult,
+  SellerReadinessFacts,
+  SellerAgentReadiness,
   ServiceListQuery,
 } from "@relic/domain";
+import { sellerReadinessProjection } from "@relic/domain";
 import { and, asc, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
@@ -27,6 +30,7 @@ import {
   indexerCheckpoints,
   metadataHistory,
   marketplaceOutcomes,
+  marketplaceReviews,
   marketplaceServices,
   reconciliationRecords,
   serviceDeclarations,
@@ -56,7 +60,12 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   } | null;
   hireable: boolean;
   verifiedInvocationCount: number;
+  eligibleAcceptedJobCount: number;
   completedCommerceJobCount: number;
+  completionRatePercent: number | null;
+  reviewCount: number;
+  reviewGoodCount: number;
+  reviewBadCount: number;
   deliveryCompletedCount: number;
   settlementCompletedCount: number;
   unsuccessfulCommerceJobCount: number;
@@ -131,7 +140,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       id,
     ]);
     if (summary === undefined) return null;
-    const [identity, services, evidence, outcomes, classifications] =
+    const [identity, services, evidence, outcomes, reviews, classifications] =
       await Promise.all([
         this.database
           .select({
@@ -197,6 +206,26 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           .where(eq(marketplaceOutcomes.agentId, id))
           .orderBy(desc(marketplaceOutcomes.createdAt)),
         this.database
+          .select({
+            id: marketplaceReviews.id,
+            activationId: marketplaceReviews.activationId,
+            reviewerRole: marketplaceReviews.reviewerRole,
+            subjectType: marketplaceReviews.subjectType,
+            sentiment: marketplaceReviews.sentiment,
+            tags: marketplaceReviews.tags,
+            message: marketplaceReviews.message,
+            createdAt: marketplaceReviews.createdAt,
+          })
+          .from(marketplaceReviews)
+          .where(
+            and(
+              eq(marketplaceReviews.subjectAgentId, id),
+              eq(marketplaceReviews.subjectType, "AGENT"),
+              eq(marketplaceReviews.marketplaceHistoryEligible, true),
+            ),
+          )
+          .orderBy(desc(marketplaceReviews.createdAt)),
+        this.database
           .execute<{
             matched_source: string;
             matched_value: string;
@@ -256,6 +285,10 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         deliveredAt: outcome.deliveredAt?.toISOString() ?? null,
         observedAt: outcome.observedAt.toISOString(),
       })),
+      reviews: reviews.map((review) => ({
+        ...review,
+        createdAt: review.createdAt.toISOString(),
+      })),
       surfacedBecause: classifications.map(
         (item) => `${item.matched_source}: ${item.matched_value}`,
       ),
@@ -282,11 +315,39 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       ["yield-optimisation", "Yield Optimisation"],
       ["health-factor-monitoring", "Health Factor Monitoring"],
     ] as const;
+    const candidateCounts = executedRows<{
+      category_slug: string;
+      discovered: number;
+      verified: number;
+    }>(
+      await this.database.execute(sql`
+        select
+          category_slug,
+          count(distinct agent_id)::int discovered,
+          count(distinct agent_id) filter (
+            where status in ('INVOCATION_VERIFIED', 'ACTIONABLE')
+          )::int verified
+        from launch_candidates
+        where category_slug in (
+          'rebalancing', 'grid-trading', 'yield-optimisation',
+          'health-factor-monitoring'
+        )
+        group by category_slug
+      `),
+    );
+    const candidatesByCategory = new Map(
+      candidateCounts.map((row) => [row.category_slug, row]),
+    );
     return categories.map(([slug, label]) => {
       const categoryAgents = agents.filter((agent) => agent.category === slug);
+      const candidates = candidatesByCategory.get(slug);
       return {
         slug,
         label,
+        discovered: Number(candidates?.discovered ?? 0),
+        verified: Number(candidates?.verified ?? 0),
+        ready: categoryAgents.length,
+        hireable: categoryAgents.filter((agent) => agent.hireable).length,
         working: categoryAgents.length,
         actionable: categoryAgents.filter(
           (agent) => agent.tier === "Actionable",
@@ -295,6 +356,139 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           ...new Set(categoryAgents.flatMap((agent) => agent.protocols)),
         ].sort(),
       };
+    });
+  }
+
+  public async sellerReadiness(
+    ownerAddress: string,
+  ): Promise<SellerAgentReadiness[]> {
+    const publicRows = await this.#publicMarketplaceRows({
+      page: 1,
+      limit: 10_000,
+    });
+    const publicCandidates = new Set(
+      publicRows.map((row) => `${row.id}:${row.category}`),
+    );
+    const cutoff = this.#publicFreshnessCutoff().toISOString();
+    const rows = executedRows<{
+      agent_id: string;
+      service_id: string | null;
+      name: string;
+      description: string;
+      image_url: string | null;
+      category: string;
+      chain_id: number;
+      external_agent_id: string;
+      identity_verified: boolean;
+      service_available: boolean;
+      verification_passed: boolean;
+      last_verified_at: Date | string | null;
+      commerce_validated: boolean;
+      active_offer: boolean;
+    }>(
+      await this.database.execute(sql`
+        select
+          a.id agent_id,
+          ms.id service_id,
+          a.name,
+          a.description,
+          a.image_url,
+          lc.category_slug category,
+          ai.chain_id,
+          ai.external_agent_id,
+          (
+            ai.registration_status in ('registered', 'transferred')
+            and ai.standard = 'erc-8004'
+            and ai.namespace = 'eip155'
+            and ai.chain_id in (56, 97)
+            and ai.owner_address ~ '^0x[0-9a-fA-F]{40}$'
+          ) identity_verified,
+          (
+            ms.availability = 'available'
+            and ms.endpoint is not null
+            and ms.endpoint ~ '^https://'
+          ) service_available,
+          (
+            ms.verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+            and ms.last_verified_at >= ${cutoff}::timestamptz
+            and exists (
+              select 1 from service_verification_observations svo
+              where svo.service_id = ms.id
+                and svo.to_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+                and svo.result in ('success', 'succeeded', 'verified', 'passed')
+                and not exists (
+                  select 1 from service_verification_observations newer
+                  where newer.service_id = svo.service_id
+                    and (newer.observed_at, newer.id) > (svo.observed_at, svo.id)
+                )
+            )
+          ) verification_passed,
+          ms.last_verified_at,
+          (
+            lc.status = 'ACTIONABLE'
+            and exists (
+              select 1 from marketplace_outcomes mo
+              where mo.agent_id = a.id
+                and mo.invocation_successful = true
+                and mo.commerce_successful = true
+            )
+          ) commerce_validated,
+          exists (
+            select 1
+            from agent_offers ao
+            join agent_offer_versions aov
+              on aov.offer_id = ao.id and aov.version = ao.current_version
+            where ao.agent_id = a.id
+              and ao.service_id = ms.id
+              and ao.status = 'ACTIVE'
+              and aov.chain_id = ai.chain_id
+              and aov.effective_at <= now()
+              and (aov.expires_at is null or aov.expires_at > now())
+          ) active_offer
+        from agent_identities ai
+        join agents a on a.id = ai.agent_id
+        join launch_candidates lc on lc.agent_id = a.id
+        left join lateral (
+          select candidate_service.*
+          from marketplace_services candidate_service
+          where candidate_service.agent_id = a.id
+            and candidate_service.category_slug = lc.category_slug
+          order by
+            case candidate_service.verification_level
+              when 'COMMERCE_VERIFIED' then 2
+              when 'INVOCATION_VERIFIED' then 1
+              else 0
+            end desc,
+            candidate_service.last_verified_at desc nulls last,
+            candidate_service.id
+          limit 1
+        ) ms on true
+        where lower(ai.owner_address) = lower(${ownerAddress})
+        order by a.name, lc.category_slug
+      `),
+    );
+    return rows.map((row) => {
+      const facts: SellerReadinessFacts = {
+        agentId: row.agent_id,
+        serviceId: row.service_id,
+        name: row.name,
+        description: row.description,
+        imageUrl: row.image_url,
+        category: row.category,
+        chainId: Number(row.chain_id),
+        externalAgentId: row.external_agent_id,
+        identityVerified: row.identity_verified,
+        serviceAvailable: row.service_available,
+        verificationPassed: row.verification_passed,
+        lastVerifiedAt:
+          row.last_verified_at === null
+            ? null
+            : new Date(row.last_verified_at).toISOString(),
+        commerceValidated: row.commerce_validated,
+        activeOffer: row.active_offer,
+        publicEligible: publicCandidates.has(`${row.agent_id}:${row.category}`),
+      };
+      return sellerReadinessProjection(facts);
     });
   }
 
@@ -398,6 +592,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       sql`ai.external_agent_id ~ '^[0-9]+$'`,
       sql`a.name is not null and length(trim(a.name)) > 0`,
       sql`a.description is not null and length(trim(a.description)) > 0`,
+      sql`(a.name || ' ' || a.description) !~* '(test deployment|not for production use)'`,
       sql`length(trim(a.metadata_uri)) > 0`,
       sql`length(trim(ai.owner_address)) > 0`,
       sql`exists (
@@ -575,7 +770,99 @@ export class DrizzleAgentRepository implements AgentReadRepository {
               and aov.chain_id = ai.chain_id
           )) "hireable",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "verifiedInvocationCount",
-          (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.commerce_successful = true) "completedCommerceJobCount",
+          (select count(*)::int
+            from activations accepted_activation
+            where accepted_activation.agent_id = a.id
+              and accepted_activation.purpose = 'USER_COMMERCE'
+              and accepted_activation.marketplace_history_eligible = true
+              and (
+                accepted_activation.lifecycle_state in ('COMPLETED', 'REJECTED', 'REFUNDED', 'FAILED')
+                or accepted_activation.status in ('COMPLETED', 'REJECTED', 'EXPIRED', 'FAILED')
+              )
+              and exists (
+                select 1 from commerce_operations funded_operation
+                where funded_operation.activation_id = accepted_activation.id
+                  and funded_operation.operation_type = 'FUND'
+                  and funded_operation.state = 'FINALIZED'
+              )) "eligibleAcceptedJobCount",
+          (select count(*)::int
+            from activations completed_activation
+            where completed_activation.agent_id = a.id
+              and completed_activation.purpose = 'USER_COMMERCE'
+              and completed_activation.marketplace_history_eligible = true
+              and completed_activation.lifecycle_state = 'COMPLETED'
+              and exists (
+                select 1 from commerce_operations funded_operation
+                where funded_operation.activation_id = completed_activation.id
+                  and funded_operation.operation_type = 'FUND'
+                  and funded_operation.state = 'FINALIZED'
+              )
+              and exists (
+                select 1 from marketplace_outcomes completed_outcome
+                where completed_outcome.activation_id = completed_activation.id
+                  and completed_outcome.commerce_successful = true
+              )) "completedCommerceJobCount",
+          case
+            when (select count(*) from activations accepted_activation
+              where accepted_activation.agent_id = a.id
+                and accepted_activation.purpose = 'USER_COMMERCE'
+                and accepted_activation.marketplace_history_eligible = true
+                and (
+                  accepted_activation.lifecycle_state in ('COMPLETED', 'REJECTED', 'REFUNDED', 'FAILED')
+                  or accepted_activation.status in ('COMPLETED', 'REJECTED', 'EXPIRED', 'FAILED')
+                )
+                and exists (
+                  select 1 from commerce_operations funded_operation
+                  where funded_operation.activation_id = accepted_activation.id
+                    and funded_operation.operation_type = 'FUND'
+                    and funded_operation.state = 'FINALIZED'
+                )) = 0 then null
+            else round(100.0 *
+              (select count(*) from activations completed_activation
+                where completed_activation.agent_id = a.id
+                  and completed_activation.purpose = 'USER_COMMERCE'
+                  and completed_activation.marketplace_history_eligible = true
+                  and completed_activation.lifecycle_state = 'COMPLETED'
+                  and exists (
+                    select 1 from commerce_operations funded_operation
+                    where funded_operation.activation_id = completed_activation.id
+                      and funded_operation.operation_type = 'FUND'
+                      and funded_operation.state = 'FINALIZED'
+                  )
+                  and exists (
+                    select 1 from marketplace_outcomes completed_outcome
+                    where completed_outcome.activation_id = completed_activation.id
+                      and completed_outcome.commerce_successful = true
+                  )) /
+              (select count(*) from activations accepted_activation
+                where accepted_activation.agent_id = a.id
+                  and accepted_activation.purpose = 'USER_COMMERCE'
+                  and accepted_activation.marketplace_history_eligible = true
+                  and (
+                    accepted_activation.lifecycle_state in ('COMPLETED', 'REJECTED', 'REFUNDED', 'FAILED')
+                    or accepted_activation.status in ('COMPLETED', 'REJECTED', 'EXPIRED', 'FAILED')
+                  )
+                  and exists (
+                    select 1 from commerce_operations funded_operation
+                    where funded_operation.activation_id = accepted_activation.id
+                      and funded_operation.operation_type = 'FUND'
+                      and funded_operation.state = 'FINALIZED'
+                  )))::int
+          end "completionRatePercent",
+          (select count(*)::int from marketplace_reviews mr
+            where mr.subject_agent_id = a.id
+              and mr.subject_type = 'AGENT'
+              and mr.marketplace_history_eligible = true) "reviewCount",
+          (select count(*)::int from marketplace_reviews mr
+            where mr.subject_agent_id = a.id
+              and mr.subject_type = 'AGENT'
+              and mr.sentiment = 'GOOD'
+              and mr.marketplace_history_eligible = true) "reviewGoodCount",
+          (select count(*)::int from marketplace_reviews mr
+            where mr.subject_agent_id = a.id
+              and mr.subject_type = 'AGENT'
+              and mr.sentiment = 'BAD'
+              and mr.marketplace_history_eligible = true) "reviewBadCount",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.delivered_at is not null) "deliveryCompletedCount",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and upper(mo.settlement_state) = 'SETTLED') "settlementCompletedCount",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and upper(mo.settlement_state) in ('FAILED', 'CANCELLED', 'REJECTED', 'REFUNDED')) "unsuccessfulCommerceJobCount",
@@ -629,7 +916,15 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       activeOfferPrice: row.activeOfferPrice,
       hireable: row.hireable,
       verifiedInvocationCount: Number(row.verifiedInvocationCount),
+      eligibleAcceptedJobCount: Number(row.eligibleAcceptedJobCount),
       completedCommerceJobCount: Number(row.completedCommerceJobCount),
+      completionRatePercent:
+        row.completionRatePercent === null
+          ? null
+          : Number(row.completionRatePercent),
+      reviewCount: Number(row.reviewCount),
+      reviewGoodCount: Number(row.reviewGoodCount),
+      reviewBadCount: Number(row.reviewBadCount),
       deliveryCompletedCount: Number(row.deliveryCompletedCount),
       settlementCompletedCount: Number(row.settlementCompletedCount),
       unsuccessfulCommerceJobCount: Number(row.unsuccessfulCommerceJobCount),

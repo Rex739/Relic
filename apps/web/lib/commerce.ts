@@ -2,7 +2,11 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
-import type { AgentOffer, CreateOfferRequest } from "@relic/domain";
+import type {
+  AgentOffer,
+  CreateOfferRequest,
+  SellerAgentReadiness,
+} from "@relic/domain";
 
 const apiUrl = () =>
   (
@@ -129,6 +133,9 @@ export const operatorOffers = () =>
 
 export const operatorAgreements = () =>
   request<Array<Record<string, unknown>>>("/v1/operator/commerce-agreements");
+
+export const operatorReadiness = () =>
+  request<SellerAgentReadiness[]>("/v1/operator/readiness");
 
 export const createOperatorOffer = (body: CreateOfferRequest) =>
   request<AgentOffer>("/v1/operator/offers", {

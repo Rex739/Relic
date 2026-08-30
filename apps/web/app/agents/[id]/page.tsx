@@ -7,6 +7,7 @@ import {
   labelForCategory,
   marketplaceAgent,
   marketplaceOutcomeLabel,
+  marketplacePriceLabel,
   productCapabilityLabel,
   relativeTime,
 } from "../../../lib/marketplace";
@@ -116,11 +117,7 @@ export default async function AgentIntelligencePage({
             </div>
             <div>
               <span>Service</span>
-              <b>
-                {offers.length > 0
-                  ? commercePriceLabel(offers[0]!.version.price)
-                  : "No active offer"}
-              </b>
+              <b>{marketplacePriceLabel(agent.activeOfferPrice)}</b>
             </div>
             <div>
               <span>Permissions</span>
@@ -133,7 +130,7 @@ export default async function AgentIntelligencePage({
               ? "This service cannot move your funds."
               : "You review any funds access before authorizing it."}
           </p>
-          {agent.tier === "Actionable" && offers.length > 0 ? (
+          {agent.hireable ? (
             <div className="action-boundary actionable-boundary">
               <Link href={`/agents/${agent.id}/hire`} className="activate-link">
                 Hire agent <small>Review permissions</small>
@@ -179,11 +176,27 @@ export default async function AgentIntelligencePage({
             </div>
             <dl className="track-record-grid">
               <div>
+                <dt>Completion rate</dt>
+                <dd>
+                  {agent.completionRatePercent === null
+                    ? "No job history yet"
+                    : `${agent.completionRatePercent}% Completion · ${agent.completedCommerceJobCount} of ${agent.eligibleAcceptedJobCount} jobs`}
+                </dd>
+              </div>
+              <div>
                 <dt>Completed jobs</dt>
                 <dd>
                   {agent.completedCommerceJobCount > 0
                     ? agent.completedCommerceJobCount
                     : "No completed commerce jobs yet"}
+                </dd>
+              </div>
+              <div>
+                <dt>Reviews</dt>
+                <dd>
+                  {agent.reviewCount > 0
+                    ? agent.reviewCount
+                    : "No verified reviews yet"}
                 </dd>
               </div>
               <div>
@@ -223,6 +236,52 @@ export default async function AgentIntelligencePage({
               Verification checks and user jobs are kept separate. Relic does
               not infer ratings or success rates from missing history.
             </p>
+          </section>
+          <section className="profile-section marketplace-reviews">
+            <div className="section-heading compact-heading">
+              <div>
+                <span className="overline">Verified reviews</span>
+                <h2>Feedback from completed marketplace jobs</h2>
+              </div>
+              {agent.reviewCount > 0 ? (
+                <span>
+                  {agent.reviewCount}{" "}
+                  {agent.reviewCount === 1 ? "Review" : "Reviews"}
+                  {" · "}
+                  {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
+                </span>
+              ) : null}
+            </div>
+            {agent.reviews.length === 0 ? (
+              <div className="empty-review-state">
+                <b>No verified reviews yet</b>
+                <p>
+                  Reviews appear only after a genuine marketplace job is
+                  completed. Service checks and engineering tests never create
+                  reviews.
+                </p>
+              </div>
+            ) : (
+              <div className="review-list">
+                {agent.reviews.map((review) => (
+                  <article key={review.id}>
+                    <div>
+                      <b>{review.sentiment === "GOOD" ? "Good" : "Bad"}</b>
+                      <time>{relativeTime(review.createdAt)}</time>
+                    </div>
+                    {review.tags.length > 0 ? (
+                      <div className="tag-row">
+                        {review.tags.map((tag) => (
+                          <span key={tag}>{productCapabilityLabel(tag)}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {review.message === null ? null : <p>{review.message}</p>}
+                    <small>Verified hire</small>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
           {offers.length > 0 ? (
             <section className="profile-section commerce-offers">

@@ -92,8 +92,11 @@ export default async function MarketplacePage({
                 <h3>{category.label}</h3>
                 <p>{category.description}</p>
                 <span className="category-count">
-                  {Math.max(count?.working ?? 0, count?.actionable ?? 0)} usable
-                  · {count?.actionable ?? 0} hireable
+                  {count?.discovered ?? 0} discovered · {count?.verified ?? 0}{" "}
+                  verified
+                  <br />
+                  {count?.ready ?? 0} marketplace-ready · {count?.hireable ?? 0}{" "}
+                  ready to hire
                 </span>
                 <b aria-hidden="true">↗</b>
               </Link>

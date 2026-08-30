@@ -1,11 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { CommerceAuthorization, CreateOfferRequest } from "@relic/domain";
+import type {
+  CommerceAuthorization,
+  CreateOfferRequest,
+  MarketplaceReviewRole,
+  MarketplaceReviewSentiment,
+} from "@relic/domain";
 import {
   agreementAuthorizationTypedData,
   commerceAuthorizationSchema,
   commerceAuthorizationTypedData,
   executionApprovalTypedData,
+  isMarketplaceReviewTag,
+  MandateValidationError,
 } from "@relic/domain";
 import type {
   DrizzleCommerceStore,
@@ -353,6 +360,80 @@ export class CommerceApplicationService {
       rpcUrl?: string;
     },
   ) {}
+
+  public async marketplaceReviewEligibility(
+    principal: WalletSessionPrincipal,
+    activationId: string,
+    reviewerRole: MarketplaceReviewRole,
+  ) {
+    return this.store.marketplaceReviewEligibility({
+      activationId,
+      principalId: principal.principalId,
+      walletAddress: principal.walletAddress,
+      reviewerRole,
+    });
+  }
+
+  public async createMarketplaceReview(
+    principal: WalletSessionPrincipal,
+    input: {
+      activationId: string;
+      reviewerRole: MarketplaceReviewRole;
+      sentiment: MarketplaceReviewSentiment;
+      tags: string[];
+      message?: string | null | undefined;
+    },
+  ) {
+    if (
+      input.tags.some(
+        (tag) =>
+          !isMarketplaceReviewTag({
+            role: input.reviewerRole,
+            sentiment: input.sentiment,
+            tag,
+          }),
+      )
+    )
+      throw new MandateValidationError(
+        "review_tags_invalid",
+        "One or more review tags do not match this review",
+      );
+    const eligibility = await this.marketplaceReviewEligibility(
+      principal,
+      input.activationId,
+      input.reviewerRole,
+    );
+    if (!eligibility.eligible)
+      throw new MandateValidationError(
+        `review_${eligibility.reason}`,
+        eligibility.reason === "already_reviewed"
+          ? "This marketplace job has already been reviewed by this party"
+          : "Only a completed genuine marketplace job can be reviewed by its buyer or agent",
+      );
+    return this.store.createMarketplaceReview({
+      activationId: eligibility.activationId,
+      agreementId: eligibility.agreementId,
+      reviewerPrincipalId: principal.principalId,
+      reviewerRole: eligibility.reviewerRole,
+      subjectType: eligibility.subjectType,
+      subjectAgentId:
+        eligibility.subjectType === "AGENT" ? eligibility.agentId : null,
+      subjectPrincipalId:
+        eligibility.subjectType === "BUYER"
+          ? eligibility.buyerPrincipalId
+          : null,
+      sentiment: input.sentiment,
+      tags: [...new Set(input.tags)],
+      message: input.message?.trim() || null,
+      eligibilityProvenance: {
+        rule: "completed_user_commerce_v1",
+        activationId: eligibility.activationId,
+        agreementId: eligibility.agreementId,
+        marketplaceHistoryEligible: true,
+        commerceSuccessful: true,
+      },
+    });
+  }
 
   public createOffer(
     principal: WalletSessionPrincipal,

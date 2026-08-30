@@ -18,6 +18,111 @@
   --foreground: var(--ink);
 }
 
+.marketplace-reviews .section-heading > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.empty-review-state,
+.review-list article,
+.review-prompt {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.empty-review-state {
+  padding: 1rem;
+}
+
+.empty-review-state p,
+.review-list p,
+.review-prompt p {
+  color: var(--muted);
+}
+
+.review-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.review-list article {
+  padding: 1rem;
+}
+
+.review-list article > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.review-list time,
+.review-list small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.review-prompt {
+  margin: 1rem 0;
+  padding: 1.25rem;
+}
+
+.review-prompt.success {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.review-sentiment,
+.review-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.review-sentiment button,
+.review-tags label {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0.55rem 0.8rem;
+}
+
+.review-sentiment button.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.review-tags label {
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.review-tags input {
+  margin-right: 0.4rem;
+}
+
+.review-message {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.review-message textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.review-error {
+  color: var(--danger, #d36b62) !important;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
 /* Phase 12 loading and internal supply-readiness surfaces. */
 .loading-shell {
   display: grid;
@@ -3667,6 +3772,156 @@ summary:focus-visible {
 }
 @media (max-width: 720px) {
   .trust-check-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phase 13 seller readiness — owner-facing, evidence-backed marketplace gates. */
+.seller-readiness-section {
+  margin-bottom: 22px;
+}
+.seller-readiness-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+.seller-readiness-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #11100f;
+}
+.seller-readiness-card > header,
+.seller-readiness-card > footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.seller-readiness-card h3 {
+  margin: 5px 0 0;
+}
+.readiness-status {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.readiness-status.complete {
+  color: #c9d6ca;
+  border-color: #536556;
+}
+.readiness-status.attention {
+  color: #e1b8ae;
+  border-color: #744039;
+}
+.readiness-warning {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 12px;
+  border-left: 3px solid var(--accent);
+  background: #1a1312;
+}
+.readiness-warning span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.readiness-checks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.readiness-check {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.readiness-check > span {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2a211f;
+  color: #e1b8ae;
+  font-size: 11px;
+}
+.readiness-check.complete > span {
+  background: #1c2723;
+  color: #9fc9b7;
+}
+.readiness-check strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.readiness-check p,
+.readiness-check small {
+  display: block;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.readiness-check small {
+  color: #d2b28d;
+}
+.seller-readiness-card > footer {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.seller-readiness-card footer details {
+  max-width: 430px;
+}
+.seller-readiness-card footer summary,
+.offer-composer > summary {
+  cursor: pointer;
+  color: var(--foreground);
+}
+.seller-readiness-card footer dl div {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 12px;
+  padding-top: 7px;
+}
+.seller-readiness-card footer dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+}
+.offer-composer {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.offer-composer > .commerce-form {
+  margin-top: 16px;
+}
+.compact-state-panel {
+  margin-top: 16px;
+}
+@media (max-width: 1100px) {
+  .readiness-checks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .seller-readiness-card > header,
+  .seller-readiness-card > footer {
+    flex-direction: column;
+  }
+  .readiness-checks {
+    grid-template-columns: 1fr;
+  }
+  .operator-grid {
     grid-template-columns: 1fr;
   }
 }

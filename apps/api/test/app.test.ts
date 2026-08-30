@@ -6,6 +6,7 @@ import type {
   OnboardingRepository,
   OwnershipChallenge,
   PublicMarketplaceAgent,
+  PublicMarketplaceAgentDetail,
 } from "@relic/domain";
 import { agentListResponseSchema } from "@relic/validation";
 import { privateKeyToAccount } from "viem/accounts";
@@ -22,6 +23,7 @@ const publicAgent: PublicMarketplaceAgent = {
   id: "01945b1e-7e80-7000-8000-000000000099",
   name: "Verified fixture",
   description: "A fixture that represents an independently invoked agent.",
+  imageUrl: null,
   category: "rebalancing",
   tier: "Working",
   availability: "available",
@@ -37,13 +39,49 @@ const publicAgent: PublicMarketplaceAgent = {
   activeOfferPrice: null,
   hireable: false,
   verifiedInvocationCount: 1,
+  eligibleAcceptedJobCount: 0,
   completedCommerceJobCount: 0,
+  completionRatePercent: null,
+  reviewCount: 0,
+  reviewGoodCount: 0,
+  reviewBadCount: 0,
   deliveryCompletedCount: 0,
   settlementCompletedCount: 0,
   unsuccessfulCommerceJobCount: 0,
   feedbackCount: 0,
   lastVerifiedAt: "2026-08-20T00:00:00.000Z",
   updatedAt: "2026-08-20T00:00:00.000Z",
+};
+const publicAgentDetail: PublicMarketplaceAgentDetail = {
+  ...publicAgent,
+  ownerAddress: "0x0000000000000000000000000000000000000099",
+  metadataUri: "ipfs://fixture",
+  registrationTransaction: null,
+  registrationBlock: null,
+  services: [],
+  evidence: [],
+  outcomes: [],
+  reviews: [
+    {
+      id: "01945b1e-7e80-7000-8000-000000000100",
+      activationId: "01945b1e-7e80-7000-8000-000000000101",
+      reviewerRole: "BUYER",
+      subjectType: "AGENT",
+      sentiment: "GOOD",
+      tags: ["reliable"],
+      message: null,
+      createdAt: "2026-08-20T00:00:00.000Z",
+    },
+  ],
+  surfacedBecause: [],
+  checks: {
+    identityVerified: true,
+    endpointReachable: true,
+    protocolVerified: true,
+    invocationVerified: true,
+    commerceVerified: false,
+    lastCheckedAt: "2026-08-20T00:00:00.000Z",
+  },
 };
 
 describe("Relic API", () => {
@@ -179,6 +217,90 @@ describe("Relic API", () => {
     });
   });
 
+  it("returns verified review history and server-derived summary", async () => {
+    const marketplace = createApp({
+      list: () => Promise.resolve({ items: [], nextCursor: null }),
+      findById: () => Promise.resolve(null),
+      findPublicMarketplaceAgent: () =>
+        Promise.resolve({
+          ...publicAgentDetail,
+          reviewCount: 1,
+          reviewGoodCount: 1,
+          reviewBadCount: 0,
+        }),
+    });
+    const response = await marketplace.request(
+      `/v1/marketplace/agents/${publicAgent.id}/reviews`,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        summary: { total: 1, good: 1, bad: 0 },
+        reviews: [{ sentiment: "GOOD", tags: ["reliable"] }],
+      },
+    });
+  });
+
+  it("rejects unauthenticated review submission", async () => {
+    const marketplace = createApp(repository, undefined, undefined, {
+      commerceService: {
+        createMarketplaceReview: () => Promise.resolve({}),
+      } as never,
+    });
+    const response = await marketplace.request("/v1/marketplace/reviews", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        activationId: "01945b1e-7e80-7000-8000-000000000101",
+        reviewerRole: "BUYER",
+        sentiment: "GOOD",
+        tags: ["reliable"],
+        message: null,
+      }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "wallet_session_required" },
+    });
+  });
+
+  it("rejects unauthenticated review eligibility checks", async () => {
+    const marketplace = createApp(repository, undefined, undefined, {
+      commerceService: {
+        marketplaceReviewEligibility: () =>
+          Promise.resolve({ eligible: false }),
+      } as never,
+    });
+    const response = await marketplace.request(
+      "/v1/marketplace/reviews/eligibility/01945b1e-7e80-7000-8000-000000000101?reviewerRole=BUYER",
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "wallet_session_required" },
+    });
+  });
+
+  it("rejects review messages beyond the public content limit", async () => {
+    const response = await createApp(repository).request(
+      "/v1/marketplace/reviews",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          activationId: "01945b1e-7e80-7000-8000-000000000101",
+          reviewerRole: "BUYER",
+          sentiment: "GOOD",
+          tags: [],
+          message: "x".repeat(1_001),
+        }),
+      },
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "validation_error" },
+    });
+  });
+
   it("omits non-public IDs from comparison", async () => {
     const marketplace = createApp({
       list: () => Promise.resolve({ items: [], nextCursor: null }),
@@ -192,6 +314,37 @@ describe("Relic API", () => {
     await expect(response.json()).resolves.toMatchObject({
       data: [{ id: publicAgent.id }],
     });
+  });
+
+  it("returns seller readiness only for the authenticated wallet owner", async () => {
+    let owner = "";
+    const marketplace = createApp(
+      {
+        ...repository,
+        sellerReadiness: (ownerAddress) => {
+          owner = ownerAddress;
+          return Promise.resolve([]);
+        },
+      },
+      undefined,
+      undefined,
+      {
+        walletAuthService: {
+          session: () =>
+            Promise.resolve({
+              principalId: "wallet:97:owner",
+              walletAddress: "0x0000000000000000000000000000000000000042",
+              chainId: 97,
+            }),
+        } as never,
+      },
+    );
+    const response = await marketplace.request("/v1/operator/readiness", {
+      headers: { authorization: "Bearer session" },
+    });
+    expect(response.status).toBe(200);
+    expect(owner).toBe("0x0000000000000000000000000000000000000042");
+    await expect(response.json()).resolves.toEqual({ data: [] });
   });
 
   it("lists real service records through explicit service filters", async () => {

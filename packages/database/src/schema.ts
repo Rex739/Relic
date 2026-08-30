@@ -129,6 +129,18 @@ export const supplyType = pgEnum("supply_type", [
   "partner",
   "relic_reference",
 ]);
+export const marketplaceReviewRole = pgEnum("marketplace_review_role", [
+  "BUYER",
+  "AGENT",
+]);
+export const marketplaceReviewSubjectType = pgEnum(
+  "marketplace_review_subject_type",
+  ["AGENT", "BUYER"],
+);
+export const marketplaceReviewSentiment = pgEnum(
+  "marketplace_review_sentiment",
+  ["GOOD", "BAD"],
+);
 export const submissionStatus = pgEnum("submission_status", [
   "SUBMITTED",
   "IDENTITY_CHECK",
@@ -1266,6 +1278,9 @@ export const activations = pgTable(
       .references(() => marketplaceServices.id, { onDelete: "restrict" }),
     chainId: integer("chain_id").notNull(),
     purpose: activationPurpose("purpose").notNull().default("VERIFICATION"),
+    marketplaceHistoryEligible: boolean("marketplace_history_eligible")
+      .notNull()
+      .default(false),
     commerceAgreementId: uuid("commerce_agreement_id"),
     executionRequestId: uuid("execution_request_id"),
     mandateId: uuid("mandate_id"),
@@ -1362,6 +1377,51 @@ export const marketplaceOutcomes = pgTable(
     index("marketplace_outcome_supply_metrics_idx").on(
       table.agentId,
       table.commerceSuccessful,
+    ),
+  ],
+);
+
+export const marketplaceReviews = pgTable(
+  "marketplace_reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    activationId: uuid("activation_id")
+      .notNull()
+      .references(() => activations.id, { onDelete: "restrict" }),
+    commerceAgreementId: uuid("commerce_agreement_id")
+      .notNull()
+      .references(() => commerceAgreements.id, { onDelete: "restrict" }),
+    reviewerPrincipalId: text("reviewer_principal_id").notNull(),
+    reviewerRole: marketplaceReviewRole("reviewer_role").notNull(),
+    subjectType: marketplaceReviewSubjectType("subject_type").notNull(),
+    subjectAgentId: uuid("subject_agent_id").references(() => agents.id, {
+      onDelete: "restrict",
+    }),
+    subjectPrincipalId: text("subject_principal_id"),
+    sentiment: marketplaceReviewSentiment("sentiment").notNull(),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    message: text("message"),
+    marketplaceHistoryEligible: boolean("marketplace_history_eligible")
+      .notNull()
+      .default(true),
+    eligibilityProvenance: jsonb("eligibility_provenance").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("marketplace_review_role_subject_unique").on(
+      table.activationId,
+      table.reviewerRole,
+      table.subjectType,
+    ),
+    index("marketplace_review_agent_time_idx").on(
+      table.subjectAgentId,
+      table.createdAt,
+    ),
+    index("marketplace_review_buyer_time_idx").on(
+      table.subjectPrincipalId,
+      table.createdAt,
     ),
   ],
 );

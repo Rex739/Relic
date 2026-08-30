@@ -11,7 +11,6 @@ import {
   productCapabilityLabel,
   relativeTime,
 } from "../../lib/marketplace";
-import { VerificationTier } from "./verification-tier";
 import { AgentAvatar } from "./agent-avatar";
 
 const concise = (description: string) =>
@@ -78,11 +77,11 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
             </div>
             <dl className="agent-card-metrics">
               <div>
-                <dt>Track record</dt>
+                <dt>Completion</dt>
                 <dd>
-                  {agent.completedCommerceJobCount > 0
-                    ? `${agent.completedCommerceJobCount} completed`
-                    : "No completed commerce jobs yet"}
+                  {agent.completionRatePercent === null
+                    ? "No job history yet"
+                    : `${agent.completionRatePercent}% Completion · ${agent.completedCommerceJobCount} of ${agent.eligibleAcceptedJobCount} jobs`}
                 </dd>
               </div>
               <div>
@@ -94,9 +93,11 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
                 <dd>{marketplacePriceLabel(agent.activeOfferPrice)}</dd>
               </div>
               <div>
-                <dt>Status</dt>
+                <dt>Reviews</dt>
                 <dd>
-                  <VerificationTier tier={agent.tier} />
+                  {agent.reviewCount > 0
+                    ? `${agent.reviewCount} ${agent.reviewCount === 1 ? "review" : "reviews"} · ${agent.reviewGoodCount} good`
+                    : "No verified reviews yet"}
                 </dd>
               </div>
             </dl>

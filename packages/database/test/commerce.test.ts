@@ -128,6 +128,37 @@ async function authorizedExecution() {
   return { agreement: agreement!, authorizationId, executionId };
 }
 
+async function completedMarketplaceActivation() {
+  const fixture = await authorizedExecution();
+  const activation = await store.createUserCommerceActivation({
+    agreementId: fixture.agreement.id,
+    executionRequestId: fixture.executionId,
+    authorizationId: fixture.authorizationId,
+    commerceAddress: "0x5555555555555555555555555555555555555555",
+    clientAddress: buyerAddress,
+    evaluatorAddress: "0x6666666666666666666666666666666666666666",
+  });
+  await database.exec(`
+    update activations
+      set lifecycle_state = 'COMPLETED', status = 'COMPLETED',
+          reconciliation_state = 'CURRENT', provider_address = '${owner}'
+      where id = '${activation.id}';
+    insert into marketplace_outcomes
+      (activation_id, agent_id, service_id, invocation_successful,
+       commerce_successful, settlement_state, observed_cost, protocol_evidence)
+    values
+      ('${activation.id}', '${agentId}', '${serviceId}', true, true,
+       'NONE', '0', '{"source":"completed-marketplace-fixture"}');
+    insert into commerce_operations
+      (agreement_id, activation_id, execution_request_id, operation_type,
+       state, idempotency_key, attempt)
+    values
+      ('${fixture.agreement.id}', '${activation.id}', '${fixture.executionId}',
+       'FUND', 'FINALIZED', 'review-fixture:fund:${activation.id}', 1);
+  `);
+  return { ...fixture, activation };
+}
+
 describe("production commerce persistence", () => {
   it("rejects unauthorized and stale offer publication", async () => {
     await expect(
@@ -627,6 +658,7 @@ describe("production commerce persistence", () => {
     expect(replay.id).toBe(activation.id);
     expect(activation).toMatchObject({
       purpose: "USER_COMMERCE",
+      marketplaceHistoryEligible: true,
       commerceAgreementId: fixture.agreement.id,
       executionRequestId: fixture.executionId,
       mandateId,
@@ -1126,5 +1158,176 @@ describe("production commerce persistence", () => {
         evaluatorAddress: "0x6666666666666666666666666666666666666666",
       }),
     ).rejects.toThrow(/seller wallet/i);
+  });
+
+  it("allows one verified review in each direction for a completed marketplace job", async () => {
+    const fixture = await completedMarketplaceActivation();
+    const buyerEligibility = await store.marketplaceReviewEligibility({
+      activationId: fixture.activation.id,
+      principalId: buyer,
+      walletAddress: buyerAddress,
+      reviewerRole: "BUYER",
+    });
+    expect(buyerEligibility).toMatchObject({
+      eligible: true,
+      subjectType: "AGENT",
+      agentId,
+    });
+    if (!buyerEligibility.eligible) throw new Error("Fixture must be eligible");
+    const buyerReview = await store.createMarketplaceReview({
+      activationId: buyerEligibility.activationId,
+      agreementId: buyerEligibility.agreementId,
+      reviewerPrincipalId: buyer,
+      reviewerRole: "BUYER",
+      subjectType: "AGENT",
+      subjectAgentId: agentId,
+      subjectPrincipalId: null,
+      sentiment: "GOOD",
+      tags: ["accurate-result"],
+      message: "The result was clear.",
+      eligibilityProvenance: { rule: "completed_user_commerce_v1" },
+    });
+    expect(buyerReview).toMatchObject({
+      sentiment: "GOOD",
+      subjectType: "AGENT",
+    });
+    await expect(
+      store.createMarketplaceReview({
+        activationId: buyerEligibility.activationId,
+        agreementId: buyerEligibility.agreementId,
+        reviewerPrincipalId: buyer,
+        reviewerRole: "BUYER",
+        subjectType: "AGENT",
+        subjectAgentId: agentId,
+        subjectPrincipalId: null,
+        sentiment: "BAD",
+        tags: ["service-issue"],
+        message: null,
+        eligibilityProvenance: { rule: "completed_user_commerce_v1" },
+      }),
+    ).rejects.toThrow(/already been reviewed/i);
+    const agentEligibility = await store.marketplaceReviewEligibility({
+      activationId: fixture.activation.id,
+      principalId: operator,
+      walletAddress: owner,
+      reviewerRole: "AGENT",
+    });
+    expect(agentEligibility).toMatchObject({
+      eligible: true,
+      subjectType: "BUYER",
+    });
+    if (!agentEligibility.eligible) throw new Error("Fixture must be eligible");
+    await expect(
+      store.createMarketplaceReview({
+        activationId: agentEligibility.activationId,
+        agreementId: agentEligibility.agreementId,
+        reviewerPrincipalId: operator,
+        reviewerRole: "AGENT",
+        subjectType: "BUYER",
+        subjectAgentId: null,
+        subjectPrincipalId: buyer,
+        sentiment: "GOOD",
+        tags: [],
+        message: null,
+        eligibilityProvenance: { rule: "completed_user_commerce_v1" },
+      }),
+    ).resolves.toMatchObject({ reviewerRole: "AGENT", subjectType: "BUYER" });
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: operator,
+        walletAddress: owner,
+        reviewerRole: "AGENT",
+      }),
+    ).resolves.toMatchObject({ eligible: false, reason: "already_reviewed" });
+  });
+
+  it("rejects internal, incomplete, unrelated, and already-reviewed review eligibility", async () => {
+    const fixture = await completedMarketplaceActivation();
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: "01945b1e-7e80-7000-8000-000000000399",
+        walletAddress: "0x9999999999999999999999999999999999999999",
+        reviewerRole: "BUYER",
+      }),
+    ).resolves.toMatchObject({
+      eligible: false,
+      reason: "reviewer_not_a_party",
+    });
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: operator,
+        walletAddress: "0x9999999999999999999999999999999999999999",
+        reviewerRole: "AGENT",
+      }),
+    ).resolves.toMatchObject({
+      eligible: false,
+      reason: "reviewer_not_a_party",
+    });
+    await database.exec(
+      `update activations set marketplace_history_eligible = false where id = '${fixture.activation.id}'`,
+    );
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: buyer,
+        walletAddress: buyerAddress,
+        reviewerRole: "BUYER",
+      }),
+    ).resolves.toMatchObject({
+      eligible: false,
+      reason: "not_marketplace_work",
+    });
+    await database.exec(
+      `update activations set marketplace_history_eligible = true, lifecycle_state = 'ACTIVE', status = 'FUNDED' where id = '${fixture.activation.id}'`,
+    );
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: buyer,
+        walletAddress: buyerAddress,
+        reviewerRole: "BUYER",
+      }),
+    ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+    await database.exec(
+      `update activations set lifecycle_state = 'COMPLETED', status = 'COMPLETED' where id = '${fixture.activation.id}';
+       update marketplace_outcomes set commerce_successful = false where activation_id = '${fixture.activation.id}'`,
+    );
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: buyer,
+        walletAddress: buyerAddress,
+        reviewerRole: "BUYER",
+      }),
+    ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+  });
+
+  it("persists a sentiment-only Bad review with optional fields empty", async () => {
+    const fixture = await completedMarketplaceActivation();
+    const eligibility = await store.marketplaceReviewEligibility({
+      activationId: fixture.activation.id,
+      principalId: buyer,
+      walletAddress: buyerAddress,
+      reviewerRole: "BUYER",
+    });
+    if (!eligibility.eligible) throw new Error("Fixture must be eligible");
+    await expect(
+      store.createMarketplaceReview({
+        activationId: eligibility.activationId,
+        agreementId: eligibility.agreementId,
+        reviewerPrincipalId: buyer,
+        reviewerRole: "BUYER",
+        subjectType: "AGENT",
+        subjectAgentId: agentId,
+        subjectPrincipalId: null,
+        sentiment: "BAD",
+        tags: [],
+        message: null,
+        eligibilityProvenance: { rule: "completed_user_commerce_v1" },
+      }),
+    ).resolves.toMatchObject({ sentiment: "BAD", tags: [], message: null });
   });
 });

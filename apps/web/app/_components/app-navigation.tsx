@@ -14,6 +14,11 @@ const items = [
     label: "My Agents",
     match: ["/my-agents", "/mandates", "/commerce"],
   },
+  {
+    href: "/operator/offers",
+    label: "For Sellers",
+    match: ["/operator"],
+  },
 ];
 
 export function AppNavigation() {
