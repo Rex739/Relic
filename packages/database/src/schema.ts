@@ -1299,6 +1299,9 @@ export const marketplaceServices = pgTable(
       .notNull()
       .default("DECLARED"),
     lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    verificationRequestedAt: timestamp("verification_requested_at", {
+      withTimezone: true,
+    }),
     source: text("source").notNull(),
     provenance: provenanceKind("provenance").notNull(),
     raw: jsonb("raw").notNull(),

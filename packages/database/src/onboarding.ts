@@ -3,18 +3,20 @@ import type {
   AgentSubmission,
   CreateAgentSubmission,
   OnboardingRepository,
+  ServiceVerificationOperation,
   SubmissionStatus,
 } from "@relic/domain";
 import {
   assertActivationLifecycleTransition,
   assertSubmissionTransition,
 } from "@relic/domain";
-import { and, asc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
   activationLifecycleTransitions,
   activations,
+  agents,
   agentIdentities,
   agentServices,
   agentSubmissions,
@@ -23,6 +25,7 @@ import {
   ownershipChallenges,
   sellerAgentAuthorizations,
   sellerMarketplaceProfiles,
+  serviceVerificationObservations,
   submissionTransitions,
 } from "./schema.js";
 
@@ -524,6 +527,104 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     if (service?.endpoint === null || service === undefined)
       throw new Error("Service endpoint could not be updated");
     return { endpoint: service.endpoint };
+  }
+
+  async requestSellerServiceVerification(input: {
+    agentId: string;
+    serviceId: string;
+    requestedAt: Date;
+  }) {
+    const retryAt = new Date(input.requestedAt.getTime() - 5 * 60 * 1_000);
+    const [service] = await this.database
+      .update(marketplaceServices)
+      .set({ verificationRequestedAt: input.requestedAt, updatedAt: input.requestedAt })
+      .where(and(
+        eq(marketplaceServices.id, input.serviceId),
+        eq(marketplaceServices.agentId, input.agentId),
+        or(isNull(marketplaceServices.verificationRequestedAt), lt(marketplaceServices.verificationRequestedAt, retryAt)),
+      ))
+      .returning({ id: marketplaceServices.id });
+    return { queued: service !== undefined };
+  }
+
+  async requestServiceVerification(input: {
+    serviceId: string;
+    requestedAt: Date;
+  }) {
+    const retryAt = new Date(input.requestedAt.getTime() - 5 * 60 * 1_000);
+    const [service] = await this.database
+      .update(marketplaceServices)
+      .set({ verificationRequestedAt: input.requestedAt, updatedAt: input.requestedAt })
+      .where(and(
+        eq(marketplaceServices.id, input.serviceId),
+        or(isNull(marketplaceServices.verificationRequestedAt), lt(marketplaceServices.verificationRequestedAt, retryAt)),
+      ))
+      .returning({ id: marketplaceServices.id });
+    return { queued: service !== undefined };
+  }
+
+  async listServiceVerificationOperations(input: { limit?: number } = {}) {
+    const rows = await this.database
+      .select({
+        service: marketplaceServices,
+        agent: agents,
+        identity: agentIdentities,
+      })
+      .from(marketplaceServices)
+      .innerJoin(agents, eq(agents.id, marketplaceServices.agentId))
+      .innerJoin(agentIdentities, eq(agentIdentities.agentId, agents.id))
+      .orderBy(
+        desc(marketplaceServices.verificationRequestedAt),
+        asc(marketplaceServices.lastVerifiedAt),
+        desc(marketplaceServices.updatedAt),
+      )
+      .limit(input.limit ?? 100);
+    const serviceIds = rows.map((row) => row.service.id);
+    const observations =
+      serviceIds.length === 0
+        ? []
+        : await this.database
+            .select({
+              serviceId: serviceVerificationObservations.serviceId,
+              result: serviceVerificationObservations.result,
+              observedAt: serviceVerificationObservations.observedAt,
+              error: serviceVerificationObservations.error,
+            })
+            .from(serviceVerificationObservations)
+            .where(inArray(serviceVerificationObservations.serviceId, serviceIds))
+            .orderBy(desc(serviceVerificationObservations.observedAt));
+    const latestByService = new Map<string, (typeof observations)[number]>();
+    for (const observation of observations)
+      if (!latestByService.has(observation.serviceId))
+        latestByService.set(observation.serviceId, observation);
+    const operationResult = (value: string): ServiceVerificationOperation["latestResult"] =>
+      value === "passed" || value === "failed" || value === "blocked"
+        ? value
+        : null;
+    const errorMessage = (value: unknown) =>
+      value !== null &&
+      typeof value === "object" &&
+      "message" in value &&
+      typeof value.message === "string"
+        ? value.message
+        : null;
+    return rows.map((row): ServiceVerificationOperation => {
+      const latest = latestByService.get(row.service.id);
+      return {
+      serviceId: row.service.id,
+      agentId: row.agent.id,
+      agentName: row.agent.name ?? `Agent #${row.identity.externalAgentId}`,
+      externalAgentId: row.identity.externalAgentId,
+      endpoint: row.service.endpoint,
+      availability: row.service.availability,
+      verificationLevel: row.service.verificationLevel,
+      lastVerifiedAt: row.service.lastVerifiedAt,
+      verificationRequestedAt: row.service.verificationRequestedAt,
+      latestResult: latest === undefined ? null : operationResult(latest.result),
+      latestObservedAt: latest?.observedAt ?? null,
+      latestErrorMessage: errorMessage(latest?.error),
+    };
+    });
   }
 
   async transitionSubmission(input: {

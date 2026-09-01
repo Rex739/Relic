@@ -48,6 +48,9 @@ const serverEnvironmentSchema = z.object({
   RELIC_WALLET_AUTH_DOMAIN: z.string().trim().min(1).optional(),
   RELIC_WALLET_AUTH_URI: optionalUrl,
   RELIC_PUBLIC_ORIGIN: optionalUrl,
+  // Comma-separated Privy principal UUIDs allowed to use Relic's internal
+  // operational tools. Keep this only in server-side environment variables.
+  RELIC_ADMIN_PRINCIPAL_IDS: z.string().trim().min(1).optional(),
   RELIC_COMMERCE_AUTHORIZER_ADDRESS: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/)

@@ -654,6 +654,50 @@ const operatorServiceEndpointRoute = createRoute({
     503: json(errorResponseSchema, "Service storage unavailable"),
   },
 });
+const requestOperatorServiceVerificationRoute = createRoute({
+  method: "post",
+  path: "/v1/operator/agents/{agentId}/services/{serviceId}/verification-requests",
+  request: {
+    params: z.object({ agentId: z.uuid(), serviceId: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.object({ queued: z.boolean() }) }),
+      "Service verification requested",
+    ),
+    503: json(errorResponseSchema, "Service verification unavailable"),
+  },
+});
+const internalServiceVerificationsRoute = createRoute({
+  method: "get",
+  path: "/internal/service-verifications",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(
+      z.object({ data: z.array(z.record(z.string(), z.unknown())) }),
+      "Internal service verification operations",
+    ),
+    403: json(errorResponseSchema, "Relic administrator access required"),
+    503: json(errorResponseSchema, "Verification operations unavailable"),
+  },
+});
+const requestInternalServiceVerificationRoute = createRoute({
+  method: "post",
+  path: "/internal/service-verifications/{serviceId}/request",
+  request: {
+    params: z.object({ serviceId: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.object({ queued: z.boolean() }) }),
+      "Service verification queued",
+    ),
+    403: json(errorResponseSchema, "Relic administrator access required"),
+    503: json(errorResponseSchema, "Service verification unavailable"),
+  },
+});
 const reviseOfferRoute = createRoute({
   method: "put",
   path: "/v1/operator/offers/{id}",
@@ -1062,6 +1106,7 @@ export function createApp(
     commerceService?: CommerceApplicationService;
     ownershipReader?: Erc8004OwnershipReader;
     sellerAuthorizationGuard?: SellerAuthorizationGuard;
+    adminPrincipalIds?: readonly string[];
     publicOrigin?: string;
     environmentName?: string;
     now?: () => Date;
@@ -1772,6 +1817,91 @@ export function createApp(
       updatedAt: options.now?.() ?? new Date(),
     });
     return context.json({ data: updated }, 200);
+  });
+
+  app.openapi(requestOperatorServiceVerificationRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    const { agentId, serviceId } = context.req.valid("param");
+    if (
+      options.sellerAuthorizationGuard === undefined ||
+      onboarding?.requestSellerServiceVerification === undefined
+    )
+      return context.json(
+        {
+          error: {
+            code: "service_verification_unavailable",
+            message: "Service verification requests are unavailable",
+          },
+        },
+        503,
+      );
+    await options.sellerAuthorizationGuard.assertAuthorized(
+      session.principalId,
+      agentId,
+    );
+    const data = await onboarding.requestSellerServiceVerification({
+      agentId,
+      serviceId,
+      requestedAt: options.now?.() ?? new Date(),
+    });
+    return context.json({ data }, 200);
+  });
+
+  app.openapi(internalServiceVerificationsRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    if (!options.adminPrincipalIds?.includes(session.principalId))
+      return context.json(
+        {
+          error: {
+            code: "admin_access_required",
+            message: "Relic administrator access is required",
+          },
+        },
+        403,
+      );
+    if (onboarding?.listServiceVerificationOperations === undefined)
+      return context.json(
+        {
+          error: {
+            code: "verification_operations_unavailable",
+            message: "Verification operations are unavailable",
+          },
+        },
+        503,
+      );
+    return context.json(
+      { data: await onboarding.listServiceVerificationOperations() },
+      200,
+    );
+  });
+
+  app.openapi(requestInternalServiceVerificationRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    if (!options.adminPrincipalIds?.includes(session.principalId))
+      return context.json(
+        {
+          error: {
+            code: "admin_access_required",
+            message: "Relic administrator access is required",
+          },
+        },
+        403,
+      );
+    if (onboarding?.requestServiceVerification === undefined)
+      return context.json(
+        {
+          error: {
+            code: "service_verification_unavailable",
+            message: "Service verification requests are unavailable",
+          },
+        },
+        503,
+      );
+    const data = await onboarding.requestServiceVerification({
+      serviceId: z.uuid().parse(context.req.param("serviceId")),
+      requestedAt: options.now?.() ?? new Date(),
+    });
+    return context.json({ data }, 200);
   });
 
   app.openapi(reviseOfferRoute, async (context) => {

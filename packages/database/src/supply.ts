@@ -12,7 +12,9 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   notExists,
+  or,
   sql,
 } from "drizzle-orm";
 
@@ -468,22 +470,17 @@ export class DrizzleSupplyStore {
           ...(options.force
             ? []
             : [
-                notExists(
-                  this.database
-                    .select({ id: serviceVerificationObservations.id })
-                    .from(serviceVerificationObservations)
-                    .where(
-                      and(
-                        eq(
-                          serviceVerificationObservations.serviceId,
-                          marketplaceServices.id,
-                        ),
-                        gt(
-                          serviceVerificationObservations.observedAt,
-                          retryAfter,
-                        ),
-                      ),
-                    ),
+                or(
+                  isNotNull(marketplaceServices.verificationRequestedAt),
+                  notExists(
+                    this.database
+                      .select({ id: serviceVerificationObservations.id })
+                      .from(serviceVerificationObservations)
+                      .where(and(
+                        eq(serviceVerificationObservations.serviceId, marketplaceServices.id),
+                        gt(serviceVerificationObservations.observedAt, retryAfter),
+                      )),
+                  ),
                 ),
               ]),
           ...(options.serviceId === undefined
@@ -499,6 +496,7 @@ export class DrizzleSupplyStore {
         ),
       )
       .orderBy(
+        desc(marketplaceServices.verificationRequestedAt),
         asc(marketplaceServices.lastVerifiedAt),
         desc(
           sql`case when ${marketplaceServices.endpoint} is not null then 1 else 0 end`,
@@ -543,6 +541,7 @@ export class DrizzleSupplyStore {
             input.result === "passed" ? input.toLevel : input.fromLevel,
           availability: input.availability,
           lastVerifiedAt: now,
+          verificationRequestedAt: null,
           updatedAt: now,
         })
         .where(eq(marketplaceServices.id, input.serviceId));

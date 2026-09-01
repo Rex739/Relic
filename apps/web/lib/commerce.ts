@@ -165,6 +165,39 @@ export const updateOperatorServiceEndpoint = (
     { method: "PUT", body: JSON.stringify({ endpoint }) },
   );
 
+export const requestOperatorServiceVerification = (
+  agentId: string,
+  serviceId: string,
+) =>
+  request<{ queued: boolean }>(
+    `/v1/operator/agents/${encodeURIComponent(agentId)}/services/${encodeURIComponent(serviceId)}/verification-requests`,
+    { method: "POST" },
+  );
+
+export type ServiceVerificationOperation = {
+  serviceId: string;
+  agentId: string;
+  agentName: string;
+  externalAgentId: string;
+  endpoint: string | null;
+  availability: "unknown" | "available" | "degraded" | "unavailable";
+  verificationLevel: string;
+  lastVerifiedAt: string | null;
+  verificationRequestedAt: string | null;
+  latestResult: "passed" | "failed" | "blocked" | null;
+  latestObservedAt: string | null;
+  latestErrorMessage: string | null;
+};
+
+export const internalServiceVerifications = () =>
+  request<ServiceVerificationOperation[]>("/internal/service-verifications");
+
+export const requestInternalServiceVerification = (serviceId: string) =>
+  request<{ queued: boolean }>(
+    `/internal/service-verifications/${encodeURIComponent(serviceId)}/request`,
+    { method: "POST" },
+  );
+
 export type CommerceValidationHandoff = {
   session: CommerceValidationSession;
   offer: AgentOffer;

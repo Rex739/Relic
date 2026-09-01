@@ -22,6 +22,7 @@ import {
   reviseOfferAction,
   transitionOfferAction,
   updateSellerProfileAction,
+  requestSellerServiceVerificationAction,
   updateSellerServiceEndpointAction,
 } from "../../operator-actions";
 import { CreateOfferDialog } from "../../_components/create-offer-dialog";
@@ -286,6 +287,16 @@ export default async function OffersPage({
                   selectedAgent.serviceId === null
                     ? undefined
                     : updateSellerServiceEndpointAction.bind(
+                        null,
+                        selectedAgent.agentId,
+                        selectedAgent.serviceId,
+                      )
+                }
+                verificationAction={
+                  selectedAgent.serviceId === null ||
+                  selectedAgent.requirements.verification.state === "complete"
+                    ? undefined
+                    : requestSellerServiceVerificationAction.bind(
                         null,
                         selectedAgent.agentId,
                         selectedAgent.serviceId,

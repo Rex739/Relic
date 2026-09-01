@@ -154,6 +154,13 @@ const app = createApp(repository, onboarding, mandates, {
     : { sellerAuthorizationGuard: sellerAuthorization }),
   publicOrigin: environment.RELIC_PUBLIC_ORIGIN ?? "http://localhost:3000",
   environmentName: environment.NODE_ENV,
+  ...(environment.RELIC_ADMIN_PRINCIPAL_IDS === undefined
+    ? {}
+    : {
+        adminPrincipalIds: environment.RELIC_ADMIN_PRINCIPAL_IDS.split(",").map(
+          (principalId) => principalId.trim(),
+        ),
+      }),
 });
 
 serve({ fetch: app.fetch, port: environment.API_PORT }, (info) => {

@@ -63,12 +63,16 @@ export function SellerProfileEditor({
   action,
   offerAction,
   serviceAction,
+  verificationAction,
 }: {
   agent: SellerProfileAgent;
   action: (formData: FormData) => Promise<{ error: string | null }>;
   offerAction?: ReactNode;
   serviceAction?:
     | ((formData: FormData) => Promise<{ error: string | null }>)
+    | undefined;
+  verificationAction?:
+    | (() => Promise<{ error: string | null; queued?: boolean }>)
     | undefined;
 }) {
   const [pending, startTransition] = useTransition();
@@ -85,6 +89,7 @@ export function SellerProfileEditor({
   const [error, setError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
   const hasChanges =
     imageUrl !== savedImageUrl ||
     description !== savedDescription ||
@@ -218,8 +223,36 @@ export function SellerProfileEditor({
               <Save aria-hidden="true" size={16} />
               {pending ? "Saving…" : "Save profile"}
             </Button>
+            {verificationAction === undefined ? null : (
+              <Button
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    setError(null);
+                    setVerificationMessage(null);
+                    const result = await verificationAction();
+                    if (result.error !== null) {
+                      setError(result.error);
+                      return;
+                    }
+                    setVerificationMessage(
+                      result.queued === false
+                        ? "Verification was already requested. Try again in a few minutes."
+                        : "Verification requested. Relic will update this listing when the check finishes.",
+                    );
+                  })
+                }
+                type="button"
+                variant="outline"
+              >
+                {pending ? "Requesting…" : "Request verification"}
+              </Button>
+            )}
             {offerAction}
             {saved ? <span role="status">Profile saved</span> : null}
+            {verificationMessage !== null ? (
+              <span role="status">{verificationMessage}</span>
+            ) : null}
             {error !== null ? <span role="alert">{error}</span> : null}
           </div>
         </div>

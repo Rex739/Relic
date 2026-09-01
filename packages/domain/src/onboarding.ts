@@ -250,7 +250,34 @@ export interface OnboardingRepository {
     endpoint: string;
     updatedAt: Date;
   }): Promise<{ endpoint: string }>;
+  requestSellerServiceVerification?(input: {
+    agentId: string;
+    serviceId: string;
+    requestedAt: Date;
+  }): Promise<{ queued: boolean }>;
+  requestServiceVerification?(input: {
+    serviceId: string;
+    requestedAt: Date;
+  }): Promise<{ queued: boolean }>;
+  listServiceVerificationOperations?(input?: {
+    limit?: number;
+  }): Promise<ServiceVerificationOperation[]>;
 }
+
+export type ServiceVerificationOperation = {
+  serviceId: string;
+  agentId: string;
+  agentName: string;
+  externalAgentId: string;
+  endpoint: string | null;
+  availability: "unknown" | "available" | "degraded" | "unavailable";
+  verificationLevel: string;
+  lastVerifiedAt: Date | null;
+  verificationRequestedAt: Date | null;
+  latestResult: "passed" | "failed" | "blocked" | null;
+  latestObservedAt: Date | null;
+  latestErrorMessage: string | null;
+};
 
 export function buildOwnershipMessage(input: {
   environment: string;
