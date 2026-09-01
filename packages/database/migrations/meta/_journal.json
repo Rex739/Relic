@@ -162,6 +162,13 @@
       "when": 1788217200000,
       "tag": "0022_phase13_seller_marketplace_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788249600000,
+      "tag": "0023_phase13_requested_service_verification",
+      "breakpoints": true
     }
   ]
 }

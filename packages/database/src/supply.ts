@@ -492,6 +492,8 @@ export class DrizzleSupplyStore {
             "REVIEW_PENDING",
             "SERVICE_OBSERVED",
             "INVOCATION_VERIFIED",
+            "ACTIONABLE",
+            "STALE",
           ]),
         ),
       )
