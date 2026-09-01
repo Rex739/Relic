@@ -4184,6 +4184,47 @@ summary:focus-visible {
 .profile-page .empty-review-state {
   padding: 12px;
 }
+.profile-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.profile-secondary-grid .profile-section {
+  height: calc(100% - 14px);
+}
+.verification-dialog-trigger {
+  width: 100%;
+  margin-top: 14px;
+  justify-content: center;
+}
+.verification-dialog-content {
+  width: min(560px, calc(100vw - 32px));
+}
+.verification-dialog-list {
+  display: grid;
+  gap: 8px;
+}
+.verification-dialog-list > div {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11100f;
+}
+.verification-dialog-list b {
+  display: block;
+  color: #c9d6ca;
+  font-size: 13px;
+}
+.verification-dialog-list .pending b {
+  color: #c8b7a7;
+}
+.verification-dialog-list p,
+.verification-dialog-recency {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 @media (max-width: 720px) {
   .trust-check-list {
@@ -4204,6 +4245,12 @@ summary:focus-visible {
   .profile-summary-section {
     grid-template-columns: 1fr;
     padding-block: 0 !important;
+  }
+  .profile-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+  .profile-secondary-grid .profile-section {
+    height: auto;
   }
   .profile-summary-block,
   .profile-summary-block:first-child,

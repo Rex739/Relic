@@ -13,6 +13,7 @@ import {
 } from "../../../lib/marketplace";
 import { activeOffers } from "../../../lib/commerce";
 import { AgentAvatar } from "../../_components/agent-avatar";
+import { VerificationDialog } from "../../_components/verification-dialog";
 import { VerificationTier } from "../../_components/verification-tier";
 
 export const dynamic = "force-dynamic";
@@ -214,52 +215,74 @@ export default async function AgentIntelligencePage({
               not infer ratings or success rates from missing history.
             </p>
           </section>
-          <section className="profile-section marketplace-reviews">
-            <div className="section-heading compact-heading">
-              <div>
-                <span className="overline">Verified reviews</span>
-                <h2>Feedback from completed marketplace jobs</h2>
+          <div className="profile-secondary-grid">
+            <section className="profile-section marketplace-reviews">
+              <div className="section-heading compact-heading">
+                <div>
+                  <span className="overline">Verified reviews</span>
+                  <h2>Feedback from completed marketplace jobs</h2>
+                </div>
+                {agent.reviewCount > 0 ? (
+                  <span>
+                    {agent.reviewCount}{" "}
+                    {agent.reviewCount === 1 ? "Review" : "Reviews"}
+                    {" · "}
+                    {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
+                  </span>
+                ) : null}
               </div>
-              {agent.reviewCount > 0 ? (
-                <span>
-                  {agent.reviewCount}{" "}
-                  {agent.reviewCount === 1 ? "Review" : "Reviews"}
-                  {" · "}
-                  {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
-                </span>
-              ) : null}
-            </div>
-            {agent.reviews.length === 0 ? (
-              <div className="empty-review-state">
-                <b>No verified reviews yet</b>
-                <p>
-                  Reviews appear only after a genuine marketplace job is
-                  completed. Service checks and engineering tests never create
-                  reviews.
-                </p>
-              </div>
-            ) : (
-              <div className="review-list">
-                {agent.reviews.map((review) => (
-                  <article key={review.id}>
-                    <div>
-                      <b>{review.sentiment === "GOOD" ? "Good" : "Bad"}</b>
-                      <time>{relativeTime(review.createdAt)}</time>
-                    </div>
-                    {review.tags.length > 0 ? (
-                      <div className="tag-row">
-                        {review.tags.map((tag) => (
-                          <span key={tag}>{productCapabilityLabel(tag)}</span>
-                        ))}
+              {agent.reviews.length === 0 ? (
+                <div className="empty-review-state">
+                  <b>No verified reviews yet</b>
+                  <p>
+                    Reviews appear only after a genuine marketplace job is
+                    completed. Service checks and engineering tests never create
+                    reviews.
+                  </p>
+                </div>
+              ) : (
+                <div className="review-list">
+                  {agent.reviews.map((review) => (
+                    <article key={review.id}>
+                      <div>
+                        <b>{review.sentiment === "GOOD" ? "Good" : "Bad"}</b>
+                        <time>{relativeTime(review.createdAt)}</time>
                       </div>
-                    ) : null}
-                    {review.message === null ? null : <p>{review.message}</p>}
-                    <small>Verified hire</small>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+                      {review.tags.length > 0 ? (
+                        <div className="tag-row">
+                          {review.tags.map((tag) => (
+                            <span key={tag}>{productCapabilityLabel(tag)}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {review.message === null ? null : <p>{review.message}</p>}
+                      <small>Verified hire</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+            {agent.outcomes.length > 0 ? (
+              <section className="profile-section">
+                <span className="overline">Recent activity</span>
+                <h2>What happened recently</h2>
+                <div className="outcome-list">
+                  {agent.outcomes.map((outcome, index) => (
+                    <article key={`${outcome.observedAt}-${index}`}>
+                      <b>{marketplaceOutcomeLabel(outcome)}</b>
+                      <span>
+                        {outcome.responseStatus ?? "Execution observed"}
+                      </span>
+                      <span>Cost {outcome.observedCost}</span>
+                      <time>
+                        {new Date(outcome.observedAt).toLocaleString()}
+                      </time>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
           {offers.length > 0 ? (
             <section className="profile-section commerce-offers">
               <span className="overline">Services</span>
@@ -299,78 +322,6 @@ export default async function AgentIntelligencePage({
                   </Link>
                 </article>
               ))}
-            </section>
-          ) : null}
-          <section className="profile-section human-verification">
-            <span className="overline">Verified by Relic</span>
-            <h2>Checks you can understand</h2>
-            <div className="trust-check-list">
-              <div
-                className={agent.checks.identityVerified ? "passed" : "pending"}
-              >
-                <b>
-                  {agent.checks.identityVerified
-                    ? "✓ Identity registered"
-                    : "○ Identity check pending"}
-                </b>
-                <p>
-                  {agent.checks.identityVerified
-                    ? "This agent has a verifiable identity registered on BNB Chain."
-                    : "Relic has not yet confirmed this agent’s registered identity."}
-                </p>
-              </div>
-              <div
-                className={
-                  agent.checks.invocationVerified ? "passed" : "pending"
-                }
-              >
-                <b>
-                  {agent.checks.invocationVerified
-                    ? "✓ Service checked"
-                    : "○ Service check pending"}
-                </b>
-                <p>
-                  {agent.checks.invocationVerified
-                    ? "Relic successfully contacted the service and received a valid response."
-                    : "Relic has not yet recorded a successful service test."}
-                </p>
-              </div>
-              <div
-                className={agent.checks.protocolVerified ? "passed" : "pending"}
-              >
-                <b>
-                  {agent.checks.protocolVerified
-                    ? "✓ Profile matches service"
-                    : "○ Profile match pending"}
-                </b>
-                <p>
-                  {agent.checks.protocolVerified
-                    ? "The service Relic observed matches what this agent advertises."
-                    : "Relic has not yet confirmed that the advertised profile matches the live service."}
-                </p>
-              </div>
-            </div>
-            <p className="verification-recency">
-              Last checked {relativeTime(agent.checks.lastCheckedAt)}.
-            </p>
-          </section>
-
-          {agent.outcomes.length > 0 ? (
-            <section className="profile-section">
-              <span className="overline">Recent activity</span>
-              <h2>What happened recently</h2>
-              <div className="outcome-list">
-                {agent.outcomes.map((outcome, index) => (
-                  <article key={`${outcome.observedAt}-${index}`}>
-                    <b>{marketplaceOutcomeLabel(outcome)}</b>
-                    <span>
-                      {outcome.responseStatus ?? "Execution observed"}
-                    </span>
-                    <span>Cost {outcome.observedCost}</span>
-                    <time>{new Date(outcome.observedAt).toLocaleString()}</time>
-                  </article>
-                ))}
-              </div>
             </section>
           ) : null}
           <details className="profile-section technical-details">
@@ -438,14 +389,6 @@ export default async function AgentIntelligencePage({
                 </b>
               </div>
               <div>
-                <span>Trust</span>
-                <b>
-                  {agent.checks.identityVerified
-                    ? "Verified by Relic"
-                    : "Checks in progress"}
-                </b>
-              </div>
-              <div>
                 <span>Service</span>
                 <b>{marketplacePriceLabel(agent.activeOfferPrice)}</b>
               </div>
@@ -454,6 +397,10 @@ export default async function AgentIntelligencePage({
                 <b>{isReadOnly ? "Read-only" : "Set during hire"}</b>
               </div>
             </div>
+            <VerificationDialog
+              checks={agent.checks}
+              lastChecked={relativeTime(agent.checks.lastCheckedAt)}
+            />
             <p>Last active {relativeTime(agent.lastVerifiedAt)}.</p>
             <p className="funds-access-summary">
               {isReadOnly
