@@ -14,28 +14,29 @@ import {
   DialogTrigger,
 } from "../../components/ui/dialog";
 import { labelForCategory } from "../../lib/marketplace";
-import { formatDisplayBaseUnits } from "../../lib/commerce-display";
 
-type PricedSellerAgent = {
+type OfferableSellerAgent = {
   agentId: string;
   serviceId: string;
   name: string;
   chainId: number;
   category: string;
-  verifiedPrice: {
-    amountBaseUnits: string;
-    decimals: number;
-    tokenAddress: string;
-    symbol: string;
-  };
+};
+
+type PaymentToken = {
+  decimals: number;
+  tokenAddress: string;
+  symbol: string;
 };
 
 export function CreateOfferDialog({
   agent,
   action,
+  paymentToken,
 }: {
-  agent: PricedSellerAgent;
+  agent: OfferableSellerAgent;
   action: (formData: FormData) => Promise<{ error: string | null }>;
+  paymentToken: PaymentToken;
 }) {
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
@@ -60,8 +61,8 @@ export function CreateOfferDialog({
           <span className="overline">Marketplace offer</span>
           <DialogTitle>Create an offer for {agent.name}</DialogTitle>
           <DialogDescription>
-            Relic has filled in the verified service, category, and price. Add
-            the buyer-facing deliverable and any limitations.
+            Your verified service and category are ready. Set a clear buyer
+            price, deliverable, and any important limitations.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -89,26 +90,18 @@ export function CreateOfferDialog({
           <input type="hidden" name="billingModel" value="PER_EXECUTION" />
           <input
             type="hidden"
-            name="price"
-            value={formatDisplayBaseUnits(
-              agent.verifiedPrice.amountBaseUnits,
-              agent.verifiedPrice.decimals,
-            )}
-          />
-          <input
-            type="hidden"
             name="decimals"
-            value={agent.verifiedPrice.decimals}
+            value={paymentToken.decimals}
           />
           <input
             type="hidden"
             name="tokenAddress"
-            value={agent.verifiedPrice.tokenAddress}
+            value={paymentToken.tokenAddress}
           />
           <input
             type="hidden"
             name="symbol"
-            value={agent.verifiedPrice.symbol}
+            value={paymentToken.symbol}
           />
           <input type="hidden" name="capabilities" value={agent.category} />
 
@@ -124,17 +117,24 @@ export function CreateOfferDialog({
               <dd>{labelForCategory(agent.category)}</dd>
             </div>
             <div>
-              <dt>Verified price</dt>
-              <dd>
-                {formatDisplayBaseUnits(
-                  agent.verifiedPrice.amountBaseUnits,
-                  agent.verifiedPrice.decimals,
-                )}{" "}
-                {agent.verifiedPrice.symbol} per execution
-              </dd>
+              <dt>Payment token</dt>
+              <dd>{paymentToken.symbol}</dd>
             </div>
           </dl>
 
+          <label>
+            Price per execution ({paymentToken.symbol})
+            <input
+              inputMode="decimal"
+              min="0"
+              name="price"
+              placeholder="0.00"
+              required
+              step="any"
+              type="number"
+            />
+            <small>Set the amount a buyer pays for one completed execution.</small>
+          </label>
           <label>
             What should buyers know this agent cannot do?
             <textarea
@@ -148,7 +148,7 @@ export function CreateOfferDialog({
             What will the buyer receive?
             <textarea
               name="terms"
-              placeholder="Describe the result, scope, and delivery the buyer can expect. These terms become immutable when this draft is created."
+              placeholder="Describe the result, scope, and delivery a buyer can expect."
               required
             />
           </label>

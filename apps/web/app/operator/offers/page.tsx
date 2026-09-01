@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 
 import {
+  erc8183PaymentTokens,
   formatBaseUnits,
   type AgentOffer,
   type SellerAgentReadiness,
@@ -14,6 +15,7 @@ import {
   operatorReadiness,
 } from "../../../lib/commerce";
 import { labelForCategory } from "../../../lib/marketplace";
+import { usableAgentImageUrl } from "../../../lib/agent-presentation";
 import { buttonVariants } from "../../../components/ui/button";
 import {
   createOfferAction,
@@ -29,20 +31,14 @@ import { SellerProfileEditor } from "../../_components/seller-profile-editor";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "My listings" };
 
-type PricedSellerAgent = Omit<
-  SellerAgentReadiness,
-  "serviceId" | "verifiedPrice"
-> & {
+type OfferableSellerAgent = Omit<SellerAgentReadiness, "serviceId"> & {
   serviceId: string;
-  verifiedPrice: NonNullable<SellerAgentReadiness["verifiedPrice"]>;
 };
 
 const canCreateOffer = (
   agent: SellerAgentReadiness,
-): agent is PricedSellerAgent =>
+): agent is OfferableSellerAgent =>
   agent.serviceId !== null &&
-  agent.verifiedPrice !== null &&
-  agent.verifiedPrice !== undefined &&
   !agent.testDeployment &&
   agent.requirements.identity.state === "complete" &&
   agent.requirements.service.state === "complete" &&
@@ -180,27 +176,18 @@ export default async function OffersPage({
                         : "Draft"
                     : canSetUpOffer
                       ? "Ready to configure"
-                      : "Relic is checking";
+                      : "Setup required";
                   return (
                     <article
                       className="seller-agent-list-item"
                       key={agent.agentId}
                     >
                       <div className="seller-agent-list-main">
-                        {agent.imageUrl === null ? (
-                          <span
-                            aria-hidden="true"
-                            className="seller-agent-avatar"
-                          >
-                            {agent.name.slice(0, 2).toUpperCase()}
-                          </span>
-                        ) : (
-                          <img
-                            alt=""
-                            className="seller-agent-avatar"
-                            src={agent.imageUrl}
-                          />
-                        )}
+                        <img
+                          alt=""
+                          className="seller-agent-avatar"
+                          src={usableAgentImageUrl(agent.imageUrl)}
+                        />
                         <div>
                           <h3>{agent.name}</h3>
                           <span className="overline">
@@ -235,7 +222,7 @@ export default async function OffersPage({
                               <dt>Price</dt>
                               <dd>
                                 {agent.verifiedPrice === null
-                                  ? "Not quoted"
+                                  ? "Set during offer setup"
                                   : `${formatBaseUnits(agent.verifiedPrice.amountBaseUnits, agent.verifiedPrice.decimals)} ${agent.verifiedPrice.symbol}`}
                               </dd>
                             </div>
@@ -273,6 +260,7 @@ export default async function OffersPage({
                     action={createOfferAction}
                     agent={agent}
                     key={agent.agentId}
+                    paymentToken={erc8183PaymentTokens[agent.chainId]}
                   />
                 ))}
               />
@@ -295,7 +283,7 @@ export default async function OffersPage({
                     ? "Save the marketplace profile, then create the first offer when you are ready."
                     : selectedAgentHasCurrentOffer
                       ? "Edit the buyer-facing details for this agent’s marketplace offer."
-                      : "Relic is checking this agent. An offer can be created once the check is complete."}
+                      : "Finish the remaining setup requirements before creating an offer."}
                 </p>
               </div>
               {visibleCurrentOffers.length === 0 ? (

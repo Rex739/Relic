@@ -390,15 +390,9 @@ export function sellerReadinessProjection(
           facts.identityVerified &&
           facts.serviceAvailable &&
           facts.verificationPassed &&
-          !testDeployment &&
-          facts.verifiedPrice !== null
+          !testDeployment
             ? "Create marketplace offer"
-            : facts.identityVerified &&
-                facts.serviceAvailable &&
-                facts.verificationPassed &&
-                !testDeployment
-              ? "Waiting for verified seller quote"
-              : "Waiting for readiness checks",
+            : "Waiting for readiness checks",
       };
   return {
     agentId: facts.agentId,

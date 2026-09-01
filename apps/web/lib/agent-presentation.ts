@@ -1,12 +1,16 @@
+export const defaultAgentImageUrl = "/agents/default-bot.png";
+
 export function usableAgentImageUrl(value: string | null) {
-  if (value === null) return null;
+  if (value === null) return defaultAgentImageUrl;
+  if (/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value))
+    return value;
   try {
     const url = new URL(value);
     return url.protocol === "https:" || url.protocol === "http:"
       ? url.toString()
-      : null;
+      : defaultAgentImageUrl;
   } catch {
-    return null;
+    return defaultAgentImageUrl;
   }
 }
 

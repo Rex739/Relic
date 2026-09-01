@@ -1,6 +1,5 @@
 import {
   agentAvatarTone,
-  agentInitials,
   usableAgentImageUrl,
 } from "../../lib/agent-presentation";
 
@@ -21,11 +20,7 @@ export function AgentAvatar({
       className={`agent-avatar ${size === "profile" ? "large" : ""} ${agentAvatarTone(id)}`}
       aria-label={`${name} profile image`}
     >
-      {source === null ? (
-        <span aria-hidden="true">{agentInitials(name)}</span>
-      ) : (
-        <img src={source} alt="" referrerPolicy="no-referrer" />
-      )}
+      <img src={source} alt="" referrerPolicy="no-referrer" />
     </div>
   );
 }
