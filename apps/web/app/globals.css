@@ -4278,15 +4278,38 @@ summary:focus-visible {
   font-size: 11px;
 }
 .profile-page .empty-review-state {
-  display: grid;
-  min-height: 122px;
-  place-items: center;
-  padding: 12px;
+  display: block;
+  min-height: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: transparent;
   color: var(--muted);
 }
 .marketplace-reviews-empty {
   min-width: 0;
-  padding: 18px 0;
+}
+.review-summary {
+  display: block;
+  margin: -4px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.profile-page .marketplace-reviews {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.profile-page .review-list {
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+.profile-page .review-list article {
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
 }
 .profile-secondary-grid {
   display: grid;
@@ -4343,22 +4366,24 @@ summary:focus-visible {
 }
 .outcome-list {
   display: grid;
-  gap: 8px;
+  gap: 0;
+  border-top: 1px solid var(--line);
 }
 .outcome-list article {
   display: grid;
-  gap: 7px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 6px;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
 }
 .outcome-title-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
+  display: contents;
 }
 .outcome-list article b {
+  min-width: 0;
   color: var(--ink);
   font-size: 13px;
 }
@@ -4381,13 +4406,13 @@ summary:focus-visible {
   background: #162519;
 }
 .outcome-title-row time {
-  margin-left: auto;
   color: var(--faint);
   font-size: 11px;
   white-space: nowrap;
 }
 .outcome-list article p {
-  margin: 5px 0 0;
+  grid-column: 1 / -1;
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
@@ -4461,15 +4486,19 @@ summary:focus-visible {
     margin-bottom: 10px;
   }
   .outcome-list article {
-    display: grid;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 7px;
   }
-  .outcome-title-row {
-    flex-wrap: wrap;
-    gap: 7px;
+  .outcome-cost {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .outcome-status {
+    grid-column: 1;
   }
   .outcome-title-row time {
-    margin-left: 0;
+    grid-column: 2;
   }
   .profile-summary-block,
   .profile-summary-block:first-child,

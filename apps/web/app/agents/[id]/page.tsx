@@ -243,19 +243,19 @@ export default async function AgentIntelligencePage({
               <div
                 className={
                   agent.reviews.length > 0
-                    ? "profile-section marketplace-reviews"
+                    ? "marketplace-reviews"
                     : "marketplace-reviews-empty"
                 }
               >
                 {agent.reviewCount > 0 ? (
-                  <div className="section-heading compact-heading">
+                  <span className="review-summary">
                     <span>
                       {agent.reviewCount}{" "}
                       {agent.reviewCount === 1 ? "Review" : "Reviews"}
                       {" · "}
                       {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
                     </span>
-                  </div>
+                  </span>
                 ) : null}
                 {agent.reviews.length === 0 ? (
                   <div className="empty-review-state">
