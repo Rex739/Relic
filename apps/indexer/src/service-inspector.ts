@@ -3,10 +3,6 @@ import { createHash } from "node:crypto";
 import type { DrizzleSupplyStore } from "@relic/database";
 import type { ServiceVerificationLevel } from "@relic/domain";
 
-import {
-  parseRelicReadyDocument,
-  relicReadyDocumentUrl,
-} from "./relic-ready.js";
 import { safeHttpRequest, type SafeHttpResult } from "./endpoint-observer.js";
 import {
   assertCandidateTransition,
@@ -15,10 +11,7 @@ import {
 
 export interface InspectableService {
   id: string;
-  agentChainId: number;
-  externalAgentId: string;
   endpoint: string | null;
-  verificationUrl?: string | null;
   interfaceProtocol: string;
   verificationLevel: ServiceVerificationLevel;
 }
@@ -133,6 +126,18 @@ function understoodSchema(
   return Object.keys(parsed).length > 0;
 }
 
+function hasPublicCommerceSkills(parsed: Record<string, unknown> | null) {
+  if (parsed === null || !Array.isArray(parsed.skills)) return false;
+  const skills = new Set(
+    parsed.skills.flatMap((skill) =>
+      skill !== null && typeof skill === "object" && "id" in skill
+        ? [String((skill as { id: unknown }).id)]
+        : [],
+    ),
+  );
+  return skills.has("negotiate") && skills.has("notify_funded");
+}
+
 export async function inspectMarketplaceService(
   service: InspectableService,
   request?: SafeRequester,
@@ -168,117 +173,6 @@ export async function inspectMarketplaceService(
       evidence: { boundary: "no network request", reason: "invalid_url" },
       error: { code: "invalid_url" },
     };
-  }
-
-  // Prefer the provider-neutral Relic-ready document. It is public and safe
-  // to fetch without credentials, while its identity and service declaration
-  // are bound to the ERC-8004 identity that Relic already resolved.
-  let publicDocumentEndpoint: string | null = null;
-  try {
-    publicDocumentEndpoint = relicReadyDocumentUrl(
-      service.endpoint,
-      service.verificationUrl,
-    );
-  } catch {
-    // The protocol-specific request below returns the canonical URL failure.
-  }
-  if (protocol === "a2a" && publicDocumentEndpoint !== null) {
-    const publicRequester = request ?? safeHttpRequest;
-    const publicResponse = await publicRequester(publicDocumentEndpoint, {
-      method: "GET",
-      timeoutMs: 5_000,
-      maxRedirects: 2,
-      maxResponseBytes: 32 * 1024,
-    });
-    if (publicResponse.ok && publicResponse.status === 200) {
-      try {
-        parseRelicReadyDocument(publicResponse.body, {
-          chainId: service.agentChainId,
-          externalAgentId: service.externalAgentId,
-          endpoint: service.endpoint,
-          protocol,
-        });
-        const parsed = parseObject(publicResponse.body);
-        return {
-          fromLevel: service.verificationLevel,
-          toLevel:
-            verificationLevelRank(service.verificationLevel) >
-            verificationLevelRank("SCHEMA_UNDERSTOOD")
-              ? service.verificationLevel
-              : "SCHEMA_UNDERSTOOD",
-          result: "passed",
-          protocol,
-          requestMethod: "GET",
-          httpStatus: publicResponse.status,
-          latencyMs: publicResponse.latencyMs,
-          availability: "available",
-          evidence: {
-            ...responseEvidence(publicResponse, parsed),
-            verificationDocument: "relic-ready/v1",
-            verificationDocumentSource:
-              service.verificationUrl === null ||
-              service.verificationUrl === undefined
-                ? "service-origin-default"
-                : "erc-8004-metadata",
-            boundary:
-              "public Relic-ready listing verification; no credential, payment, or blockchain transaction",
-          },
-        };
-      } catch {
-        return {
-          fromLevel: service.verificationLevel,
-          toLevel: service.verificationLevel,
-          result: "failed",
-          protocol,
-          requestMethod: "GET",
-          httpStatus: publicResponse.status,
-          latencyMs: publicResponse.latencyMs,
-          availability: "degraded",
-          evidence: {
-            ...responseEvidence(
-              publicResponse,
-              parseObject(publicResponse.body),
-            ),
-            verificationDocument: "relic-ready/v1",
-            verificationDocumentSource:
-              service.verificationUrl === null ||
-              service.verificationUrl === undefined
-                ? "service-origin-default"
-                : "erc-8004-metadata",
-            boundary:
-              "public Relic-ready listing verification; invalid document",
-          },
-          error: { code: "invalid_relic_ready_document" },
-        };
-      }
-    }
-    // A seller explicitly declared this URL as the listing surface. Do not
-    // fall through to a private execution endpoint when it cannot be read:
-    // it would turn a read-only listing check into an unexpected invocation.
-    if (
-      service.verificationUrl !== null &&
-      service.verificationUrl !== undefined
-    )
-      return {
-        fromLevel: service.verificationLevel,
-        toLevel: service.verificationLevel,
-        result: "failed",
-        protocol,
-        requestMethod: "GET",
-        httpStatus: publicResponse.status,
-        latencyMs: publicResponse.latencyMs,
-        availability: availability(publicResponse),
-        evidence: {
-          ...responseEvidence(publicResponse, parseObject(publicResponse.body)),
-          verificationDocument: "relic-ready/v1",
-          verificationDocumentSource: "erc-8004-metadata",
-          boundary:
-            "public Relic-ready listing verification; document unavailable",
-        },
-        error: {
-          code: publicResponse.errorCode ?? "verification_document_unavailable",
-        },
-      };
   }
 
   const method =
@@ -337,6 +231,25 @@ export async function inspectMarketplaceService(
       error: { code: response.errorCode ?? "request_failed" },
     };
 
+  if (protocol === "a2a" && !hasPublicCommerceSkills(parsed))
+    return {
+      fromLevel: service.verificationLevel,
+      toLevel: service.verificationLevel,
+      result: "failed",
+      protocol,
+      requestMethod: method,
+      httpStatus: response.status,
+      latencyMs: response.latencyMs,
+      availability: availability(response),
+      evidence: {
+        ...evidence,
+        requiredSkills: ["negotiate", "notify_funded"],
+        boundary:
+          "public A2A agent card inspection; no provider credential, payment, or task invocation",
+      },
+      error: { code: "missing_public_commerce_skills" },
+    };
+
   let toLevel: ServiceVerificationLevel = "ENDPOINT_OBSERVED";
   if (protocol === "erc8183" && hasPaymentTerms(parsed))
     toLevel = "PAYMENT_UNDERSTOOD";
@@ -385,8 +298,6 @@ export async function inspectLaunchServices(
     counters.attempted += 1;
     const observation = await inspectMarketplaceService({
       ...row.service,
-      agentChainId: row.identity.chainId,
-      externalAgentId: row.identity.externalAgentId,
     });
     counters[observation.result] += 1;
     await store.recordServiceVerification({

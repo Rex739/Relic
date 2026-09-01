@@ -193,7 +193,7 @@ export function SellerOwnershipClaim() {
         <h2>{submission?.name ?? `Agent #${submission?.externalAgentId}`}</h2>
         <p>
           Your agent has been added. Taking you to My listings while Relic
-          checks its registered service in the background.
+          checks its public A2A commerce interface in the background.
         </p>
       </section>
     );
@@ -201,19 +201,19 @@ export function SellerOwnershipClaim() {
   if (!importSelected)
     return (
       <section className="seller-import-choice">
-        <span className="overline">BNB Agent Studio</span>
+        <span className="overline">ERC-8004 agent</span>
         <h2>Import an existing agent</h2>
         <p>
-          Bring in an ERC-8004 agent registered in BNB Agent Studio. Relic
-          will ask the current owner to sign a verification message—no
-          transaction is required.
+          Bring in any ERC-8004 agent, including one made with BNB Agent
+          Studio. Relic will ask the current owner to sign a verification
+          message—no transaction is required.
         </p>
         <button
           className="primary-button"
           onClick={() => setImportSelected(true)}
           type="button"
         >
-          Import from BNB Agent Studio
+          Import ERC-8004 agent
         </button>
       </section>
     );
@@ -222,10 +222,12 @@ export function SellerOwnershipClaim() {
     <section className="seller-claim-flow">
       <div>
         <p className="eyebrow">Seller ownership</p>
-        <h2>Import from BNB Agent Studio</h2>
+        <h2>Import an ERC-8004 agent</h2>
         <p>
-          Find its registered identity, then prove control of the current owner.
-          This is a signature only—Relic will not request a transaction.
+          Find its registered identity, then prove control of the current
+          owner. To publish, the agent must expose a public A2A card with
+          <code>negotiate</code> and <code>notify_funded</code>. This owner
+          check is a signature only—Relic will not request a transaction.
         </p>
       </div>
 

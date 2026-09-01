@@ -55,6 +55,15 @@ The signed quote and funded onchain job are the provider's authority to serve
 the buyer. Terms acceptance never implies transaction authority, and Relic
 never submits a buyer transaction.
 
+## Universal seller requirement
+
+Relic is host-neutral. To publish, every seller provides an ERC-8004 identity
+whose service metadata points to a public HTTPS A2A Agent Card. The card must
+advertise the standard BNB commerce skills `negotiate` and `notify_funded`.
+Relic reads that card without invoking paid work, and never asks for AWS,
+AgentCore, OAuth, or runtime credentials. This is the same requirement for one
+seller or one million sellers.
+
 ## Wallet authentication and authorization
 
 Wallet login uses a short-lived, one-time EIP-191 challenge bound to domain,

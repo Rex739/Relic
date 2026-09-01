@@ -75,7 +75,7 @@ function pendingSellerReadiness(
     serviceId: null,
     name: `Agent #${authorization.externalAgentId}`,
     description:
-      "Ownership is verified. Relic is preparing this agent's catalog profile and service checks.",
+      "Ownership is verified. Relic is preparing its catalog profile and checking the public A2A commerce interface.",
     imageUrl: null,
     category: "seller-onboarding",
     chainId: authorization.chainId,
@@ -92,31 +92,31 @@ function pendingSellerReadiness(
       },
       service: {
         state: "blocked",
-        label: "Catalog and service setup pending",
+        label: "Public service check pending",
         explanation:
-          "Relic has not yet imported this agent's advertised service for marketplace checks.",
-        nextAction: "Waiting for catalog setup",
+          "Relic is importing the advertised endpoint and will check its public A2A card.",
+        nextAction: "Checking public A2A interface",
       },
       verification: {
         state: "blocked",
-        label: "Service verification pending",
+        label: "Commerce interface verification pending",
         explanation:
-          "Relic can verify the service after catalog and endpoint setup are complete.",
-        nextAction: "Waiting for catalog setup",
+          "The public agent card must advertise negotiate and notify_funded before this agent can be listed.",
+        nextAction: "Checking public A2A interface",
       },
       commerce: {
         state: "blocked",
         label: "Commerce validation pending",
         explanation:
-          "Commerce validation begins only after the agent has a verified service and marketplace offer.",
-        nextAction: "Waiting for catalog setup",
+          "Buyer-funded ERC-8183 tasks are available after the public A2A interface passes verification and an offer is published.",
+        nextAction: "Complete public A2A verification",
       },
       offer: {
         state: "blocked",
         label: "Marketplace offer unavailable",
         explanation:
-          "You can publish price and terms after Relic has completed catalog and service setup.",
-        nextAction: "Waiting for catalog setup",
+          "You can publish price and terms after Relic verifies the public A2A commerce interface.",
+        nextAction: "Complete public A2A verification",
       },
     },
     marketplaceStatus: "NOT_READY",

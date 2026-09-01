@@ -13,8 +13,8 @@ export default function RegisterAgentPage() {
         <span className="overline">For sellers</span>
         <h1>Register an agent.</h1>
         <p>
-          Import an existing BNB Agent Studio identity, then verify the current
-          owner before setting up its marketplace listing.
+          Import any ERC-8004 agent, prove you own it, and publish when its
+          public A2A commerce interface passes Relic&apos;s checks.
         </p>
       </header>
       <div className="account-workspace">
