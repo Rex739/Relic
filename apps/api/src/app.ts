@@ -635,6 +635,25 @@ const operatorAgentProfileRoute = createRoute({
     503: json(errorResponseSchema, "Marketplace profile storage unavailable"),
   },
 });
+const operatorServiceEndpointRoute = createRoute({
+  method: "put",
+  path: "/v1/operator/agents/{agentId}/services/{serviceId}",
+  request: {
+    params: z.object({ agentId: z.uuid(), serviceId: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ endpoint: z.url().startsWith("https://").max(2_048) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.object({ endpoint: z.string() }) }), "Service endpoint updated"),
+    503: json(errorResponseSchema, "Service storage unavailable"),
+  },
+});
 const reviseOfferRoute = createRoute({
   method: "put",
   path: "/v1/operator/offers/{id}",
@@ -1720,6 +1739,36 @@ export function createApp(
       principalId: session.principalId,
       description: profile.description,
       imageUrl: profile.imageUrl,
+      updatedAt: options.now?.() ?? new Date(),
+    });
+    return context.json({ data: updated }, 200);
+  });
+
+  app.openapi(operatorServiceEndpointRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    const { agentId, serviceId } = context.req.valid("param");
+    const { endpoint } = context.req.valid("json");
+    if (
+      options.sellerAuthorizationGuard === undefined ||
+      onboarding?.updateSellerMarketplaceServiceEndpoint === undefined
+    )
+      return context.json(
+        {
+          error: {
+            code: "marketplace_service_unavailable",
+            message: "Service endpoint storage is unavailable",
+          },
+        },
+        503,
+      );
+    await options.sellerAuthorizationGuard.assertAuthorized(
+      session.principalId,
+      agentId,
+    );
+    const updated = await onboarding.updateSellerMarketplaceServiceEndpoint({
+      agentId,
+      serviceId,
+      endpoint,
       updatedAt: options.now?.() ?? new Date(),
     });
     return context.json({ data: updated }, 200);

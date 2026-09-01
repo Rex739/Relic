@@ -373,6 +373,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
     const rows = executedRows<{
       agent_id: string;
       service_id: string | null;
+      service_endpoint: string | null;
       name: string;
       description: string;
       image_url: string | null;
@@ -392,6 +393,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         select
           a.id agent_id,
           ms.id service_id,
+          ms.endpoint service_endpoint,
           a.name,
           coalesce(smp.description, a.description, '') description,
           coalesce(smp.image_url, a.image_url) image_url,
@@ -509,6 +511,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       const facts: SellerReadinessFacts = {
         agentId: row.agent_id,
         serviceId: row.service_id,
+        serviceEndpoint: row.service_endpoint,
         name: row.name,
         description: row.description,
         imageUrl: row.image_url,

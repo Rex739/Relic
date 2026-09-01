@@ -244,6 +244,12 @@ export interface OnboardingRepository {
     imageUrl: string | null;
     updatedAt: Date;
   }): Promise<import("./marketplace.js").SellerMarketplaceProfile>;
+  updateSellerMarketplaceServiceEndpoint?(input: {
+    agentId: string;
+    serviceId: string;
+    endpoint: string;
+    updatedAt: Date;
+  }): Promise<{ endpoint: string }>;
 }
 
 export function buildOwnershipMessage(input: {

@@ -264,6 +264,7 @@ export interface SellerReadinessRequirement {
 export interface SellerAgentReadiness {
   agentId: string;
   serviceId: string | null;
+  serviceEndpoint?: string | null;
   name: string;
   description: string;
   imageUrl: string | null;
@@ -289,6 +290,7 @@ export interface SellerAgentReadiness {
 export interface SellerReadinessFacts {
   agentId: string;
   serviceId: string | null;
+  serviceEndpoint?: string | null;
   name: string;
   description: string;
   imageUrl: string | null;
@@ -397,6 +399,7 @@ export function sellerReadinessProjection(
   return {
     agentId: facts.agentId,
     serviceId: facts.serviceId,
+    serviceEndpoint: facts.serviceEndpoint ?? null,
     name: facts.name,
     description: facts.description,
     imageUrl: facts.imageUrl,

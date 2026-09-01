@@ -12,6 +12,8 @@ type SellerProfileAgent = {
   name: string;
   description: string;
   imageUrl: string | null;
+  serviceEndpoint?: string | null;
+  serviceId: string | null;
   category: string;
 };
 
@@ -60,21 +62,33 @@ export function SellerProfileEditor({
   agent,
   action,
   offerAction,
+  serviceAction,
 }: {
   agent: SellerProfileAgent;
   action: (formData: FormData) => Promise<{ error: string | null }>;
   offerAction?: ReactNode;
+  serviceAction?:
+    | ((formData: FormData) => Promise<{ error: string | null }>)
+    | undefined;
 }) {
   const [pending, startTransition] = useTransition();
   const [imageUrl, setImageUrl] = useState(agent.imageUrl ?? "");
   const [savedImageUrl, setSavedImageUrl] = useState(agent.imageUrl ?? "");
   const [description, setDescription] = useState(agent.description);
   const [savedDescription, setSavedDescription] = useState(agent.description);
+  const [serviceEndpoint, setServiceEndpoint] = useState(
+    agent.serviceEndpoint ?? "",
+  );
+  const [savedServiceEndpoint, setSavedServiceEndpoint] = useState(
+    agent.serviceEndpoint ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const hasChanges =
-    imageUrl !== savedImageUrl || description !== savedDescription;
+    imageUrl !== savedImageUrl ||
+    description !== savedDescription ||
+    serviceEndpoint !== savedServiceEndpoint;
 
   return (
     <section className="profile-section seller-profile-editor">
@@ -96,19 +110,33 @@ export function SellerProfileEditor({
           startTransition(async () => {
             setError(null);
             setSaved(false);
-            const result = await action(formData);
-            if (result.error !== null) {
-              setError(result.error);
-              return;
+            if (
+              serviceEndpoint !== savedServiceEndpoint &&
+              serviceAction !== undefined
+            ) {
+              const result = await serviceAction(formData);
+              if (result.error !== null) {
+                setError(result.error);
+                return;
+              }
+            }
+            if (imageUrl !== savedImageUrl || description !== savedDescription) {
+              const result = await action(formData);
+              if (result.error !== null) {
+                setError(result.error);
+                return;
+              }
             }
             setSavedImageUrl(imageUrl);
             setSavedDescription(description);
+            setSavedServiceEndpoint(serviceEndpoint);
             setSaved(true);
           })
         }
         className="seller-profile-form"
       >
         <input name="imageUrl" type="hidden" value={imageUrl} />
+        <input name="serviceEndpoint" type="hidden" value={serviceEndpoint} />
         <div className="seller-profile-image-preview">
           {imageUrl === "" ? (
             <ImageIcon aria-hidden="true" size={24} />
@@ -159,6 +187,20 @@ export function SellerProfileEditor({
               Use the original profile image
             </button>
           ) : null}
+          <label>
+            Service endpoint
+            <input
+              disabled={agent.serviceId === null}
+              onChange={(event) => setServiceEndpoint(event.target.value)}
+              placeholder="https://your-agent.example.com"
+              type="url"
+              value={serviceEndpoint}
+            />
+            <small>
+              Use the public HTTPS endpoint buyers will reach. Changing it
+              triggers a fresh Relic verification.
+            </small>
+          </label>
           <label>
             Description
             <textarea

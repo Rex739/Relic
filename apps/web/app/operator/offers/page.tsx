@@ -22,6 +22,7 @@ import {
   reviseOfferAction,
   transitionOfferAction,
   updateSellerProfileAction,
+  updateSellerServiceEndpointAction,
 } from "../../operator-actions";
 import { CreateOfferDialog } from "../../_components/create-offer-dialog";
 import { AccountSidebar } from "../../_components/account-sidebar";
@@ -281,6 +282,15 @@ export default async function OffersPage({
                   selectedAgent.agentId,
                 )}
                 agent={selectedAgent}
+                serviceAction={
+                  selectedAgent.serviceId === null
+                    ? undefined
+                    : updateSellerServiceEndpointAction.bind(
+                        null,
+                        selectedAgent.agentId,
+                        selectedAgent.serviceId,
+                      )
+                }
                 offerAction={offerableAgents.map((agent) => (
                   <CreateOfferDialog
                     action={createOfferAction}

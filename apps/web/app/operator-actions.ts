@@ -15,6 +15,7 @@ import {
   reviseOperatorOffer,
   transitionOperatorOffer,
   updateOperatorAgentProfile,
+  updateOperatorServiceEndpoint,
 } from "../lib/commerce";
 
 const field = (formData: FormData, name: string) => {
@@ -81,6 +82,30 @@ export async function updateSellerProfileAction(
         error instanceof Error
           ? error.message
           : "Unable to update the marketplace profile. Try again.",
+    };
+  }
+}
+
+export async function updateSellerServiceEndpointAction(
+  agentId: string,
+  serviceId: string,
+  formData: FormData,
+): Promise<CreateOfferActionResult> {
+  try {
+    await updateOperatorServiceEndpoint(
+      agentId,
+      serviceId,
+      field(formData, "serviceEndpoint"),
+    );
+    revalidatePath("/account/mylistings");
+    revalidatePath("/marketplace");
+    return { error: null };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to update the service endpoint. Try again.",
     };
   }
 }

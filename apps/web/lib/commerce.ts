@@ -155,6 +155,16 @@ export const updateOperatorAgentProfile = (
     { method: "PUT", body: JSON.stringify(profile) },
   );
 
+export const updateOperatorServiceEndpoint = (
+  agentId: string,
+  serviceId: string,
+  endpoint: string,
+) =>
+  request<{ endpoint: string }>(
+    `/v1/operator/agents/${encodeURIComponent(agentId)}/services/${encodeURIComponent(serviceId)}`,
+    { method: "PUT", body: JSON.stringify({ endpoint }) },
+  );
+
 export type CommerceValidationHandoff = {
   session: CommerceValidationSession;
   offer: AgentOffer;

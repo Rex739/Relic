@@ -19,6 +19,7 @@ import {
   agentServices,
   agentSubmissions,
   marketplaceOutcomes,
+  marketplaceServices,
   ownershipChallenges,
   sellerAgentAuthorizations,
   sellerMarketplaceProfiles,
@@ -496,6 +497,33 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
       updatedByPrincipalId: profile.updatedByPrincipalId,
       updatedAt: profile.updatedAt.toISOString(),
     };
+  }
+
+  async updateSellerMarketplaceServiceEndpoint(input: {
+    agentId: string;
+    serviceId: string;
+    endpoint: string;
+    updatedAt: Date;
+  }) {
+    const [service] = await this.database
+      .update(marketplaceServices)
+      .set({
+        endpoint: input.endpoint,
+        availability: "unknown",
+        verificationLevel: "DECLARED",
+        lastVerifiedAt: null,
+        updatedAt: input.updatedAt,
+      })
+      .where(
+        and(
+          eq(marketplaceServices.id, input.serviceId),
+          eq(marketplaceServices.agentId, input.agentId),
+        ),
+      )
+      .returning({ endpoint: marketplaceServices.endpoint });
+    if (service?.endpoint === null || service === undefined)
+      throw new Error("Service endpoint could not be updated");
+    return { endpoint: service.endpoint };
   }
 
   async transitionSubmission(input: {
