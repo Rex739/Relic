@@ -7,7 +7,9 @@ import type {
   OwnershipChallenge,
   PublicMarketplaceAgent,
   PublicMarketplaceAgentDetail,
+  SellerAgentAuthorization,
 } from "@relic/domain";
+import { recoverMessageAddress } from "viem";
 import { agentListResponseSchema } from "@relic/validation";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
@@ -347,6 +349,79 @@ describe("Relic API", () => {
     await expect(response.json()).resolves.toEqual({ data: [] });
   });
 
+  it("shows ownership-verified agents while catalog setup is still pending", async () => {
+    const submission: AgentSubmission = {
+      id: "01945b1e-7e80-7000-8000-000000000201",
+      chainId: 97,
+      registryAddress: "0x0000000000000000000000000000000000000800",
+      externalAgentId: "2016",
+      supplyType: "third_party",
+      relicPrincipalId: "wallet:97:buyer",
+      status: "SUBMITTED",
+      submitterAddress: "0x0000000000000000000000000000000000000042",
+      ownershipVerifiedAt: "2026-08-31T04:32:42.736Z",
+      agentId: null,
+      candidateId: null,
+      developerOverrides: {},
+      createdAt: "2026-08-31T04:00:00.000Z",
+      updatedAt: "2026-08-31T04:32:42.736Z",
+    };
+    const authorization: SellerAgentAuthorization = {
+      id: "01945b1e-7e80-7000-8000-000000000202",
+      principalId: submission.relicPrincipalId!,
+      submissionId: submission.id,
+      agentId: null,
+      chainId: 97,
+      registryAddress: submission.registryAddress,
+      externalAgentId: submission.externalAgentId,
+      verifiedOwner: "0x0000000000000000000000000000000000002016",
+      challengeId: "01945b1e-7e80-7000-8000-000000000203",
+      verifiedAt: submission.ownershipVerifiedAt!,
+      lastOwnerCheckedAt: submission.ownershipVerifiedAt!,
+      revokedAt: null,
+      revocationReason: null,
+    };
+    const marketplace = createApp(
+      {
+        ...repository,
+        sellerReadiness: () => Promise.resolve([]),
+      },
+      { findSubmission: () => Promise.resolve(submission) } as never,
+      undefined,
+      {
+        walletAuthService: {
+          session: () =>
+            Promise.resolve({
+              principalId: submission.relicPrincipalId,
+              walletAddress: submission.submitterAddress,
+              chainId: 97,
+            }),
+        } as never,
+        sellerAuthorizationGuard: {
+          currentAuthorizations: () => Promise.resolve([authorization]),
+        } as never,
+      },
+    );
+    const response = await marketplace.request("/v1/operator/readiness", {
+      headers: { authorization: "Bearer session" },
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: [
+        {
+          agentId: `submission:${submission.id}`,
+          externalAgentId: "2016",
+          onboardingState: "PENDING_CATALOG_SETUP",
+          hireable: false,
+          requirements: {
+            identity: { state: "complete" },
+            service: { state: "blocked" },
+          },
+        },
+      ],
+    });
+  });
+
   it("lists real service records through explicit service filters", async () => {
     let captured: unknown;
     const id = "01945b1e-7e80-7000-8000-000000000001";
@@ -402,13 +477,34 @@ describe("Relic API", () => {
     );
     let submission: AgentSubmission | null = null;
     let challenge: OwnershipChallenge | null = null;
+    let consumed = false;
+    const principalId = "01945b1e-7e80-7000-8000-000000000019";
+    const registryAddress =
+      "0x8004A818BFB912233c491871b3d84c89A494BD9e" as const;
+    const authorization: SellerAgentAuthorization = {
+      id: "01945b1e-7e80-7000-8000-000000000022",
+      principalId,
+      submissionId: "01945b1e-7e80-7000-8000-000000000020",
+      agentId: null,
+      chainId: 97,
+      registryAddress,
+      externalAgentId: "42",
+      verifiedOwner: owner.address,
+      challengeId: "01945b1e-7e80-7000-8000-000000000021",
+      verifiedAt: "2026-08-14T00:01:00.000Z",
+      lastOwnerCheckedAt: "2026-08-14T00:01:00.000Z",
+      revokedAt: null,
+      revocationReason: null,
+    };
     const onboarding: OnboardingRepository = {
       createSubmission: (input) => {
         submission = {
           id: "01945b1e-7e80-7000-8000-000000000020",
           chainId: input.chainId,
+          registryAddress: input.registryAddress,
           externalAgentId: input.externalAgentId,
           supplyType: input.supplyType,
+          relicPrincipalId: input.relicPrincipalId,
           status: "SUBMITTED",
           submitterAddress: input.submitterAddress ?? null,
           ownershipVerifiedAt: null,
@@ -421,6 +517,8 @@ describe("Relic API", () => {
         return Promise.resolve(submission);
       },
       findSubmission: () => Promise.resolve(submission),
+      listPendingCatalogSubmissions: () => Promise.resolve([]),
+      findSubmissionByIdentity: () => Promise.resolve(submission),
       findOwnershipContext: () =>
         Promise.resolve({
           registryAddress: "0x8004A818BFB912233c491871b3d84c89A494BD9e",
@@ -430,30 +528,67 @@ describe("Relic API", () => {
         challenge = {
           id: "01945b1e-7e80-7000-8000-000000000021",
           submissionId: input.submissionId,
+          principalId: input.principalId,
+          chainId: input.chainId,
+          registryAddress: input.registryAddress,
+          externalAgentId: input.externalAgentId,
           message: input.message,
           expectedOwner: input.expectedOwner,
+          issuedAt: input.issuedAt.toISOString(),
           expiresAt: input.expiresAt.toISOString(),
         };
         return Promise.resolve(challenge);
       },
       findOwnershipChallenge: () => Promise.resolve(challenge),
-      consumeOwnershipChallenge: (input) => {
+      consumeOwnershipChallengeAndAuthorize: (input) => {
+        if (consumed) return Promise.resolve(null);
+        consumed = true;
         if (submission !== null)
           submission = {
             ...submission,
             ownershipVerifiedAt: input.verifiedAt.toISOString(),
           };
-        return Promise.resolve(true);
+        return Promise.resolve({
+          ...authorization,
+          verifiedAt: input.verifiedAt.toISOString(),
+        });
       },
+      findSellerAuthorization: () => Promise.resolve(null),
+      listSellerAuthorizations: () => Promise.resolve([]),
+      revokeSellerAuthorization: () => Promise.resolve(false),
     };
-    const onboardingApp = createApp(repository, onboarding);
+    const onboardingApp = createApp(repository, onboarding, undefined, {
+      walletAuthService: {
+        session: () =>
+          Promise.resolve({
+            principalId,
+            walletAddress: "0x0000000000000000000000000000000000000019",
+            chainId: 97,
+            sessionId: "session",
+          }),
+      } as never,
+      ownershipReader: {
+        registryAddress: () => registryAddress,
+        ownerOf: () => Promise.resolve(owner.address),
+        verifyMessage: async (input) =>
+          (await recoverMessageAddress({
+            message: input.message,
+            signature: input.signature,
+          })) === owner.address,
+      },
+      publicOrigin: "http://localhost:3000",
+      environmentName: "development",
+      now: () => new Date("2026-08-14T00:00:00.000Z"),
+    });
     const created = await onboardingApp.request("/v1/agent-submissions", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: "Bearer session",
+        "content-type": "application/json",
+      },
       body: JSON.stringify({
         chainId: 97,
         externalAgentId: "42",
-        submitterAddress: owner.address,
       }),
     });
     expect(created.status).toBe(201);
@@ -462,7 +597,7 @@ describe("Relic API", () => {
     });
     const challenged = await onboardingApp.request(
       "/v1/agent-submissions/01945b1e-7e80-7000-8000-000000000020/ownership-challenges",
-      { method: "POST" },
+      { method: "POST", headers: { authorization: "Bearer session" } },
     );
     expect(challenged.status).toBe(201);
     const challengeBody = (await challenged.json()) as {
@@ -475,7 +610,10 @@ describe("Relic API", () => {
       "/v1/agent-submissions/01945b1e-7e80-7000-8000-000000000020/ownership-verification",
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          authorization: "Bearer session",
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ challengeId: challengeBody.data.id, signature }),
       },
     );
@@ -486,16 +624,45 @@ describe("Relic API", () => {
   });
 
   it("does not let public submitters self-assign partner or reference supply", async () => {
-    const response = await createApp(repository, {
-      createSubmission: () => Promise.reject(new Error("must not be called")),
-      findSubmission: () => Promise.resolve(null),
-      findOwnershipContext: () => Promise.resolve(null),
-      findOwnershipChallenge: () => Promise.resolve(null),
-      createOwnershipChallenge: () => Promise.reject(new Error("unused")),
-      consumeOwnershipChallenge: () => Promise.resolve(false),
-    }).request("/v1/agent-submissions", {
+    const response = await createApp(
+      repository,
+      {
+        createSubmission: () => Promise.reject(new Error("must not be called")),
+        findSubmission: () => Promise.resolve(null),
+        listPendingCatalogSubmissions: () => Promise.resolve([]),
+        findSubmissionByIdentity: () => Promise.resolve(null),
+        findOwnershipContext: () => Promise.resolve(null),
+        findOwnershipChallenge: () => Promise.resolve(null),
+        createOwnershipChallenge: () => Promise.reject(new Error("unused")),
+        consumeOwnershipChallengeAndAuthorize: () => Promise.resolve(null),
+        findSellerAuthorization: () => Promise.resolve(null),
+        listSellerAuthorizations: () => Promise.resolve([]),
+        revokeSellerAuthorization: () => Promise.resolve(false),
+      },
+      undefined,
+      {
+        walletAuthService: {
+          session: () =>
+            Promise.resolve({
+              principalId: "01945b1e-7e80-7000-8000-000000000019",
+              walletAddress: "0x1111111111111111111111111111111111111111",
+              chainId: 97,
+              sessionId: "session",
+            }),
+        } as never,
+        ownershipReader: {
+          registryAddress: () => "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+          ownerOf: () =>
+            Promise.resolve("0x1111111111111111111111111111111111111111"),
+          verifyMessage: () => Promise.resolve(false),
+        },
+      },
+    ).request("/v1/agent-submissions", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: "Bearer session",
+        "content-type": "application/json",
+      },
       body: JSON.stringify({
         chainId: 97,
         externalAgentId: "42",

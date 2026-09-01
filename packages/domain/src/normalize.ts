@@ -12,6 +12,23 @@ import {
   UpstreamAgentValidationError,
 } from "./provider.js";
 
+/**
+ * Returns a category only when Relic's normalized evidence identifies exactly
+ * one category. Sellers never provide the category used for marketplace curation.
+ */
+export function primaryMarketplaceCategory(
+  agent: Pick<CanonicalAgent, "taxonomy">,
+) {
+  const categories = [
+    ...new Set(
+      agent.taxonomy
+        .filter((term) => term.kind === "category")
+        .map((term) => term.slug),
+    ),
+  ];
+  return categories.length === 1 ? categories[0]! : null;
+}
+
 function validationIssues(error: {
   issues: readonly { path: PropertyKey[]; message: string }[];
 }): string[] {
@@ -60,10 +77,16 @@ export function normalizeRegistryAgent(
   const sourced = (value: string) => ({ value, evidence: [declaredEvidence] });
   const optionalSourced = (value: string | undefined) =>
     value === undefined ? null : sourced(value);
-  const classificationText = metadata.services.flatMap((service) => [
-    ...(service.skills ?? []),
-    ...(service.domains ?? []),
-  ]);
+  const classificationText = [
+    metadata.name,
+    metadata.description,
+    ...metadata.services.flatMap((service) => [
+      service.name,
+      service.description,
+      ...(service.skills ?? []),
+      ...(service.domains ?? []),
+    ]),
+  ].filter((value): value is string => typeof value === "string");
   const categoryRules = [
     ["rebalancing", "Rebalancing", /(^|[/_. -])rebalanc(e|ing)($|[/_. -])/i],
     [
@@ -74,7 +97,7 @@ export function normalizeRegistryAgent(
     [
       "yield-optimisation",
       "Yield Optimisation",
-      /(^|[/_. -])yield[_. -]?optimi[sz](e|ation)($|[/_. -])/i,
+      /(^|[/_. -])yield(?:[_. -]?optimi[sz](e|ation))?($|[/_. -])/i,
     ],
     [
       "health-factor-monitoring",
@@ -138,6 +161,11 @@ export function normalizeRegistryAgent(
       outputSchema: null,
       pricing: null,
       endpoint: service.endpoint ?? null,
+      verificationUrl:
+        service.relicVerificationUrl ??
+        (metadata.services.length === 1
+          ? (metadata.relicVerificationUrl ?? null)
+          : null),
       sla:
         service.version === undefined
           ? null

@@ -128,8 +128,10 @@ export function legacyActivationStatusForLifecycle(
 export interface AgentSubmission {
   id: string;
   chainId: number;
+  registryAddress: `0x${string}`;
   externalAgentId: string;
   supplyType: SupplyType;
+  relicPrincipalId: string | null;
   status: SubmissionStatus;
   submitterAddress: `0x${string}` | null;
   ownershipVerifiedAt: string | null;
@@ -142,8 +144,11 @@ export interface AgentSubmission {
 
 export interface CreateAgentSubmission {
   chainId: number;
+  registryAddress: `0x${string}`;
   externalAgentId: string;
   supplyType: SupplyType;
+  relicPrincipalId: string;
+  liveOwner: `0x${string}`;
   submitterAddress?: `0x${string}`;
   developerOverrides?: Record<string, unknown>;
   evidence: Record<string, unknown>;
@@ -152,9 +157,30 @@ export interface CreateAgentSubmission {
 export interface OwnershipChallenge {
   id: string;
   submissionId: string;
+  principalId: string;
+  chainId: number;
+  registryAddress: `0x${string}`;
+  externalAgentId: string;
   message: string;
   expectedOwner: `0x${string}`;
+  issuedAt: string;
   expiresAt: string;
+}
+
+export interface SellerAgentAuthorization {
+  id: string;
+  principalId: string;
+  submissionId: string;
+  agentId: string | null;
+  chainId: number;
+  registryAddress: `0x${string}`;
+  externalAgentId: string;
+  verifiedOwner: `0x${string}`;
+  challengeId: string;
+  verifiedAt: string;
+  lastOwnerCheckedAt: string;
+  revokedAt: string | null;
+  revocationReason: string | null;
 }
 
 export interface OwnershipContext {
@@ -165,6 +191,12 @@ export interface OwnershipContext {
 export interface OnboardingRepository {
   createSubmission(input: CreateAgentSubmission): Promise<AgentSubmission>;
   findSubmission(id: string): Promise<AgentSubmission | null>;
+  listPendingCatalogSubmissions(limit: number): Promise<AgentSubmission[]>;
+  findSubmissionByIdentity(
+    chainId: number,
+    registryAddress: `0x${string}`,
+    externalAgentId: string,
+  ): Promise<AgentSubmission | null>;
   findOwnershipContext(
     chainId: number,
     externalAgentId: string,
@@ -172,35 +204,77 @@ export interface OnboardingRepository {
   findOwnershipChallenge(id: string): Promise<OwnershipChallenge | null>;
   createOwnershipChallenge(input: {
     submissionId: string;
+    principalId: string;
+    chainId: number;
+    registryAddress: `0x${string}`;
+    externalAgentId: string;
     nonceHash: string;
     message: string;
     expectedOwner: `0x${string}`;
+    issuedAt: Date;
     expiresAt: Date;
   }): Promise<OwnershipChallenge>;
-  consumeOwnershipChallenge(input: {
+  consumeOwnershipChallengeAndAuthorize(input: {
     challengeId: string;
+    principalId: string;
+    submissionId: string;
+    chainId: number;
+    registryAddress: `0x${string}`;
+    externalAgentId: string;
     signerAddress: `0x${string}`;
     signatureDigest: string;
     verifiedAt: Date;
+  }): Promise<SellerAgentAuthorization | null>;
+  findSellerAuthorization(input: {
+    principalId: string;
+    agentId: string;
+  }): Promise<SellerAgentAuthorization | null>;
+  listSellerAuthorizations(
+    principalId: string,
+  ): Promise<SellerAgentAuthorization[]>;
+  revokeSellerAuthorization(input: {
+    authorizationId: string;
+    reason: string;
+    revokedAt: Date;
   }): Promise<boolean>;
+  upsertSellerMarketplaceProfile?(input: {
+    agentId: string;
+    principalId: string;
+    description: string;
+    imageUrl: string | null;
+    updatedAt: Date;
+  }): Promise<import("./marketplace.js").SellerMarketplaceProfile>;
 }
 
 export function buildOwnershipMessage(input: {
-  submissionId: string;
+  environment: string;
+  origin: string;
+  principalId: string;
   chainId: number;
   registryAddress: `0x${string}`;
   externalAgentId: string;
+  expectedOwner: `0x${string}`;
   nonce: string;
+  issuedAt: string;
   expiresAt: string;
 }) {
   return [
-    "Relic agent ownership verification",
-    `Submission: ${input.submissionId}`,
+    "Relic Agent Ownership Verification",
+    "",
+    "Version: 1",
+    `Environment: ${input.environment}`,
+    `Origin: ${input.origin}`,
+    `Agent ID: ${input.externalAgentId}`,
     `Chain ID: ${input.chainId}`,
     `Registry: ${input.registryAddress.toLowerCase()}`,
-    `ERC-8004 agent ID: ${input.externalAgentId}`,
+    `Expected Owner: ${input.expectedOwner.toLowerCase()}`,
+    `Relic Account: ${input.principalId}`,
     `Nonce: ${input.nonce}`,
-    `Expires: ${input.expiresAt}`,
-    "Purpose: prove control of the current onchain owner; no transaction is requested.",
+    `Issued At: ${input.issuedAt}`,
+    `Expires At: ${input.expiresAt}`,
+    "",
+    "Purpose:",
+    `Authorize this Relic account to manage Agent #${input.externalAgentId}.`,
+    "No blockchain transaction is requested.",
   ].join("\n");
 }

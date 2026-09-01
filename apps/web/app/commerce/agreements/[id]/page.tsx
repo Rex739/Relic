@@ -9,9 +9,11 @@ import {
   paymentRequirementLabel,
 } from "../../../../lib/commerce-display";
 import { CommerceAuthorization } from "../../../_components/commerce-authorization";
+import { WalletCommerceOperation } from "../../../_components/wallet-commerce-operation";
 import {
   acceptTermsAction,
   cancelAgreementAction,
+  prepareCommerceValidationAction,
   revokeAuthorizationAction,
 } from "../../../commerce-actions";
 
@@ -49,9 +51,54 @@ export default async function CommerceAgreementPage({
     ? (item.movements as Array<Record<string, unknown>>)
     : [];
   const mandateId = typeof item.mandateId === "string" ? item.mandateId : null;
+  const validationAgreement = events.some(
+    (event) => event.eventType === "VALIDATION_AGREEMENT_CREATED",
+  );
   const executionRoomHref =
-    mandateId === null ? null : `/my-agents/mandates/${mandateId}`;
+    mandateId === null || validationAgreement
+      ? null
+      : `/my-agents/mandates/${mandateId}`;
   const authorized = ["AUTHORIZED", "ACTIVE"].includes(status);
+  const activeValidationOperation = validationAgreement
+    ? [...operations].reverse().find((operation) => {
+        const operationType = String(operation.operationType);
+        const operationState = String(operation.state);
+        return (
+          [
+            "APPROVE_TOKEN",
+            "CREATE_JOB",
+            "REGISTER_JOB",
+            "SET_BUDGET",
+            "FUND",
+          ].includes(operationType) &&
+          ["AWAITING_SIGNATURE", "SUBMITTED", "PENDING", "CONFIRMED"].includes(
+            operationState,
+          )
+        );
+      })
+    : undefined;
+  const validationEvidence = activeValidationOperation?.evidence as
+    Record<string, unknown> | undefined;
+  const validationFundingFinalized = validationAgreement
+    ? operations.some(
+        (operation) =>
+          operation.operationType === "FUND" && operation.state === "FINALIZED",
+      )
+    : false;
+  const validationQuote = validationEvidence?.quote as
+    Record<string, unknown> | undefined;
+  const quoteExpiresAt =
+    typeof validationEvidence?.quoteExpiresAt === "number"
+      ? validationEvidence.quoteExpiresAt
+      : typeof validationQuote?.quoteExpiresAt === "number"
+        ? validationQuote.quoteExpiresAt
+        : undefined;
+  const quoteNegotiatedAt =
+    typeof validationEvidence?.negotiatedAt === "number"
+      ? validationEvidence.negotiatedAt
+      : typeof validationQuote?.negotiatedAt === "number"
+        ? validationQuote.negotiatedAt
+        : undefined;
   return (
     <main className="page-shell agreement-page">
       <header className="operations-header">
@@ -122,7 +169,11 @@ export default async function CommerceAgreementPage({
           {status === "AUTHORIZATION_REQUIRED" ? (
             <CommerceAuthorization
               agreementId={id}
-              continuationHref={executionRoomHref ?? "/my-agents"}
+              continuationHref={
+                validationAgreement
+                  ? `/commerce/agreements/${id}`
+                  : (executionRoomHref ?? "/my-agents")
+              }
             />
           ) : null}
         </section>
@@ -141,6 +192,87 @@ export default async function CommerceAgreementPage({
           <Link className="primary-action" href={executionRoomHref}>
             Open Execution Room <span aria-hidden="true">→</span>
           </Link>
+        </section>
+      ) : null}
+      {status === "AUTHORIZED" && validationAgreement ? (
+        <section className="agreement-next-step" aria-labelledby="next-step">
+          <div>
+            <span className="overline">Validation authority confirmed</span>
+            <h2 id="next-step">Prepare the verified service setup</h2>
+            <p>
+              Relic will contact the offer's verified service, validate its
+              signed price, and prepare the exact payment steps. This action
+              does not submit a transaction or move funds.
+            </p>
+          </div>
+          <form action={prepareCommerceValidationAction}>
+            <input type="hidden" name="agreementId" value={id} />
+            <button type="submit" className="primary-action">
+              Prepare secure setup <span aria-hidden="true">→</span>
+            </button>
+          </form>
+        </section>
+      ) : null}
+      {status === "ACTIVE" &&
+      validationAgreement &&
+      activeValidationOperation !== undefined ? (
+        <section className="agreement-next-step" aria-labelledby="next-step">
+          <div>
+            <span className="overline">Manual wallet setup</span>
+            <h2 id="next-step">Confirm the next required step</h2>
+            <p>
+              Relic prepares one exact operation at a time. Your wallet must
+              approve every transaction; Relic never submits one automatically.
+            </p>
+          </div>
+          <WalletCommerceOperation
+            agreementId={id}
+            operationId={String(activeValidationOperation.id)}
+            operationType={
+              String(activeValidationOperation.operationType) as
+                | "APPROVE_TOKEN"
+                | "CREATE_JOB"
+                | "REGISTER_JOB"
+                | "SET_BUDGET"
+                | "FUND"
+            }
+            operationState={
+              String(activeValidationOperation.state) as
+                "AWAITING_SIGNATURE" | "SUBMITTED" | "PENDING" | "CONFIRMED"
+            }
+            {...(quoteExpiresAt === undefined
+              ? {}
+              : {
+                  initialQuoteExpiresAt: new Date(
+                    quoteExpiresAt * 1_000,
+                  ).toISOString(),
+                })}
+            {...(quoteNegotiatedAt === undefined
+              ? {}
+              : {
+                  initialQuoteNegotiatedAt: new Date(
+                    quoteNegotiatedAt * 1_000,
+                  ).toISOString(),
+                })}
+            paidValidation
+          />
+        </section>
+      ) : null}
+      {status === "ACTIVE" &&
+      validationAgreement &&
+      activeValidationOperation === undefined &&
+      validationFundingFinalized ? (
+        <section className="agreement-next-step" aria-labelledby="next-step">
+          <div>
+            <span className="overline">Escrow funding confirmed</span>
+            <h2 id="next-step">Delivery preparation is paused safely</h2>
+            <p>
+              The paid setup is complete. Relic will not invoke a provider that
+              can submit a delivery transaction outside the durable wallet
+              operation system. No settlement or reputation outcome is created
+              while this safety boundary remains unresolved.
+            </p>
+          </div>
         </section>
       ) : null}
       <section className="profile-section execution-commerce">

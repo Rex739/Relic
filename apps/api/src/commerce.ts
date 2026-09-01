@@ -1,5 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import {
+  buildJobDescription,
+  verifyQuoteSignature,
+} from "@bnbagent/sdk/erc8183";
 import type {
   CommerceAuthorization,
   CreateOfferRequest,
@@ -18,6 +22,7 @@ import type {
   DrizzleCommerceStore,
   DrizzleWalletAuthStore,
 } from "@relic/database";
+import { negotiateOfferBoundService } from "@relic/validation";
 import {
   createPublicClient,
   encodeFunctionData,
@@ -30,6 +35,8 @@ import {
   stringToHex,
 } from "viem";
 import { bscTestnet } from "viem/chains";
+
+import type { SellerAuthorizationGuard } from "./seller-ownership.js";
 
 const createJobAbi = [
   {
@@ -44,6 +51,36 @@ const createJobAbi = [
       { name: "hook", type: "address" },
     ],
     outputs: [{ name: "jobId", type: "uint256" }],
+  },
+] as const;
+
+const erc20ApprovalAbi = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+const paymentTokenAbi = [
+  {
+    type: "function",
+    name: "paymentToken",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
   },
 ] as const;
 
@@ -134,11 +171,29 @@ const registerJobAbi = [
 const zeroAddress = "0x0000000000000000000000000000000000000000";
 
 export const USER_COMMERCE_JOB_LIFETIME_SECONDS = 7n * 86_400n;
+export const COMMERCE_VALIDATION_JOB_LIFETIME_SECONDS = 7n * 86_400n;
 export const SDK_MAX_SIGNED_QUOTE_TTL_SECONDS = 900;
 export const USER_COMMERCE_CREATE_QUOTE_HEADROOM_SECONDS = 12 * 60;
 export const USER_COMMERCE_SETUP_GAS_RESERVE_UNITS = 2_000_000n;
 export const activationSetupRequiredGasBalance = (gasPrice: bigint) =>
   gasPrice * USER_COMMERCE_SETUP_GAS_RESERVE_UNITS;
+export const commerceValidationJobExpiry = (input: {
+  nowSeconds: bigint;
+  disputeWindowSeconds: bigint;
+  relationshipExpiresAtSeconds: bigint;
+}) => {
+  if (input.disputeWindowSeconds <= 0n)
+    throw new Error("ERC-8183 validation policy is not ready");
+  const expiresAt =
+    input.nowSeconds +
+    input.disputeWindowSeconds +
+    COMMERCE_VALIDATION_JOB_LIFETIME_SECONDS;
+  if (expiresAt > input.relationshipExpiresAtSeconds)
+    throw new Error(
+      "Validation relationship expires before the policy-safe job window",
+    );
+  return expiresAt;
+};
 const USER_COMMERCE_QUOTE_HEADROOM_BY_OPERATION = {
   REGISTER_JOB: 8 * 60,
   SET_BUDGET: 4 * 60,
@@ -310,13 +365,23 @@ export class WalletAuthenticationService {
       now: this.now(),
     });
     if (consumed === null) throw new Error("Wallet challenge replay detected");
+    return this.establishSession(address, input.chainId);
+  }
+
+  /**
+   * Creates a Relic session after an authentication boundary has proven that
+   * the caller controls this exact wallet. Wallet signatures and Privy token
+   * verification are separate boundaries that deliberately converge here.
+   */
+  public async establishSession(addressValue: string, chainId: number) {
+    const address = getAddress(addressValue);
     const sessionToken = randomBytes(48).toString("base64url");
     const expiresAt = new Date(this.now().getTime() + 8 * 60 * 60_000);
-    const principalId = principalIdForWallet(address, input.chainId);
+    const principalId = principalIdForWallet(address, chainId);
     const sessionId = await this.store.createSession({
       principalId,
       walletAddress: address,
-      chainId: input.chainId,
+      chainId,
       sessionTokenHash: sha256(sessionToken),
       expiresAt,
     });
@@ -325,7 +390,7 @@ export class WalletAuthenticationService {
       principal: {
         principalId,
         walletAddress: address,
-        chainId: input.chainId,
+        chainId,
         sessionId,
       },
       expiresAt: expiresAt.toISOString(),
@@ -359,6 +424,7 @@ export class CommerceApplicationService {
       policyAddress?: `0x${string}`;
       rpcUrl?: string;
     },
+    private readonly sellerAuthorization?: SellerAuthorizationGuard,
   ) {}
 
   public async marketplaceReviewEligibility(
@@ -435,32 +501,58 @@ export class CommerceApplicationService {
     });
   }
 
-  public createOffer(
+  public async createOffer(
     principal: WalletSessionPrincipal,
     request: CreateOfferRequest,
   ) {
     if (principal.chainId !== request.chainId)
       throw new Error("Wallet session network does not match the offer");
+    const authorization =
+      this.sellerAuthorization === undefined
+        ? null
+        : await this.sellerAuthorization.assertAuthorized(
+            principal.principalId,
+            request.agentId,
+          );
     return this.store.createOffer({
       operatorPrincipalId: principal.principalId,
-      operatorAddress: principal.walletAddress,
+      operatorAddress: authorization?.verifiedOwner ?? principal.walletAddress,
       request,
     });
   }
 
-  public activateOffer(principal: WalletSessionPrincipal, offerId: string) {
+  public async activateOffer(
+    principal: WalletSessionPrincipal,
+    offerId: string,
+  ) {
+    const offer = await this.store.findOffer(offerId);
+    if (offer === null) throw new Error("Offer not found for this operator");
+    const authorization =
+      this.sellerAuthorization === undefined
+        ? null
+        : await this.sellerAuthorization.assertAuthorized(
+            principal.principalId,
+            offer.agentId,
+          );
     return this.store.activateOffer({
       offerId,
       operatorPrincipalId: principal.principalId,
-      operatorAddress: principal.walletAddress,
+      operatorAddress: authorization?.verifiedOwner ?? principal.walletAddress,
     });
   }
 
-  public transitionOffer(
+  public async transitionOffer(
     principal: WalletSessionPrincipal,
     offerId: string,
     to: "PAUSED" | "DEACTIVATED",
   ) {
+    const offer = await this.store.findOffer(offerId);
+    if (offer === null) throw new Error("Offer not found for this operator");
+    if (this.sellerAuthorization !== undefined)
+      await this.sellerAuthorization.assertAuthorized(
+        principal.principalId,
+        offer.agentId,
+      );
     return this.store.transitionOffer({
       offerId,
       operatorPrincipalId: principal.principalId,
@@ -468,17 +560,24 @@ export class CommerceApplicationService {
     });
   }
 
-  public reviseOffer(
+  public async reviseOffer(
     principal: WalletSessionPrincipal,
     offerId: string,
     request: CreateOfferRequest,
   ) {
     if (principal.chainId !== request.chainId)
       throw new Error("Wallet session network does not match the offer");
+    const authorization =
+      this.sellerAuthorization === undefined
+        ? null
+        : await this.sellerAuthorization.assertAuthorized(
+            principal.principalId,
+            request.agentId,
+          );
     return this.store.reviseOffer({
       offerId,
       operatorPrincipalId: principal.principalId,
-      operatorAddress: principal.walletAddress,
+      operatorAddress: authorization?.verifiedOwner ?? principal.walletAddress,
       request,
     });
   }
@@ -489,6 +588,120 @@ export class CommerceApplicationService {
 
   public operatorAgreements(principal: WalletSessionPrincipal) {
     return this.store.operatorAgreements(principal.principalId);
+  }
+
+  public async createCommerceValidationSession(
+    principal: WalletSessionPrincipal,
+    offerId: string,
+  ) {
+    const offer = await this.store.findOffer(offerId);
+    if (offer === null) throw new Error("Offer not found for this operator");
+    if (offer.version.chainId !== principal.chainId)
+      throw new Error("Wallet session network does not match the offer");
+    if (this.sellerAuthorization !== undefined)
+      await this.sellerAuthorization.assertAuthorized(
+        principal.principalId,
+        offer.agentId,
+      );
+    const handoffToken = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(this.now().getTime() + 60 * 60_000);
+    const created = await this.store.createCommerceValidationSession({
+      offerId,
+      sellerPrincipalId: principal.principalId,
+      handoffTokenHash: sha256(handoffToken),
+      expiresAt,
+      now: this.now(),
+    });
+    return {
+      session: {
+        ...created.session,
+        expiresAt: created.session.expiresAt.toISOString(),
+        createdAt: created.session.createdAt.toISOString(),
+        updatedAt: created.session.updatedAt.toISOString(),
+      },
+      offer: created.offer,
+      handoffToken,
+    };
+  }
+
+  public async commerceValidationSession(
+    sessionId: string,
+    handoffToken: string,
+  ) {
+    const session = await this.store.commerceValidationSession({
+      sessionId,
+      handoffTokenHash: sha256(handoffToken),
+      now: this.now(),
+    });
+    if (session === null) return null;
+    const offer = await this.store.findOffer(session.offerId);
+    if (offer === null || offer.version.id !== session.offerVersionId)
+      throw new Error("Validation session offer snapshot is unavailable");
+    const publicSession = Object.fromEntries(
+      Object.entries(session).filter(
+        ([key]) =>
+          ![
+            "buyerPrincipalId",
+            "handoffTokenHash",
+            "sellerPrincipalId",
+          ].includes(key),
+      ),
+    );
+    return {
+      session: {
+        ...publicSession,
+        buyerClaimed: session.buyerPrincipalId !== null,
+        expiresAt: session.expiresAt.toISOString(),
+        createdAt: session.createdAt.toISOString(),
+        updatedAt: session.updatedAt.toISOString(),
+      },
+      offer,
+    };
+  }
+
+  public async claimCommerceValidationSession(
+    principal: WalletSessionPrincipal,
+    sessionId: string,
+    handoffToken: string,
+  ) {
+    const claimed = await this.store.claimCommerceValidationSession({
+      sessionId,
+      handoffTokenHash: sha256(handoffToken),
+      buyerPrincipalId: principal.principalId,
+      buyerAddress: principal.walletAddress,
+      chainId: principal.chainId,
+      now: this.now(),
+    });
+    const prepared = await this.store.prepareCommerceValidationSession({
+      sessionId,
+      handoffTokenHash: sha256(handoffToken),
+      buyerPrincipalId: principal.principalId,
+      now: this.now(),
+    });
+    const offer = await this.store.findOffer(claimed.offerId);
+    if (offer === null || offer.version.id !== claimed.offerVersionId)
+      throw new Error("Validation session offer snapshot is unavailable");
+    const publicSession = Object.fromEntries(
+      Object.entries(prepared).filter(
+        ([key]) =>
+          ![
+            "buyerPrincipalId",
+            "handoffTokenHash",
+            "sellerPrincipalId",
+          ].includes(key),
+      ),
+    );
+    return {
+      session: {
+        ...publicSession,
+        expiresAt: prepared.expiresAt.toISOString(),
+        createdAt: prepared.createdAt.toISOString(),
+        updatedAt: prepared.updatedAt.toISOString(),
+      },
+      offer,
+      nextState: "REVIEW_VALIDATION_AGREEMENT" as const,
+      transactionSubmitted: false,
+    };
   }
 
   public offers(agentId: string) {
@@ -518,6 +731,217 @@ export class CommerceApplicationService {
     return this.store.listAgreements(principal.principalId);
   }
 
+  public async prepareCommerceValidation(
+    principal: WalletSessionPrincipal,
+    agreementId: string,
+  ) {
+    if (
+      this.erc8183?.rpcUrl === undefined ||
+      this.erc8183.policyAddress === undefined
+    )
+      throw new Error("ERC-8183 validation infrastructure is unavailable");
+    const current = await this.store.findAgreement(
+      agreementId,
+      principal.principalId,
+    );
+    if (
+      current?.status === "ACTIVE" &&
+      current.operations.some(
+        (operation) =>
+          (operation.evidence as Record<string, unknown>).commerceValidation ===
+          true,
+      )
+    )
+      return current;
+    const context = await this.store.commerceValidationContext({
+      agreementId,
+      principalId: principal.principalId,
+    });
+    if (
+      context === null ||
+      context.agreement.status !== "AUTHORIZED" ||
+      context.agreement.chainId !== principal.chainId ||
+      context.agreement.expiresAt === null ||
+      context.agreement.expiresAt <= this.now() ||
+      context.offer.status !== "ACTIVE" ||
+      context.offer.currentVersion !== context.version.version ||
+      context.service.availability !== "available" ||
+      context.service.endpoint === null
+    )
+      throw new Error("Authorized current validation agreement is required");
+    const commerce = getAddress(this.erc8183.commerceAddress);
+    const router = getAddress(this.erc8183.evaluatorAddress);
+    const provider = getAddress(context.identity.ownerAddress);
+    const token = getAddress(context.agreement.paymentTokenAddress);
+    const client = createPublicClient({
+      chain: bscTestnet,
+      transport: http(this.erc8183.rpcUrl),
+    });
+    const policy = getAddress(this.erc8183.policyAddress);
+    const amount = BigInt(context.agreement.amountBaseUnits);
+    const [
+      connectedChainId,
+      liveToken,
+      disputeWindow,
+      policyAllowed,
+      policyCode,
+      buyerBalance,
+      gasPrice,
+      buyerTokenBalance,
+    ] = await Promise.all([
+      client.getChainId(),
+      client.readContract({
+        address: commerce,
+        abi: paymentTokenAbi,
+        functionName: "paymentToken",
+      }),
+      client.readContract({
+        address: policy,
+        abi: policyReadinessAbi,
+        functionName: "disputeWindow",
+      }),
+      client.readContract({
+        address: router,
+        abi: registerJobAbi,
+        functionName: "policyWhitelist",
+        args: [policy],
+      }),
+      client.getCode({ address: policy }),
+      client.getBalance({ address: principal.walletAddress }),
+      client.getGasPrice(),
+      client.readContract({
+        address: token,
+        abi: erc20ApprovalAbi,
+        functionName: "balanceOf",
+        args: [principal.walletAddress],
+      }),
+    ]);
+    if (getAddress(liveToken) !== token)
+      throw new Error(
+        "Offer payment token does not match the commerce contract",
+      );
+    const requiredGasBalance = activationSetupRequiredGasBalance(gasPrice);
+    if (
+      connectedChainId !== 97 ||
+      disputeWindow <= 0n ||
+      !policyAllowed ||
+      policyCode === undefined ||
+      policyCode === "0x" ||
+      buyerBalance < requiredGasBalance ||
+      buyerTokenBalance < amount
+    )
+      throw new Error(
+        "Paid validation setup is not ready: verify chain, policy, buyer testnet gas, and exact token balance",
+      );
+    const negotiated = await negotiateOfferBoundService({
+      endpoint: context.service.endpoint,
+      interfaceProtocol: context.service.interfaceProtocol,
+      agreementId: context.agreement.id,
+      offerId: context.offer.id,
+      offerVersionId: context.version.id,
+      capability: context.version.capability,
+      terms: context.agreement.termsSnapshot,
+      termsHash: context.agreement.termsHash,
+      limitations: Array.isArray(context.version.limitationsSnapshot)
+        ? context.version.limitationsSnapshot.map(String)
+        : [],
+      chainId: context.agreement.chainId,
+      amountBaseUnits: context.agreement.amountBaseUnits,
+      paymentTokenAddress: token,
+    });
+    if (getAddress(negotiated.quote.verifying_contract) !== commerce)
+      throw new Error(
+        "Provider quote is bound to an unexpected commerce contract",
+      );
+    const signature = await verifyQuoteSignature({
+      envelope: negotiated.quote,
+      provider,
+      publicClient: client,
+      expectedVerifyingContract: commerce,
+    });
+    if (!signature.valid)
+      throw new Error(
+        `Provider quote signature is invalid: ${signature.reason}`,
+      );
+    const nowSeconds = Math.floor(this.now().getTime() / 1_000);
+    if (
+      negotiated.quote.response.quote_expires_at - nowSeconds <
+      USER_COMMERCE_CREATE_QUOTE_HEADROOM_SECONDS
+    )
+      throw new Error(
+        "Provider quote has insufficient time for manual wallet setup",
+      );
+    const description = buildJobDescription(negotiated.quote);
+    const jobExpiresAt = commerceValidationJobExpiry({
+      nowSeconds: BigInt(nowSeconds),
+      disputeWindowSeconds: disputeWindow,
+      relationshipExpiresAtSeconds: BigInt(
+        Math.floor(context.agreement.expiresAt.getTime() / 1_000),
+      ),
+    });
+    const createData = encodeFunctionData({
+      abi: createJobAbi,
+      functionName: "createJob",
+      args: [provider, router, jobExpiresAt, description, router],
+    });
+    const approvalData = encodeFunctionData({
+      abi: erc20ApprovalAbi,
+      functionName: "approve",
+      args: [commerce, amount],
+    });
+    await this.store.prepareCommerceValidationActivation({
+      agreementId,
+      principalId: principal.principalId,
+      clientAddress: principal.walletAddress,
+      commerceAddress: commerce,
+      evaluatorAddress: router,
+      providerAddress: provider,
+      approvalPayloadHash: keccak256(approvalData),
+      approvalEvidence: {
+        commerceValidation: true,
+        marketplaceHistoryEligible: false,
+        transactionPrepared: true,
+        transactionSubmitted: false,
+        contract: token,
+        calldata: approvalData,
+        preparedPayloadHash: keccak256(approvalData),
+        functionArguments: { spender: commerce, amount: amount.toString() },
+        quote: {
+          requestHash: negotiated.quote.request_hash,
+          responseHash: negotiated.quote.response_hash,
+          negotiationHash: negotiated.quote.negotiation_hash,
+          responseSha256: negotiated.responseSha256,
+          signatureMethod: signature.method,
+          negotiatedAt: negotiated.quote.response.negotiated_at,
+          quoteExpiresAt: negotiated.quote.response.quote_expires_at,
+        },
+        nextOperation: {
+          operationType: "CREATE_JOB",
+          contract: commerce,
+          calldata: createData,
+          preparedPayloadHash: keccak256(createData),
+          functionArguments: {
+            provider,
+            evaluator: router,
+            expiredAt: jobExpiresAt.toString(),
+            description,
+            hook: router,
+          },
+          commerceAddress: commerce,
+          routerAddress: router,
+          policyAddress: policy,
+          disputeWindowSeconds: disputeWindow.toString(),
+          negotiatedAt: negotiated.quote.response.negotiated_at,
+          quoteExpiresAt: negotiated.quote.response.quote_expires_at,
+          jobExpiresAt: jobExpiresAt.toString(),
+          amountBaseUnits: amount.toString(),
+          paymentTokenAddress: token,
+        },
+      },
+    });
+    return this.store.findAgreement(agreementId, principal.principalId);
+  }
+
   public async preparedWalletTransaction(
     principal: WalletSessionPrincipal,
     agreementId: string,
@@ -530,6 +954,113 @@ export class CommerceApplicationService {
     const operation = agreement?.operations.find(
       (candidate) => candidate.id === operationId,
     );
+    const validationEvidence = operation?.evidence as
+      Record<string, unknown> | undefined;
+    const validationOperation = validationEvidence?.commerceValidation === true;
+    if (
+      agreement !== null &&
+      agreement.status === "ACTIVE" &&
+      operation !== undefined &&
+      validationOperation &&
+      ["APPROVE_TOKEN", "CREATE_JOB"].includes(operation.operationType) &&
+      operation.state === "AWAITING_SIGNATURE" &&
+      operation.transactionHash === null &&
+      operation.preparedPayloadHash !== null &&
+      operation.activationId !== null
+    ) {
+      if (principal.chainId !== 97 || this.erc8183?.rpcUrl === undefined)
+        throw new Error("BSC Testnet validation preflight is unavailable");
+      const contract = getAddress(String(validationEvidence.contract));
+      const args = validationEvidence.functionArguments as
+        Record<string, unknown> | undefined;
+      let data: `0x${string}`;
+      let title: string;
+      let action: string;
+      let description: string;
+      if (operation.operationType === "APPROVE_TOKEN") {
+        if (
+          args === undefined ||
+          typeof args.spender !== "string" ||
+          typeof args.amount !== "string"
+        )
+          throw new Error("Prepared token approval evidence is incomplete");
+        data = encodeFunctionData({
+          abi: erc20ApprovalAbi,
+          functionName: "approve",
+          args: [getAddress(args.spender), BigInt(args.amount)],
+        });
+        title = "Allow the exact service payment";
+        action = "Approve payment";
+        description =
+          "Allow only this offer's exact token amount to be deposited into ERC-8183 escrow.";
+      } else {
+        const negotiatedAt = validationEvidence.negotiatedAt;
+        const quoteExpiresAt = validationEvidence.quoteExpiresAt;
+        if (
+          args === undefined ||
+          typeof args.provider !== "string" ||
+          typeof args.evaluator !== "string" ||
+          typeof args.expiredAt !== "string" ||
+          typeof args.description !== "string" ||
+          typeof args.hook !== "string" ||
+          typeof negotiatedAt !== "number" ||
+          typeof quoteExpiresAt !== "number" ||
+          quoteExpiresAt - Math.floor(this.now().getTime() / 1_000) <
+            USER_COMMERCE_CREATE_QUOTE_HEADROOM_SECONDS
+        )
+          throw new Error(
+            "Prepared validation job evidence is incomplete or expired",
+          );
+        data = encodeFunctionData({
+          abi: createJobAbi,
+          functionName: "createJob",
+          args: [
+            getAddress(args.provider),
+            getAddress(args.evaluator),
+            BigInt(args.expiredAt),
+            args.description,
+            getAddress(args.hook),
+          ],
+        });
+        title = "Start the validation job";
+        action = "Create job";
+        description =
+          "Create the offer-bound ERC-8183 validation job. Funding remains a separate confirmation.";
+      }
+      if (
+        keccak256(data).toLowerCase() !==
+        operation.preparedPayloadHash.toLowerCase()
+      )
+        throw new Error("Prepared validation transaction hash mismatch");
+      const publicClient = createPublicClient({
+        chain: bscTestnet,
+        transport: http(this.erc8183.rpcUrl),
+      });
+      await publicClient.call({
+        account: principal.walletAddress,
+        to: contract,
+        data,
+      });
+      return {
+        operationId: operation.id,
+        operationType: operation.operationType as
+          "APPROVE_TOKEN" | "CREATE_JOB",
+        chainId: 97 as const,
+        from: principal.walletAddress,
+        to: contract,
+        data,
+        value: "0x0" as const,
+        preparedPayloadHash: operation.preparedPayloadHash,
+        presentation: {
+          title,
+          action,
+          description,
+          network: "BSC Testnet",
+          servicePrice: `${agreement.amountBaseUnits} base units`,
+          fundsExpectedToMove: false,
+        },
+      };
+    }
     if (
       agreement === null ||
       agreement.status !== "ACTIVE" ||
@@ -682,7 +1213,7 @@ export class CommerceApplicationService {
     });
     if (
       activation === null ||
-      activation.purpose !== "USER_COMMERCE" ||
+      !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
       activation.chainId !== 97 ||
       activation.lifecycleState !== "ONCHAIN_CREATED" ||
       activation.reconciliationState !== "CURRENT" ||
@@ -795,7 +1326,12 @@ export class CommerceApplicationService {
         description:
           "Bind the approved dispute and evaluation policy to the existing ERC-8183 job.",
         network: "BSC Testnet",
-        servicePrice: "Free",
+        servicePrice: (() => {
+          const amount = String(
+            activation.budgetBaseUnits ?? agreement.amountBaseUnits ?? "0",
+          );
+          return BigInt(amount) === 0n ? "Free" : `${amount} base units`;
+        })(),
         fundsExpectedToMove: false,
         jobId: jobId.toString(),
       },
@@ -840,7 +1376,7 @@ export class CommerceApplicationService {
     });
     if (
       activation === null ||
-      activation.purpose !== "USER_COMMERCE" ||
+      !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
       activation.chainId !== 97 ||
       activation.lifecycleState !== "ONCHAIN_CREATED" ||
       activation.reconciliationState !== "CURRENT" ||
@@ -868,9 +1404,10 @@ export class CommerceApplicationService {
     const jobId = BigInt(jobIdValue);
     const amount = BigInt(amountValue);
     const commerce = getAddress(this.erc8183.commerceAddress);
+    const expectedAmount = BigInt(activation.budgetBaseUnits ?? "0");
     if (
       activation.externalJobId !== jobId.toString() ||
-      amount !== 0n ||
+      amount !== expectedAmount ||
       getAddress(evidence.contract) !== commerce
     )
       throw new Error("Prepared SET_BUDGET binding does not match Relic");
@@ -929,7 +1466,7 @@ export class CommerceApplicationService {
       getAddress(job.hook) !== router ||
       getAddress(currentPolicy) !== expectedPolicy
     )
-      throw new Error("Onchain job is not eligible for zero-budget setup");
+      throw new Error("Onchain job is not eligible for budget setup");
     await client.simulateContract({
       account: principal.walletAddress,
       address: commerce,
@@ -957,9 +1494,10 @@ export class CommerceApplicationService {
         title: "Set job budget",
         action: "Set budget",
         description:
-          "Explicitly initialize this free job's zero budget. This is not funding and moves no tokens.",
+          "Set the exact offer-bound budget. This step does not transfer tokens.",
         network: "BSC Testnet",
-        servicePrice: "Free / 0",
+        servicePrice:
+          amount === 0n ? "Free / 0" : `${amount.toString()} base units`,
         fundsExpectedToMove: false,
         jobId: jobId.toString(),
         cost: "Gas only",
@@ -1003,7 +1541,7 @@ export class CommerceApplicationService {
     });
     if (
       activation === null ||
-      activation.purpose !== "USER_COMMERCE" ||
+      !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
       activation.chainId !== 97 ||
       activation.lifecycleState !== "ONCHAIN_CREATED" ||
       activation.reconciliationState !== "CURRENT" ||
@@ -1032,9 +1570,10 @@ export class CommerceApplicationService {
     const jobId = BigInt(jobIdValue);
     const expectedBudget = BigInt(expectedBudgetValue);
     const commerce = getAddress(this.erc8183.commerceAddress);
+    const expectedAmount = BigInt(activation.budgetBaseUnits ?? "0");
     if (
       activation.externalJobId !== jobId.toString() ||
-      expectedBudget !== 0n ||
+      expectedBudget !== expectedAmount ||
       getAddress(evidence.contract) !== commerce
     )
       throw new Error("Prepared FUND binding does not match Relic");
@@ -1085,7 +1624,7 @@ export class CommerceApplicationService {
     if (
       job.id !== jobId ||
       job.status !== 0 ||
-      job.budget !== 0n ||
+      job.budget !== expectedBudget ||
       !hasBudget ||
       job.expiredAt <= nowSeconds ||
       getAddress(job.client) !== principal.walletAddress ||
@@ -1093,7 +1632,7 @@ export class CommerceApplicationService {
       getAddress(job.hook) !== router ||
       getAddress(currentPolicy) !== expectedPolicy
     )
-      throw new Error("Onchain job is not eligible for zero-value funding");
+      throw new Error("Onchain job is not eligible for funding");
     await client.simulateContract({
       account: principal.walletAddress,
       address: commerce,
@@ -1118,15 +1657,20 @@ export class CommerceApplicationService {
       ).toISOString(),
       quoteMinimumRemainingSeconds: quoteWindow.requiredHeadroomSeconds,
       presentation: {
-        title: "Fund free job",
+        title: expectedBudget === 0n ? "Fund free job" : "Fund validation job",
         action: "Fund job",
         description:
-          "Advance this free job to FUNDED with an explicit zero-value funding call. No tokens move.",
+          expectedBudget === 0n
+            ? "Advance this free job to FUNDED with an explicit zero-value funding call. No tokens move."
+            : "Deposit the exact approved offer amount into ERC-8183 escrow.",
         network: "BSC Testnet",
-        servicePrice: "Free / 0",
-        fundsExpectedToMove: false,
+        servicePrice:
+          expectedBudget === 0n
+            ? "Free / 0"
+            : `${expectedBudget.toString()} base units`,
+        fundsExpectedToMove: expectedBudget > 0n,
         jobId: jobId.toString(),
-        cost: "Gas only",
+        cost: expectedBudget === 0n ? "Gas only" : "Offer price plus gas",
       },
     };
   }
@@ -1143,6 +1687,17 @@ export class CommerceApplicationService {
     const existingOperation = existingAgreement?.operations.find(
       ({ id }) => id === operationId,
     );
+    if (
+      existingOperation !== undefined &&
+      (existingOperation.evidence as Record<string, unknown>)
+        .commerceValidation === true &&
+      ["APPROVE_TOKEN", "CREATE_JOB"].includes(existingOperation.operationType)
+    )
+      return this.preparedWalletTransaction(
+        principal,
+        agreementId,
+        operationId,
+      );
     if (existingOperation?.operationType === "REGISTER_JOB")
       return this.preparedRegisterJobWalletTransaction(
         principal,

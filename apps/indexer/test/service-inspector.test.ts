@@ -5,7 +5,10 @@ import { inspectMarketplaceService } from "../src/service-inspector.js";
 
 const service = {
   id: "01945b1e-7e80-7000-8000-000000000001",
+  agentChainId: 97,
+  externalAgentId: "2016",
   endpoint: "https://agent.example",
+  verificationUrl: null,
   interfaceProtocol: "erc8183",
   verificationLevel: "DECLARED" as const,
 };
@@ -75,6 +78,13 @@ describe("protocol-aware service inspection", () => {
   it("understands an A2A Agent Card without invoking a task", async () => {
     const request = vi
       .fn()
+      .mockResolvedValueOnce(
+        response({
+          endpoint: "https://agent.example/.well-known/relic-ready.json",
+          status: 404,
+          body: "",
+        }),
+      )
       .mockResolvedValue(
         response({ body: JSON.stringify({ name: "Seller", skills: [] }) }),
       );
@@ -87,6 +97,112 @@ describe("protocol-aware service inspection", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.toLevel).toBe("SCHEMA_UNDERSTOOD");
+  });
+
+  it("accepts a public Relic-ready document bound to the declared service", async () => {
+    const request = vi.fn().mockResolvedValue(
+      response({
+        endpoint: "https://agent.example/.well-known/relic-ready.json",
+        body: JSON.stringify({
+          version: "relic-ready/v1",
+          agent: { chainId: 97, externalAgentId: "2016" },
+          service: {
+            endpoint: "https://agent.example",
+            protocol: "a2a",
+            availability: "available",
+            authorization: { type: "relic-job-authorization-v1" },
+          },
+          issuedAt: "2026-08-31T00:00:00.000Z",
+          expiresAt: "2030-09-01T00:00:00.000Z",
+        }),
+      }),
+    );
+    const result = await inspectMarketplaceService(
+      { ...service, interfaceProtocol: "a2a" },
+      request,
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(
+      "https://agent.example/.well-known/relic-ready.json",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result).toMatchObject({
+      result: "passed",
+      toLevel: "SCHEMA_UNDERSTOOD",
+      evidence: { verificationDocument: "relic-ready/v1" },
+    });
+  });
+
+  it("uses a metadata-declared public document for a protected execution endpoint", async () => {
+    const executionEndpoint =
+      "https://private-runtime.example/invocations?qualifier=DEFAULT";
+    const verificationUrl =
+      "https://publisher.example/relic/yield-scout-ready.json";
+    const request = vi.fn().mockResolvedValue(
+      response({
+        endpoint: verificationUrl,
+        body: JSON.stringify({
+          version: "relic-ready/v1",
+          agent: { chainId: 97, externalAgentId: "2016" },
+          service: {
+            endpoint: executionEndpoint,
+            protocol: "a2a",
+            availability: "available",
+            authorization: { type: "relic-job-authorization-v1" },
+          },
+          issuedAt: "2026-08-31T00:00:00.000Z",
+          expiresAt: "2030-09-01T00:00:00.000Z",
+        }),
+      }),
+    );
+
+    const result = await inspectMarketplaceService(
+      {
+        ...service,
+        endpoint: executionEndpoint,
+        verificationUrl,
+        interfaceProtocol: "a2a",
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(
+      verificationUrl,
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result).toMatchObject({
+      result: "passed",
+      toLevel: "SCHEMA_UNDERSTOOD",
+      evidence: { verificationDocumentSource: "erc-8004-metadata" },
+    });
+  });
+
+  it("does not fall back to a private endpoint when its declared document is unavailable", async () => {
+    const request = vi.fn().mockResolvedValue(
+      response({
+        endpoint: "https://publisher.example/relic/ready.json",
+        status: 404,
+        body: "",
+      }),
+    );
+
+    const result = await inspectMarketplaceService(
+      {
+        ...service,
+        endpoint: "https://private-runtime.example/invocations",
+        verificationUrl: "https://publisher.example/relic/ready.json",
+        interfaceProtocol: "a2a",
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      result: "failed",
+      httpStatus: 404,
+      error: { code: "verification_document_unavailable" },
+    });
   });
 
   it("understands an x402 challenge without sending payment", async () => {

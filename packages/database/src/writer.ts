@@ -248,6 +248,7 @@ export class DrizzleAgentWriter {
             outputSchema: service.outputSchema,
             pricing: service.pricing,
             endpoint: service.endpoint,
+            verificationUrl: service.verificationUrl,
             sla: service.sla,
             status: service.availabilityStatus,
           })

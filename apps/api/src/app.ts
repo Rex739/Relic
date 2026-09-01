@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { verifyIdentityToken } from "@privy-io/node";
 import {
   createHash,
   createHmac,
@@ -9,13 +10,17 @@ import {
 import {
   buildOwnershipMessage,
   createOfferRequestSchema,
+  sellerMarketplaceProfileInputSchema,
   createMandateRequestSchema,
   executionActionRequestSchema,
   walletChallengeRequestSchema,
   walletChallengeVerificationSchema,
   MandateValidationError,
   type AgentReadRepository,
+  type AgentSubmission,
   type OnboardingRepository,
+  type SellerAgentAuthorization,
+  type SellerAgentReadiness,
 } from "@relic/domain";
 import {
   agentDetailResponseSchema,
@@ -37,7 +42,7 @@ import {
   serviceListResponseSchema,
 } from "@relic/validation";
 import { z } from "zod";
-import { getAddress, isAddress, keccak256, recoverMessageAddress } from "viem";
+import { getAddress, keccak256 } from "viem";
 
 import type { MandateApplicationService } from "./mandates.js";
 import type { ExecutionApplicationService } from "./executions.js";
@@ -45,11 +50,81 @@ import type {
   CommerceApplicationService,
   WalletAuthenticationService,
 } from "./commerce.js";
+import type {
+  Erc8004OwnershipReader,
+  SellerAuthorizationGuard,
+} from "./seller-ownership.js";
 
 const json = (schema: z.ZodType, description: string) => ({
   content: { "application/json": { schema } },
   description,
 });
+
+function pendingSellerReadiness(
+  authorization: SellerAgentAuthorization,
+  submission: AgentSubmission,
+): SellerAgentReadiness {
+  if (authorization.chainId !== 56 && authorization.chainId !== 97)
+    throw new Error(
+      `Unsupported seller authorization chain ${authorization.chainId}`,
+    );
+  return {
+    // This is deliberately not a catalog agent ID. A verified ownership record
+    // must not be mistaken for a service that can already be offered.
+    agentId: `submission:${submission.id}`,
+    serviceId: null,
+    name: `Agent #${authorization.externalAgentId}`,
+    description:
+      "Ownership is verified. Relic is preparing this agent's catalog profile and service checks.",
+    imageUrl: null,
+    category: "seller-onboarding",
+    chainId: authorization.chainId,
+    externalAgentId: authorization.externalAgentId,
+    testDeployment: false,
+    verifiedPrice: null,
+    requirements: {
+      identity: {
+        state: "complete",
+        label: "Agent identity verified",
+        explanation:
+          "Relic confirmed control of this agent's current registered BNB Chain owner.",
+        nextAction: null,
+      },
+      service: {
+        state: "blocked",
+        label: "Catalog and service setup pending",
+        explanation:
+          "Relic has not yet imported this agent's advertised service for marketplace checks.",
+        nextAction: "Waiting for catalog setup",
+      },
+      verification: {
+        state: "blocked",
+        label: "Service verification pending",
+        explanation:
+          "Relic can verify the service after catalog and endpoint setup are complete.",
+        nextAction: "Waiting for catalog setup",
+      },
+      commerce: {
+        state: "blocked",
+        label: "Commerce validation pending",
+        explanation:
+          "Commerce validation begins only after the agent has a verified service and marketplace offer.",
+        nextAction: "Waiting for catalog setup",
+      },
+      offer: {
+        state: "blocked",
+        label: "Marketplace offer unavailable",
+        explanation:
+          "You can publish price and terms after Relic has completed catalog and service setup.",
+        nextAction: "Waiting for catalog setup",
+      },
+    },
+    marketplaceStatus: "NOT_READY",
+    hireable: false,
+    lastVerifiedAt: authorization.verifiedAt,
+    onboardingState: "PENDING_CATALOG_SETUP",
+  };
+}
 
 const healthRoute = createRoute({
   method: "get",
@@ -464,6 +539,25 @@ const walletVerifyRoute = createRoute({
     503: json(errorResponseSchema, "Wallet authentication unavailable"),
   },
 });
+const privyVerifyRequestSchema = z.object({
+  identityToken: z.string().min(1),
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  chainId: z.literal(97),
+});
+const privyVerifyRoute = createRoute({
+  method: "post",
+  path: "/v1/auth/privy/verify",
+  request: {
+    body: {
+      content: { "application/json": { schema: privyVerifyRequestSchema } },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Privy session established"),
+    401: json(errorResponseSchema, "Privy identity could not be verified"),
+    503: json(errorResponseSchema, "Privy verification unavailable"),
+  },
+});
 const walletSessionRoute = createRoute({
   method: "get",
   path: "/v1/auth/session",
@@ -524,6 +618,23 @@ const operatorReadinessRoute = createRoute({
     ),
   },
 });
+const operatorAgentProfileRoute = createRoute({
+  method: "put",
+  path: "/v1/operator/agents/{id}/profile",
+  request: {
+    params: z.object({ id: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": { schema: sellerMarketplaceProfileInputSchema },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Marketplace profile updated"),
+    503: json(errorResponseSchema, "Marketplace profile storage unavailable"),
+  },
+});
 const reviseOfferRoute = createRoute({
   method: "put",
   path: "/v1/operator/offers/{id}",
@@ -547,6 +658,47 @@ const operatorAgreementsRoute = createRoute({
       z.object({ data: z.array(z.any()) }),
       "Operator commerce history",
     ),
+  },
+});
+const createCommerceValidationSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/operator/offers/{id}/validation-sessions",
+  request: {
+    params: offerParams,
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    201: json(z.object({ data: z.any() }), "Validation handoff created"),
+  },
+});
+const commerceValidationSessionRoute = createRoute({
+  method: "get",
+  path: "/v1/commerce-validation-sessions/{id}",
+  request: {
+    params: z.object({ id: z.uuid() }),
+    query: z.object({ token: z.string().min(32) }),
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Validation handoff"),
+    404: json(errorResponseSchema, "Validation handoff unavailable"),
+  },
+});
+const claimCommerceValidationSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-validation-sessions/{id}/claim",
+  request: {
+    params: z.object({ id: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ token: z.string().min(32) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Validation handoff claimed"),
   },
 });
 const offerTransitionRoute = (action: "activate" | "pause" | "deactivate") =>
@@ -595,6 +747,20 @@ const getAgreementRoute = createRoute({
     headers: z.object({ authorization: z.string() }),
   },
   responses: { 200: json(z.object({ data: z.any() }), "Commerce agreement") },
+});
+const prepareCommerceValidationRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/prepare-validation",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.any() }),
+      "Validation payment sequence prepared",
+    ),
+  },
 });
 const preparedWalletTransactionRoute = createRoute({
   method: "get",
@@ -744,8 +910,10 @@ const createCommerceActivationRoute = createRoute({
 const submissionSchema = z.object({
   id: z.uuid(),
   chainId: z.number().int(),
+  registryAddress: z.string(),
   externalAgentId: z.string(),
   supplyType: z.enum(["third_party", "partner", "relic_reference"]),
+  relicPrincipalId: z.string().nullable(),
   status: z.string(),
   submitterAddress: z.string().nullable(),
   ownershipVerifiedAt: z.iso.datetime().nullable(),
@@ -760,6 +928,7 @@ const createSubmissionRoute = createRoute({
   method: "post",
   path: "/v1/agent-submissions",
   request: {
+    headers: z.object({ authorization: z.string() }),
     body: {
       content: {
         "application/json": {
@@ -767,17 +936,8 @@ const createSubmissionRoute = createRoute({
             .object({
               chainId: z.union([z.literal(56), z.literal(97)]),
               externalAgentId: z.string().regex(/^\d+$/),
-              submitterAddress: z.string().refine(isAddress),
               developerOverrides: z
                 .object({
-                  categorySlug: z
-                    .enum([
-                      "health-factor-monitoring",
-                      "grid-trading",
-                      "rebalancing",
-                      "yield-optimisation",
-                    ])
-                    .optional(),
                   note: z.string().max(500).optional(),
                 })
                 .strict()
@@ -790,7 +950,15 @@ const createSubmissionRoute = createRoute({
     },
   },
   responses: {
-    201: json(z.object({ data: submissionSchema }), "Agent submission"),
+    201: json(
+      z.object({
+        data: submissionSchema.extend({
+          currentOwner: z.string(),
+          name: z.string().nullable(),
+        }),
+      }),
+      "Authenticated agent submission",
+    ),
     400: json(errorResponseSchema, "Invalid request"),
     503: json(errorResponseSchema, "Onboarding unavailable"),
   },
@@ -798,7 +966,10 @@ const createSubmissionRoute = createRoute({
 const getSubmissionRoute = createRoute({
   method: "get",
   path: "/v1/agent-submissions/{id}",
-  request: { params: submissionParams },
+  request: {
+    params: submissionParams,
+    headers: z.object({ authorization: z.string() }),
+  },
   responses: {
     200: json(z.object({ data: submissionSchema }), "Agent submission"),
     404: json(errorResponseSchema, "Submission not found"),
@@ -808,7 +979,10 @@ const getSubmissionRoute = createRoute({
 const createOwnershipChallengeRoute = createRoute({
   method: "post",
   path: "/v1/agent-submissions/{id}/ownership-challenges",
-  request: { params: submissionParams },
+  request: {
+    params: submissionParams,
+    headers: z.object({ authorization: z.string() }),
+  },
   responses: {
     201: json(
       z.object({
@@ -816,6 +990,7 @@ const createOwnershipChallengeRoute = createRoute({
           id: z.uuid(),
           message: z.string(),
           expectedOwner: z.string(),
+          issuedAt: z.iso.datetime(),
           expiresAt: z.iso.datetime(),
         }),
       }),
@@ -831,6 +1006,7 @@ const verifyOwnershipRoute = createRoute({
   path: "/v1/agent-submissions/{id}/ownership-verification",
   request: {
     params: submissionParams,
+    headers: z.object({ authorization: z.string() }),
     body: {
       content: {
         "application/json": {
@@ -862,7 +1038,14 @@ export function createApp(
     mandateApiSecret?: string;
     executionService?: ExecutionApplicationService;
     walletAuthService?: WalletAuthenticationService;
+    privyAppId?: string;
+    privyJwtVerificationKey?: string;
     commerceService?: CommerceApplicationService;
+    ownershipReader?: Erc8004OwnershipReader;
+    sellerAuthorizationGuard?: SellerAuthorizationGuard;
+    publicOrigin?: string;
+    environmentName?: string;
+    now?: () => Date;
   } = {},
 ) {
   const app = new OpenAPIHono({
@@ -1282,6 +1465,98 @@ export function createApp(
     );
   });
 
+  app.openapi(privyVerifyRoute, async (context) => {
+    if (
+      options.privyAppId === undefined ||
+      options.privyJwtVerificationKey === undefined
+    )
+      return context.json(
+        {
+          error: {
+            code: "privy_auth_unavailable",
+            message: "Google sign-in is not configured for Relic yet.",
+          },
+        },
+        503,
+      );
+
+    const body = privyVerifyRequestSchema.parse(await context.req.json());
+    // Environment providers commonly store PEM values on one line using
+    // literal `\n` escapes. Normalize that safe representation before handing
+    // it to jose's SPKI importer.
+    const verificationKey = options.privyJwtVerificationKey.replace(
+      /\\n/g,
+      "\n",
+    );
+    if (
+      !verificationKey.includes("-----BEGIN PUBLIC KEY-----") ||
+      !verificationKey.includes("-----END PUBLIC KEY-----")
+    )
+      return context.json(
+        {
+          error: {
+            code: "privy_verification_key_invalid",
+            message:
+              "Relic's Privy verification key is incomplete. Add the full public-key PEM.",
+          },
+        },
+        503,
+      );
+    try {
+      const user = await verifyIdentityToken({
+        identity_token: body.identityToken,
+        app_id: options.privyAppId,
+        verification_key: verificationKey,
+      });
+      const claimedAddress = getAddress(body.address);
+      const ownsClaimedAddress = user.linked_accounts.some((account) => {
+        if (
+          typeof account !== "object" ||
+          account === null ||
+          !("address" in account) ||
+          typeof account.address !== "string"
+        )
+          return false;
+        try {
+          return getAddress(account.address) === claimedAddress;
+        } catch {
+          return false;
+        }
+      });
+      if (!ownsClaimedAddress)
+        return context.json(
+          {
+            error: {
+              code: "privy_wallet_mismatch",
+              message:
+                "The embedded wallet does not belong to this Google account.",
+            },
+          },
+          401,
+        );
+      return context.json(
+        {
+          data: await requireWalletAuth().establishSession(
+            claimedAddress,
+            body.chainId,
+          ),
+        },
+        200,
+      );
+    } catch (error) {
+      console.warn("Privy identity verification failed", error);
+      return context.json(
+        {
+          error: {
+            code: "privy_identity_invalid",
+            message: "Google sign-in could not be verified. Please try again.",
+          },
+        },
+        401,
+      );
+    }
+  });
+
   app.openapi(walletSessionRoute, async (context) =>
     context.json({ data: await walletPrincipal(context) }, 200),
   );
@@ -1360,11 +1635,94 @@ export function createApp(
 
   app.openapi(operatorReadinessRoute, async (context) => {
     const session = await walletPrincipal(context);
-    const data =
+    const authorizations =
+      options.sellerAuthorizationGuard === undefined
+        ? []
+        : await options.sellerAuthorizationGuard.currentAuthorizations(
+            session.principalId,
+          );
+    let ownerAddresses = [session.walletAddress];
+    if (authorizations.length > 0) {
+      ownerAddresses = [
+        ...new Set(
+          authorizations.map((authorization) => authorization.verifiedOwner),
+        ),
+      ];
+    }
+    const readiness =
       repository.sellerReadiness === undefined
         ? []
-        : await repository.sellerReadiness(session.walletAddress);
+        : await Promise.all(
+            ownerAddresses.map((owner) => repository.sellerReadiness!(owner)),
+          );
+    const catalogReadiness = [
+      ...new Map(readiness.flat().map((item) => [item.agentId, item])).values(),
+    ];
+    const catalogExternalIds = new Set(
+      catalogReadiness.map((item) => `${item.chainId}:${item.externalAgentId}`),
+    );
+    const pending =
+      onboarding === undefined
+        ? []
+        : (
+            await Promise.all(
+              authorizations
+                .filter((authorization) => authorization.agentId === null)
+                .map(async (authorization) => ({
+                  authorization,
+                  submission: await onboarding.findSubmission(
+                    authorization.submissionId,
+                  ),
+                })),
+            )
+          )
+            .filter(
+              ({ authorization, submission }) =>
+                submission !== null &&
+                submission.relicPrincipalId === session.principalId &&
+                submission.status !== "REJECTED" &&
+                !catalogExternalIds.has(
+                  `${authorization.chainId}:${authorization.externalAgentId}`,
+                ),
+            )
+            .map(({ authorization, submission }) =>
+              pendingSellerReadiness(authorization, submission!),
+            );
+    const data = [...catalogReadiness, ...pending];
     return context.json({ data }, 200);
+  });
+
+  app.openapi(operatorAgentProfileRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    const agentId = z.uuid().parse(context.req.param("id"));
+    const profile = sellerMarketplaceProfileInputSchema.parse(
+      await context.req.json(),
+    );
+    if (
+      options.sellerAuthorizationGuard === undefined ||
+      onboarding?.upsertSellerMarketplaceProfile === undefined
+    )
+      return context.json(
+        {
+          error: {
+            code: "marketplace_profile_unavailable",
+            message: "Marketplace profile storage is unavailable",
+          },
+        },
+        503,
+      );
+    await options.sellerAuthorizationGuard.assertAuthorized(
+      session.principalId,
+      agentId,
+    );
+    const updated = await onboarding.upsertSellerMarketplaceProfile({
+      agentId,
+      principalId: session.principalId,
+      description: profile.description,
+      imageUrl: profile.imageUrl,
+      updatedAt: options.now?.() ?? new Date(),
+    });
+    return context.json({ data: updated }, 200);
   });
 
   app.openapi(reviseOfferRoute, async (context) => {
@@ -1392,6 +1750,55 @@ export function createApp(
       200,
     ),
   );
+
+  app.openapi(createCommerceValidationSessionRoute, async (context) => {
+    const { id } = offerParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().createCommerceValidationSession(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      201,
+    );
+  });
+
+  app.openapi(commerceValidationSessionRoute, async (context) => {
+    const { id } = z.object({ id: z.uuid() }).parse(context.req.param());
+    const { token } = z
+      .object({ token: z.string().min(32) })
+      .parse(context.req.query());
+    const data = await requireCommerce().commerceValidationSession(id, token);
+    return data === null
+      ? context.json(
+          {
+            error: {
+              code: "validation_session_not_found",
+              message: "Validation handoff is invalid or no longer available",
+            },
+          },
+          404,
+        )
+      : context.json({ data }, 200);
+  });
+
+  app.openapi(claimCommerceValidationSessionRoute, async (context) => {
+    const { id } = z.object({ id: z.uuid() }).parse(context.req.param());
+    const { token } = z
+      .object({ token: z.string().min(32) })
+      .parse(await context.req.json());
+    return context.json(
+      {
+        data: await requireCommerce().claimCommerceValidationSession(
+          await walletPrincipal(context),
+          id,
+          token,
+        ),
+      },
+      200,
+    );
+  });
 
   app.openapi(activateOfferRoute, async (context) => {
     const { id } = offerParams.parse(context.req.param());
@@ -1467,6 +1874,19 @@ export function createApp(
     return context.json(
       {
         data: await requireCommerce().agreement(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(prepareCommerceValidationRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().prepareCommerceValidation(
           await walletPrincipal(context),
           id,
         ),
@@ -1827,22 +2247,78 @@ export function createApp(
         },
         503,
       );
+    const session = await walletPrincipal(context);
+    if (options.ownershipReader === undefined)
+      throw new MandateValidationError(
+        "ownership_rpc_unavailable",
+        "Live ERC-8004 ownership lookup is unavailable.",
+      );
     const body = createSubmissionRoute.request.body.content[
       "application/json"
     ].schema.parse(await context.req.json());
-    const data = await onboarding.createSubmission({
-      chainId: body.chainId,
-      externalAgentId: body.externalAgentId,
-      supplyType: "third_party",
-      submitterAddress: getAddress(body.submitterAddress),
-      developerOverrides: body.developerOverrides,
-      evidence: {
-        source: "public-api",
-        provenance: "developer_declared",
-        receivedAt: new Date().toISOString(),
+    const registryAddress = options.ownershipReader.registryAddress(
+      body.chainId,
+    );
+    let currentOwner: `0x${string}`;
+    try {
+      currentOwner = await options.ownershipReader.ownerOf(
+        body.chainId,
+        body.externalAgentId,
+      );
+    } catch {
+      throw new MandateValidationError(
+        "agent_not_found",
+        "Agent not found, or live ERC-8004 ownership could not be read.",
+      );
+    }
+    let data;
+    try {
+      data = await onboarding.createSubmission({
+        chainId: body.chainId,
+        registryAddress,
+        externalAgentId: body.externalAgentId,
+        supplyType: "third_party",
+        relicPrincipalId: session.principalId,
+        liveOwner: currentOwner,
+        submitterAddress: session.walletAddress,
+        developerOverrides: body.developerOverrides,
+        evidence: {
+          source: "authenticated-operator-api",
+          provenance: "developer_declared",
+          relicPrincipalId: session.principalId,
+          registryAddress,
+          liveOwner: currentOwner,
+          receivedAt: (options.now?.() ?? new Date()).toISOString(),
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("already bound to another Relic account")
+      )
+        throw new MandateValidationError(
+          "seller_claim_conflict",
+          error.message,
+        );
+      throw error;
+    }
+    const identity =
+      repository.findByChainIdentity === undefined
+        ? null
+        : await repository.findByChainIdentity(
+            body.chainId,
+            body.externalAgentId,
+          );
+    return context.json(
+      {
+        data: {
+          ...submissionSchema.parse(data),
+          currentOwner,
+          name: identity?.name ?? null,
+        },
       },
-    });
-    return context.json({ data: submissionSchema.parse(data) }, 201);
+      201,
+    );
   });
 
   app.openapi(getSubmissionRoute, async (context) => {
@@ -1857,8 +2333,9 @@ export function createApp(
         503,
       );
     const { id } = submissionParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
     const data = await onboarding.findSubmission(id);
-    if (data === null)
+    if (data === null || data.relicPrincipalId !== session.principalId)
       return context.json(
         {
           error: {
@@ -1883,8 +2360,12 @@ export function createApp(
         503,
       );
     const { id } = submissionParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
     const submission = await onboarding.findSubmission(id);
-    if (submission === null)
+    if (
+      submission === null ||
+      submission.relicPrincipalId !== session.principalId
+    )
       return context.json(
         {
           error: {
@@ -1894,36 +2375,56 @@ export function createApp(
         },
         404,
       );
-    const identity = await onboarding.findOwnershipContext(
-      submission.chainId,
-      submission.externalAgentId,
-    );
-    if (identity === null)
-      return context.json(
-        {
-          error: {
-            code: "identity_not_indexed",
-            message:
-              "Canonical onchain identity must be indexed before ownership proof",
-          },
-        },
-        409,
+    if (options.ownershipReader === undefined)
+      throw new MandateValidationError(
+        "ownership_rpc_unavailable",
+        "Live ERC-8004 ownership lookup is unavailable.",
       );
+    const registryAddress = options.ownershipReader.registryAddress(
+      submission.chainId as 56 | 97,
+    );
+    if (getAddress(registryAddress) !== getAddress(submission.registryAddress))
+      throw new MandateValidationError(
+        "ownership_registry_mismatch",
+        "The stored submission registry does not match Relic's configured registry.",
+      );
+    let currentOwner: `0x${string}`;
+    try {
+      currentOwner = await options.ownershipReader.ownerOf(
+        submission.chainId as 56 | 97,
+        submission.externalAgentId,
+      );
+    } catch {
+      throw new MandateValidationError(
+        "ownership_rpc_unavailable",
+        "Current ERC-8004 ownership could not be confirmed.",
+      );
+    }
     const nonce = randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const issuedAt = options.now?.() ?? new Date();
+    const expiresAt = new Date(issuedAt.getTime() + 5 * 60 * 1000);
     const message = buildOwnershipMessage({
-      submissionId: submission.id,
+      environment: options.environmentName ?? "development",
+      origin: options.publicOrigin ?? "http://localhost:3000",
+      principalId: session.principalId,
       chainId: submission.chainId,
-      registryAddress: identity.registryAddress,
+      registryAddress,
       externalAgentId: submission.externalAgentId,
+      expectedOwner: currentOwner,
       nonce,
+      issuedAt: issuedAt.toISOString(),
       expiresAt: expiresAt.toISOString(),
     });
     const challenge = await onboarding.createOwnershipChallenge({
       submissionId: submission.id,
+      principalId: session.principalId,
+      chainId: submission.chainId,
+      registryAddress,
+      externalAgentId: submission.externalAgentId,
       nonceHash: createHash("sha256").update(nonce).digest("hex"),
       message,
-      expectedOwner: identity.ownerAddress,
+      expectedOwner: currentOwner,
+      issuedAt,
       expiresAt,
     });
     return context.json(
@@ -1932,6 +2433,7 @@ export function createApp(
           id: challenge.id,
           message: challenge.message,
           expectedOwner: challenge.expectedOwner,
+          issuedAt: challenge.issuedAt,
           expiresAt: challenge.expiresAt,
         },
       },
@@ -1951,11 +2453,16 @@ export function createApp(
         503,
       );
     const { id } = submissionParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
     const body = verifyOwnershipRoute.request.body.content[
       "application/json"
     ].schema.parse(await context.req.json());
     const challenge = await onboarding.findOwnershipChallenge(body.challengeId);
-    if (challenge === null || challenge.submissionId !== id)
+    if (
+      challenge === null ||
+      challenge.submissionId !== id ||
+      challenge.principalId !== session.principalId
+    )
       return context.json(
         {
           error: {
@@ -1965,50 +2472,84 @@ export function createApp(
         },
         404,
       );
-    let signer: `0x${string}`;
+    const submission = await onboarding.findSubmission(id);
+    if (
+      submission === null ||
+      submission.relicPrincipalId !== session.principalId ||
+      challenge.chainId !== submission.chainId ||
+      challenge.externalAgentId !== submission.externalAgentId ||
+      getAddress(challenge.registryAddress) !==
+        getAddress(submission.registryAddress)
+    )
+      throw new MandateValidationError(
+        "ownership_challenge_mismatch",
+        "The ownership challenge is not bound to this agent and Relic account.",
+      );
+    if (new Date(challenge.expiresAt) <= (options.now?.() ?? new Date()))
+      throw new MandateValidationError(
+        "ownership_challenge_expired",
+        "Ownership challenge expired. Generate a new challenge.",
+      );
+    if (options.ownershipReader === undefined)
+      throw new MandateValidationError(
+        "ownership_rpc_unavailable",
+        "Live ERC-8004 ownership lookup is unavailable.",
+      );
+    let currentOwner: `0x${string}`;
     try {
-      signer = await recoverMessageAddress({
-        message: challenge.message,
-        signature: body.signature as `0x${string}`,
-      });
+      currentOwner = await options.ownershipReader.ownerOf(
+        challenge.chainId as 56 | 97,
+        challenge.externalAgentId,
+      );
     } catch {
-      return context.json(
-        {
-          error: { code: "invalid_signature", message: "Signature is invalid" },
-        },
-        400,
+      throw new MandateValidationError(
+        "ownership_rpc_unavailable",
+        "Current ERC-8004 ownership could not be confirmed.",
       );
     }
-    const submission = await onboarding.findSubmission(id);
-    const currentIdentity =
-      submission === null
-        ? null
-        : await onboarding.findOwnershipContext(
-            submission.chainId,
-            submission.externalAgentId,
-          );
-    if (
-      currentIdentity === null ||
-      getAddress(currentIdentity.ownerAddress) !==
-        getAddress(challenge.expectedOwner) ||
-      getAddress(signer) !== getAddress(challenge.expectedOwner)
-    )
+    if (getAddress(currentOwner) !== getAddress(challenge.expectedOwner))
       return context.json(
         {
           error: {
             code: "ownership_mismatch",
-            message: "Current owner did not sign this challenge",
+            message:
+              "Ownership changed. Generate a new verification challenge.",
           },
         },
         409,
       );
-    const consumed = await onboarding.consumeOwnershipChallenge({
-      challengeId: challenge.id,
-      signerAddress: signer,
-      signatureDigest: keccak256(body.signature as `0x${string}`),
-      verifiedAt: new Date(),
-    });
-    if (!consumed)
+    const validSignature = await options.ownershipReader
+      .verifyMessage({
+        chainId: challenge.chainId as 56 | 97,
+        owner: currentOwner,
+        message: challenge.message,
+        signature: body.signature as `0x${string}`,
+      })
+      .catch(() => false);
+    if (!validSignature)
+      return context.json(
+        {
+          error: {
+            code: "invalid_signature",
+            message: "Signature does not match the current ERC-8004 owner.",
+          },
+        },
+        400,
+      );
+    const verifiedAt = options.now?.() ?? new Date();
+    const authorization =
+      await onboarding.consumeOwnershipChallengeAndAuthorize({
+        challengeId: challenge.id,
+        principalId: session.principalId,
+        submissionId: submission.id,
+        chainId: challenge.chainId,
+        registryAddress: challenge.registryAddress,
+        externalAgentId: challenge.externalAgentId,
+        signerAddress: currentOwner,
+        signatureDigest: keccak256(body.signature as `0x${string}`),
+        verifiedAt,
+      });
+    if (authorization === null)
       return context.json(
         {
           error: {

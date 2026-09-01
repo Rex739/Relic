@@ -12,7 +12,7 @@ import type {
   SellerAgentReadiness,
   ServiceListQuery,
 } from "@relic/domain";
-import { sellerReadinessProjection } from "@relic/domain";
+import { erc8183PaymentTokens, sellerReadinessProjection } from "@relic/domain";
 import { and, asc, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
@@ -385,14 +385,16 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       last_verified_at: Date | string | null;
       commerce_validated: boolean;
       active_offer: boolean;
+      verified_price_base_units: string | null;
+      verified_currency: string | null;
     }>(
       await this.database.execute(sql`
         select
           a.id agent_id,
           ms.id service_id,
           a.name,
-          a.description,
-          a.image_url,
+          coalesce(smp.description, a.description, '') description,
+          coalesce(smp.image_url, a.image_url) image_url,
           lc.category_slug category,
           ai.chain_id,
           ai.external_agent_id,
@@ -409,12 +411,12 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             and ms.endpoint ~ '^https://'
           ) service_available,
           (
-            ms.verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+            ms.verification_level in ('SCHEMA_UNDERSTOOD', 'INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
             and ms.last_verified_at >= ${cutoff}::timestamptz
             and exists (
               select 1 from service_verification_observations svo
               where svo.service_id = ms.id
-                and svo.to_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+                and svo.to_level in ('SCHEMA_UNDERSTOOD', 'INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
                 and svo.result in ('success', 'succeeded', 'verified', 'passed')
                 and not exists (
                   select 1 from service_verification_observations newer
@@ -424,6 +426,8 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             )
           ) verification_passed,
           ms.last_verified_at,
+          verified_quote.price verified_price_base_units,
+          verified_quote.currency verified_currency,
           (
             lc.status = 'ACTIONABLE'
             and exists (
@@ -447,6 +451,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           ) active_offer
         from agent_identities ai
         join agents a on a.id = ai.agent_id
+        left join seller_marketplace_profiles smp on smp.agent_id = a.id
         join launch_candidates lc on lc.agent_id = a.id
         left join lateral (
           select candidate_service.*
@@ -463,11 +468,44 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             candidate_service.id
           limit 1
         ) ms on true
+        left join lateral (
+          select
+            verification.evidence ->> 'price' price,
+            verification.evidence ->> 'currency' currency
+          from service_verification_observations verification
+          where verification.service_id = ms.id
+            and verification.result in ('success', 'succeeded', 'verified', 'passed')
+            and verification.evidence ->> 'price' ~ '^[0-9]+$'
+            and verification.evidence ->> 'currency' ~ '^0x[0-9a-fA-F]{40}$'
+          order by verification.observed_at desc, verification.id desc
+          limit 1
+        ) verified_quote on true
         where lower(ai.owner_address) = lower(${ownerAddress})
         order by a.name, lc.category_slug
       `),
     );
     return rows.map((row) => {
+      const chainId = Number(row.chain_id);
+      const paymentToken =
+        chainId === 56
+          ? erc8183PaymentTokens[56]
+          : chainId === 97
+            ? erc8183PaymentTokens[97]
+            : null;
+      const verifiedPrice =
+        paymentToken !== null &&
+        row.verified_price_base_units !== null &&
+        /^\d+$/.test(row.verified_price_base_units) &&
+        row.verified_currency?.toLowerCase() ===
+          paymentToken.tokenAddress.toLowerCase()
+          ? {
+              chainId,
+              tokenAddress: paymentToken.tokenAddress,
+              decimals: paymentToken.decimals,
+              amountBaseUnits: row.verified_price_base_units,
+              symbol: paymentToken.symbol,
+            }
+          : null;
       const facts: SellerReadinessFacts = {
         agentId: row.agent_id,
         serviceId: row.service_id,
@@ -475,7 +513,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         description: row.description,
         imageUrl: row.image_url,
         category: row.category,
-        chainId: Number(row.chain_id),
+        chainId,
         externalAgentId: row.external_agent_id,
         identityVerified: row.identity_verified,
         serviceAvailable: row.service_available,
@@ -487,6 +525,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         commerceValidated: row.commerce_validated,
         activeOffer: row.active_offer,
         publicEligible: publicCandidates.has(`${row.agent_id}:${row.category}`),
+        verifiedPrice,
       };
       return sellerReadinessProjection(facts);
     });
@@ -567,15 +606,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
     ids: string[] | undefined,
     paginate: boolean,
   ) {
-    const actionable = sql`(
-      lc.status = 'ACTIONABLE'
-      and exists (
-        select 1 from marketplace_outcomes mo
-        where mo.agent_id = a.id
-          and mo.invocation_successful = true
-          and mo.commerce_successful = true
-      )
-    )`;
+    const actionable = sql`lc.status = 'ACTIONABLE'`;
     const filters = [
       sql`ms.verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')`,
       sql`ms.availability = 'available'`,
@@ -591,8 +622,8 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       sql`ai.owner_address ~ '^0x[0-9a-fA-F]{40}$'`,
       sql`ai.external_agent_id ~ '^[0-9]+$'`,
       sql`a.name is not null and length(trim(a.name)) > 0`,
-      sql`a.description is not null and length(trim(a.description)) > 0`,
-      sql`(a.name || ' ' || a.description) !~* '(test deployment|not for production use)'`,
+      sql`coalesce(smp.description, a.description) is not null and length(trim(coalesce(smp.description, a.description))) > 0`,
+      sql`(a.name || ' ' || coalesce(smp.description, a.description)) !~* '(test deployment|not for production use)'`,
       sql`length(trim(a.metadata_uri)) > 0`,
       sql`length(trim(ai.owner_address)) > 0`,
       sql`exists (
@@ -629,12 +660,12 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       );
     if (query.text !== undefined)
       filters.push(
-        sql`(a.name ilike ${`%${query.text}%`} or a.description ilike ${`%${query.text}%`} or coalesce(ms.capability, '') ilike ${`%${query.text}%`})`,
+        sql`(a.name ilike ${`%${query.text}%`} or coalesce(smp.description, a.description) ilike ${`%${query.text}%`} or coalesce(ms.capability, '') ilike ${`%${query.text}%`})`,
       );
     for (const requirement of query.requirements ?? [])
       filters.push(sql`(
         a.name ilike ${`%${requirement}%`}
-        or a.description ilike ${`%${requirement}%`}
+        or coalesce(smp.description, a.description) ilike ${`%${requirement}%`}
         or coalesce(ms.capability, '') ilike ${`%${requirement}%`}
         or exists (
           select 1 from classification_evidence ce
@@ -697,8 +728,8 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         select
           a.id,
           a.name,
-          a.description,
-          a.image_url "imageUrl",
+          coalesce(smp.description, a.description) description,
+          coalesce(smp.image_url, a.image_url) "imageUrl",
           lc.category_slug category,
           case when ${actionable} then 'Actionable' else 'Working' end tier,
           ai.chain_id "chainId",
@@ -868,7 +899,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and upper(mo.settlement_state) in ('FAILED', 'CANCELLED', 'REJECTED', 'REFUNDED')) "unsuccessfulCommerceJobCount",
           coalesce((select max(ri.feedback_count)::int from reputation_inventory ri where ri.agent_id = a.id), 0) "feedbackCount",
           ms.last_verified_at "lastVerifiedAt",
-          greatest(a.updated_at, ms.updated_at) "updatedAt",
+          greatest(a.updated_at, ms.updated_at, smp.updated_at) "updatedAt",
           row_number() over (
             partition by a.id
             order by case when ${actionable} then 1 else 0 end desc,
@@ -877,6 +908,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           ) row_number
         from marketplace_services ms
         join agents a on a.id = ms.agent_id
+        left join seller_marketplace_profiles smp on smp.agent_id = a.id
         join agent_identities ai on ai.agent_id = a.id
         join launch_candidates lc
           on lc.agent_id = a.id and lc.category_slug = ms.category_slug

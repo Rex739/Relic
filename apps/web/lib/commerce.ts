@@ -4,8 +4,11 @@ import { cookies } from "next/headers";
 
 import type {
   AgentOffer,
+  CommerceValidationSession,
   CreateOfferRequest,
   SellerAgentReadiness,
+  SellerMarketplaceProfile,
+  SellerMarketplaceProfileInput,
 } from "@relic/domain";
 
 const apiUrl = () =>
@@ -115,6 +118,12 @@ export const revokeAgreementAuthorization = (id: string) =>
     { method: "POST" },
   );
 
+export const prepareCommerceValidation = (id: string) =>
+  request<CommerceAgreementView>(
+    `/v1/commerce-agreements/${encodeURIComponent(id)}/prepare-validation`,
+    { method: "POST" },
+  );
+
 export const createCommerceActivation = (
   id: string,
   executionRequestId: string,
@@ -136,6 +145,54 @@ export const operatorAgreements = () =>
 
 export const operatorReadiness = () =>
   request<SellerAgentReadiness[]>("/v1/operator/readiness");
+
+export const updateOperatorAgentProfile = (
+  agentId: string,
+  profile: SellerMarketplaceProfileInput,
+) =>
+  request<SellerMarketplaceProfile>(
+    `/v1/operator/agents/${encodeURIComponent(agentId)}/profile`,
+    { method: "PUT", body: JSON.stringify(profile) },
+  );
+
+export type CommerceValidationHandoff = {
+  session: CommerceValidationSession;
+  offer: AgentOffer;
+  handoffToken: string;
+};
+
+export type PublicCommerceValidationHandoff = {
+  session: Omit<
+    CommerceValidationSession,
+    "sellerPrincipalId" | "buyerPrincipalId"
+  > & { buyerClaimed: boolean };
+  offer: AgentOffer;
+};
+
+export const createOperatorValidationSession = (offerId: string) =>
+  request<CommerceValidationHandoff>(
+    `/v1/operator/offers/${encodeURIComponent(offerId)}/validation-sessions`,
+    { method: "POST" },
+  );
+
+export async function commerceValidationSession(
+  sessionId: string,
+  handoffToken: string,
+) {
+  const response = await fetch(
+    `${apiUrl()}/v1/commerce-validation-sessions/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(handoffToken)}`,
+    { cache: "no-store", headers: { accept: "application/json" } },
+  );
+  const payload = (await response.json()) as {
+    data?: PublicCommerceValidationHandoff;
+    error?: { message?: string };
+  };
+  if (!response.ok || payload.data === undefined)
+    throw new Error(
+      payload.error?.message ?? "Validation handoff is no longer available",
+    );
+  return payload.data;
+}
 
 export const createOperatorOffer = (body: CreateOfferRequest) =>
   request<AgentOffer>("/v1/operator/offers", {

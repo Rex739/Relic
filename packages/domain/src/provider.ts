@@ -20,6 +20,9 @@ export const registryMetadataSchema = z
       .string()
       .nullish()
       .transform((value) => value ?? undefined),
+    // A registry-level declaration applies only when the profile advertises one
+    // service. Multi-service profiles must declare their own service URL.
+    relicVerificationUrl: z.url().optional(),
     services: z
       .array(
         z
@@ -27,6 +30,9 @@ export const registryMetadataSchema = z
             id: z.string().optional(),
             name: z.string().min(1),
             endpoint: z.string().optional(),
+            // This public document may live separately from a private or
+            // provider-managed execution endpoint.
+            relicVerificationUrl: z.url().optional(),
             version: z.string().optional(),
             description: z.string().optional(),
             skills: z.array(z.string()).optional(),

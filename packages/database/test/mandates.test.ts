@@ -34,6 +34,10 @@ beforeEach(async () => {
       sql = sql.split(
         "ALTER TABLE public.authorization_challenges ENABLE ROW LEVEL SECURITY",
       )[0]!;
+    if (name.startsWith("0018_"))
+      sql = sql.split(
+        "ALTER TABLE public.seller_agent_authorizations ENABLE ROW LEVEL SECURITY",
+      )[0]!;
     await database.exec(sql);
   }
   await database.exec(`

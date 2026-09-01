@@ -167,6 +167,10 @@ export const activationLifecycleState = pgEnum("activation_lifecycle_state", [
   "FAILED",
   "BLOCKED",
 ]);
+export const commerceValidationSessionStatus = pgEnum(
+  "commerce_validation_session_status",
+  ["OPEN", "CLAIMED", "COMPLETED", "CANCELLED", "EXPIRED"],
+);
 export const mandateStatus = pgEnum("mandate_status", [
   "DRAFT",
   "REVIEWED",
@@ -254,6 +258,7 @@ export const activationReconciliationState = pgEnum(
 );
 export const commerceOperationType = pgEnum("commerce_operation_type", [
   "PREPARE_JOB",
+  "APPROVE_TOKEN",
   "CREATE_JOB",
   "REGISTER_JOB",
   "SET_BUDGET",
@@ -405,6 +410,7 @@ export const agentServices = pgTable(
     outputSchema: jsonb("output_schema"),
     pricing: jsonb("pricing"),
     endpoint: text("endpoint"),
+    verificationUrl: text("verification_url"),
     sla: jsonb("sla"),
     status: availabilityStatus("status").notNull().default("unknown"),
     ...timestamps,
@@ -1054,8 +1060,10 @@ export const agentSubmissions = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     chainId: integer("chain_id").notNull(),
+    registryAddress: text("registry_address").notNull(),
     externalAgentId: text("external_agent_id").notNull(),
     supplyType: supplyType("supply_type").notNull().default("third_party"),
+    relicPrincipalId: text("relic_principal_id"),
     submitterAddress: text("submitter_address"),
     status: submissionStatus("status").notNull().default("SUBMITTED"),
     ownershipVerifiedAt: timestamp("ownership_verified_at", {
@@ -1074,6 +1082,7 @@ export const agentSubmissions = pgTable(
   (table) => [
     uniqueIndex("agent_submission_chain_identity_unique").on(
       table.chainId,
+      table.registryAddress,
       table.externalAgentId,
     ),
     index("agent_submission_type_status_idx").on(
@@ -1112,12 +1121,17 @@ export const ownershipChallenges = pgTable(
     submissionId: uuid("submission_id")
       .notNull()
       .references(() => agentSubmissions.id, { onDelete: "cascade" }),
+    principalId: text("principal_id"),
+    chainId: integer("chain_id"),
+    registryAddress: text("registry_address"),
+    externalAgentId: text("external_agent_id"),
     nonceHash: text("nonce_hash").notNull(),
     message: text("message").notNull(),
     expectedOwner: text("expected_owner").notNull(),
     signerAddress: text("signer_address"),
     signatureDigest: text("signature_digest"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1129,6 +1143,71 @@ export const ownershipChallenges = pgTable(
     index("ownership_challenge_submission_expiry_idx").on(
       table.submissionId,
       table.expiresAt,
+    ),
+  ],
+);
+
+export const sellerAgentAuthorizations = pgTable(
+  "seller_agent_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    principalId: text("principal_id").notNull(),
+    submissionId: uuid("submission_id")
+      .notNull()
+      .references(() => agentSubmissions.id, { onDelete: "restrict" }),
+    agentId: uuid("agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    chainId: integer("chain_id").notNull(),
+    registryAddress: text("registry_address").notNull(),
+    externalAgentId: text("external_agent_id").notNull(),
+    verifiedOwner: text("verified_owner").notNull(),
+    challengeId: uuid("challenge_id")
+      .notNull()
+      .references(() => ownershipChallenges.id, { onDelete: "restrict" }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+    lastOwnerCheckedAt: timestamp("last_owner_checked_at", {
+      withTimezone: true,
+    }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revocationReason: text("revocation_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("seller_agent_authorization_challenge_unique").on(
+      table.challengeId,
+    ),
+    uniqueIndex("seller_agent_authorization_active_identity_unique")
+      .on(table.chainId, table.registryAddress, table.externalAgentId)
+      .where(sql`${table.revokedAt} is null`),
+    index("seller_agent_authorization_principal_idx").on(
+      table.principalId,
+      table.revokedAt,
+    ),
+    index("seller_agent_authorization_identity_idx").on(
+      table.chainId,
+      table.registryAddress,
+      table.externalAgentId,
+    ),
+  ],
+);
+
+export const sellerMarketplaceProfiles = pgTable(
+  "seller_marketplace_profiles",
+  {
+    agentId: uuid("agent_id")
+      .primaryKey()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    description: text("description").notNull(),
+    imageUrl: text("image_url"),
+    updatedByPrincipalId: text("updated_by_principal_id").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("seller_marketplace_profile_principal_idx").on(
+      table.updatedByPrincipalId,
     ),
   ],
 );
@@ -1203,6 +1282,7 @@ export const marketplaceServices = pgTable(
     categorySlug: text("category_slug"),
     interfaceProtocol: text("interface_protocol").notNull(),
     endpoint: text("endpoint"),
+    verificationUrl: text("verification_url"),
     httpMethod: text("http_method"),
     inputSchema: jsonb("input_schema"),
     outputSchema: jsonb("output_schema"),
@@ -1870,6 +1950,56 @@ export const agentOfferVersions = pgTable(
   (table) => [
     uniqueIndex("agent_offer_version_unique").on(table.offerId, table.version),
     index("agent_offer_version_terms_idx").on(table.termsHash),
+  ],
+);
+
+export const commerceValidationSessions = pgTable(
+  "commerce_validation_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    offerId: uuid("offer_id")
+      .notNull()
+      .references(() => agentOffers.id, { onDelete: "restrict" }),
+    offerVersionId: uuid("offer_version_id")
+      .notNull()
+      .references(() => agentOfferVersions.id, { onDelete: "restrict" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => marketplaceServices.id, { onDelete: "restrict" }),
+    chainId: integer("chain_id").notNull(),
+    sellerPrincipalId: text("seller_principal_id").notNull(),
+    buyerPrincipalId: text("buyer_principal_id"),
+    mandateId: uuid("mandate_id").references(() => mandates.id, {
+      onDelete: "restrict",
+    }),
+    agreementId: uuid("agreement_id").references(() => commerceAgreements.id, {
+      onDelete: "restrict",
+    }),
+    handoffTokenHash: text("handoff_token_hash").notNull(),
+    status: commerceValidationSessionStatus("status").notNull().default("OPEN"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    completedActivationId: uuid("completed_activation_id").references(
+      () => activations.id,
+      { onDelete: "restrict" },
+    ),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("commerce_validation_session_token_unique").on(
+      table.handoffTokenHash,
+    ),
+    index("commerce_validation_session_offer_status_idx").on(
+      table.offerId,
+      table.status,
+      table.expiresAt,
+    ),
+    index("commerce_validation_session_buyer_idx").on(
+      table.buyerPrincipalId,
+      table.status,
+    ),
   ],
 );
 

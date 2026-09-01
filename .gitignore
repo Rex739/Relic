@@ -19,3 +19,4 @@ apps/web/AGENTS.md
 apps/web/CLAUDE.md
 .studio/
 .deployment-secrets/
+.relic-connect/

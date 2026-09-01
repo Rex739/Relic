@@ -4,6 +4,19 @@ import { z } from "zod";
 
 import { tokenAmountSchema, type TokenAmount } from "./money.js";
 
+export const erc8183PaymentTokens = {
+  56: {
+    tokenAddress: "0xcE24439F2D9C6a2289F741120FE202248B666666",
+    decimals: 18,
+    symbol: "U",
+  },
+  97: {
+    tokenAddress: "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565",
+    decimals: 18,
+    symbol: "U",
+  },
+} as const;
+
 export const offerStatuses = [
   "DRAFT",
   "ACTIVE",
@@ -63,6 +76,7 @@ export type AuthorizationVerificationStatus = z.infer<
 
 export const commerceOperationTypes = [
   "PREPARE_JOB",
+  "APPROVE_TOKEN",
   "CREATE_JOB",
   "REGISTER_JOB",
   "SET_BUDGET",
@@ -92,6 +106,48 @@ export const commerceOperationStates = [
 export const commerceOperationStateSchema = z.enum(commerceOperationStates);
 export type CommerceOperationState = z.infer<
   typeof commerceOperationStateSchema
+>;
+
+export const commerceValidationSessionStatuses = [
+  "OPEN",
+  "CLAIMED",
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+] as const;
+export const commerceValidationSessionStatusSchema = z.enum(
+  commerceValidationSessionStatuses,
+);
+export type CommerceValidationSessionStatus = z.infer<
+  typeof commerceValidationSessionStatusSchema
+>;
+
+export const commerceValidationSessionSchema = z.object({
+  id: z.uuid(),
+  offerId: z.uuid(),
+  offerVersionId: z.uuid(),
+  agentId: z.uuid(),
+  serviceId: z.uuid(),
+  chainId: z.union([z.literal(56), z.literal(97)]),
+  sellerPrincipalId: z.string().min(1),
+  buyerPrincipalId: z.string().min(1).nullable(),
+  mandateId: z.uuid().nullable(),
+  agreementId: z.uuid().nullable(),
+  status: commerceValidationSessionStatusSchema,
+  expiresAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type CommerceValidationSession = z.infer<
+  typeof commerceValidationSessionSchema
+>;
+
+export const createCommerceValidationSessionResponseSchema = z.object({
+  session: commerceValidationSessionSchema,
+  handoffToken: z.string().min(32),
+});
+export type CreateCommerceValidationSessionResponse = z.infer<
+  typeof createCommerceValidationSessionResponseSchema
 >;
 
 export const valueMovementTypes = [

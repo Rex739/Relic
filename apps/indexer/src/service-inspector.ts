@@ -4,10 +4,10 @@ import type { DrizzleSupplyStore } from "@relic/database";
 import type { ServiceVerificationLevel } from "@relic/domain";
 
 import {
-  agentcoreRuntime,
-  createAgentcoreAwareRequester,
-} from "./agentcore-oauth.js";
-import type { safeHttpRequest, SafeHttpResult } from "./endpoint-observer.js";
+  parseRelicReadyDocument,
+  relicReadyDocumentUrl,
+} from "./relic-ready.js";
+import { safeHttpRequest, type SafeHttpResult } from "./endpoint-observer.js";
 import {
   assertCandidateTransition,
   verificationLevelRank,
@@ -15,7 +15,10 @@ import {
 
 export interface InspectableService {
   id: string;
+  agentChainId: number;
+  externalAgentId: string;
   endpoint: string | null;
+  verificationUrl?: string | null;
   interfaceProtocol: string;
   verificationLevel: ServiceVerificationLevel;
 }
@@ -117,8 +120,10 @@ function understoodSchema(
   if (parsed === null) return false;
   if (protocol === "a2a")
     return (
-      typeof parsed.name === "string" &&
-      (Array.isArray(parsed.skills) || parsed.capabilities !== undefined)
+      (typeof parsed.name === "string" &&
+        (Array.isArray(parsed.skills) || parsed.capabilities !== undefined)) ||
+      (parsed.jsonrpc === "2.0" &&
+        (parsed.result !== undefined || parsed.error !== undefined))
     );
   if (protocol === "mcp")
     return (
@@ -165,30 +170,143 @@ export async function inspectMarketplaceService(
     };
   }
 
+  // Prefer the provider-neutral Relic-ready document. It is public and safe
+  // to fetch without credentials, while its identity and service declaration
+  // are bound to the ERC-8004 identity that Relic already resolved.
+  let publicDocumentEndpoint: string | null = null;
+  try {
+    publicDocumentEndpoint = relicReadyDocumentUrl(
+      service.endpoint,
+      service.verificationUrl,
+    );
+  } catch {
+    // The protocol-specific request below returns the canonical URL failure.
+  }
+  if (protocol === "a2a" && publicDocumentEndpoint !== null) {
+    const publicRequester = request ?? safeHttpRequest;
+    const publicResponse = await publicRequester(publicDocumentEndpoint, {
+      method: "GET",
+      timeoutMs: 5_000,
+      maxRedirects: 2,
+      maxResponseBytes: 32 * 1024,
+    });
+    if (publicResponse.ok && publicResponse.status === 200) {
+      try {
+        parseRelicReadyDocument(publicResponse.body, {
+          chainId: service.agentChainId,
+          externalAgentId: service.externalAgentId,
+          endpoint: service.endpoint,
+          protocol,
+        });
+        const parsed = parseObject(publicResponse.body);
+        return {
+          fromLevel: service.verificationLevel,
+          toLevel:
+            verificationLevelRank(service.verificationLevel) >
+            verificationLevelRank("SCHEMA_UNDERSTOOD")
+              ? service.verificationLevel
+              : "SCHEMA_UNDERSTOOD",
+          result: "passed",
+          protocol,
+          requestMethod: "GET",
+          httpStatus: publicResponse.status,
+          latencyMs: publicResponse.latencyMs,
+          availability: "available",
+          evidence: {
+            ...responseEvidence(publicResponse, parsed),
+            verificationDocument: "relic-ready/v1",
+            verificationDocumentSource:
+              service.verificationUrl === null ||
+              service.verificationUrl === undefined
+                ? "service-origin-default"
+                : "erc-8004-metadata",
+            boundary:
+              "public Relic-ready listing verification; no credential, payment, or blockchain transaction",
+          },
+        };
+      } catch {
+        return {
+          fromLevel: service.verificationLevel,
+          toLevel: service.verificationLevel,
+          result: "failed",
+          protocol,
+          requestMethod: "GET",
+          httpStatus: publicResponse.status,
+          latencyMs: publicResponse.latencyMs,
+          availability: "degraded",
+          evidence: {
+            ...responseEvidence(
+              publicResponse,
+              parseObject(publicResponse.body),
+            ),
+            verificationDocument: "relic-ready/v1",
+            verificationDocumentSource:
+              service.verificationUrl === null ||
+              service.verificationUrl === undefined
+                ? "service-origin-default"
+                : "erc-8004-metadata",
+            boundary:
+              "public Relic-ready listing verification; invalid document",
+          },
+          error: { code: "invalid_relic_ready_document" },
+        };
+      }
+    }
+    // A seller explicitly declared this URL as the listing surface. Do not
+    // fall through to a private execution endpoint when it cannot be read:
+    // it would turn a read-only listing check into an unexpected invocation.
+    if (
+      service.verificationUrl !== null &&
+      service.verificationUrl !== undefined
+    )
+      return {
+        fromLevel: service.verificationLevel,
+        toLevel: service.verificationLevel,
+        result: "failed",
+        protocol,
+        requestMethod: "GET",
+        httpStatus: publicResponse.status,
+        latencyMs: publicResponse.latencyMs,
+        availability: availability(publicResponse),
+        evidence: {
+          ...responseEvidence(publicResponse, parseObject(publicResponse.body)),
+          verificationDocument: "relic-ready/v1",
+          verificationDocumentSource: "erc-8004-metadata",
+          boundary:
+            "public Relic-ready listing verification; document unavailable",
+        },
+        error: {
+          code: publicResponse.errorCode ?? "verification_document_unavailable",
+        },
+      };
+  }
+
   const method =
-    protocol === "mcp" ? "POST" : protocol === "generic" ? "OPTIONS" : "GET";
-  const authenticated = agentcoreRuntime(endpoint) !== null;
-  const requester = request ?? createAgentcoreAwareRequester(endpoint);
-  const response = await requester(endpoint, {
+    protocol === "mcp"
+      ? "POST"
+      : protocol === "generic"
+        ? "OPTIONS"
+        : "GET";
+  const response = await (request ?? safeHttpRequest)(endpoint, {
     method,
     timeoutMs: 5_000,
     maxRedirects: protocol === "mcp" ? 0 : 2,
     maxResponseBytes: 64 * 1024,
     ...(protocol === "mcp"
-      ? {
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: "relic-safe-inspection",
-            method: "initialize",
-            params: {
-              protocolVersion: "2025-06-18",
-              capabilities: {},
-              clientInfo: { name: "relic-inspector", version: "1.0.0" },
-            },
-          }),
-        }
-      : {}),
+        ? {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "relic-safe-inspection",
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "relic-inspector", version: "1.0.0" },
+              },
+            }),
+          }
+        : {}),
   });
   const parsed = parseObject(response.body);
   const evidence = {
@@ -196,9 +314,7 @@ export async function inspectMarketplaceService(
     boundary:
       protocol === "mcp"
         ? "MCP initialize only; no tool invocation"
-        : authenticated
-          ? "operator-authenticated metadata inspection; no paid invocation"
-          : "credential-free metadata/status inspection; no paid invocation",
+        : "credential-free metadata/status inspection; no paid invocation",
   };
   const expectedPaymentChallenge =
     (protocol === "x402" || protocol === "b402") && response.status === 402;
@@ -261,12 +377,17 @@ export async function inspectMarketplaceService(
 export async function inspectLaunchServices(
   store: DrizzleSupplyStore,
   limit: number,
+  options: { force?: boolean; serviceId?: string } = {},
 ) {
   const counters = { attempted: 0, passed: 0, failed: 0, blocked: 0 };
   const transitioned = new Set<string>();
-  for (const row of await store.serviceInspectionCandidates(limit)) {
+  for (const row of await store.serviceInspectionCandidates(limit, options)) {
     counters.attempted += 1;
-    const observation = await inspectMarketplaceService(row.service);
+    const observation = await inspectMarketplaceService({
+      ...row.service,
+      agentChainId: row.identity.chainId,
+      externalAgentId: row.identity.externalAgentId,
+    });
     counters[observation.result] += 1;
     await store.recordServiceVerification({
       serviceId: row.service.id,

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { canonicalAgentSchema, normalizeRegistryAgent } from "../src/index.js";
+import {
+  canonicalAgentSchema,
+  normalizeRegistryAgent,
+  primaryMarketplaceCategory,
+} from "../src/index.js";
 import { registryAgentFixture } from "./fixtures.js";
 
 describe("canonical agent normalization", () => {
@@ -48,6 +52,80 @@ describe("canonical agent normalization", () => {
       },
     });
     expect(agent.profile.name?.value).toBe("First registration");
+  });
+
+  it("derives a seller onboarding category only from one verified category match", () => {
+    const classified = normalizeRegistryAgent({
+      ...registryAgentFixture,
+      metadata: {
+        type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+        description: "A read-only Venus yield opportunity monitor.",
+        services: [
+          {
+            name: "Yield analysis",
+            endpoint: "https://fixture.invalid/yield",
+          },
+        ],
+      },
+    });
+    expect(primaryMarketplaceCategory(classified)).toBe("yield-optimisation");
+
+    const ambiguous = normalizeRegistryAgent({
+      ...registryAgentFixture,
+      metadata: {
+        type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+        services: [
+          {
+            name: "Mixed service",
+            endpoint: "https://fixture.invalid/mixed",
+            skills: ["yield-optimisation", "grid-trading"],
+          },
+        ],
+      },
+    });
+    expect(primaryMarketplaceCategory(ambiguous)).toBeNull();
+  });
+
+  it("preserves a separately hosted public verification URL for each service", () => {
+    const agent = normalizeRegistryAgent({
+      ...registryAgentFixture,
+      metadata: {
+        services: [
+          {
+            name: "Yield analysis",
+            endpoint: "https://private-runtime.example/invoke",
+            relicVerificationUrl:
+              "https://publisher.example/.well-known/relic-ready.json",
+          },
+        ],
+      },
+    });
+
+    expect(agent.services[0]?.verificationUrl).toBe(
+      "https://publisher.example/.well-known/relic-ready.json",
+    );
+  });
+
+  it("uses a registry-level verification URL only for a single-service profile", () => {
+    const verificationUrl =
+      "https://publisher.example/.well-known/relic-ready.json";
+    const singleService = normalizeRegistryAgent({
+      ...registryAgentFixture,
+      metadata: {
+        relicVerificationUrl: verificationUrl,
+        services: [{ name: "Yield analysis" }],
+      },
+    });
+    const multiService = normalizeRegistryAgent({
+      ...registryAgentFixture,
+      metadata: {
+        relicVerificationUrl: verificationUrl,
+        services: [{ name: "Yield analysis" }, { name: "Alerts" }],
+      },
+    });
+
+    expect(singleService.services[0]?.verificationUrl).toBe(verificationUrl);
+    expect(multiService.services.every((service) => service.verificationUrl === null)).toBe(true);
   });
 
   it("rejects unsupported provenance labels", () => {

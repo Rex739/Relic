@@ -3,6 +3,10 @@
 import {
   PrivyProvider,
   useConnectWallet,
+  useCreateWallet,
+  useIdentityToken,
+  useLinkWithOAuth,
+  useLoginWithOAuth,
   usePrivy,
   useWallets,
   type ConnectedWallet,
@@ -13,6 +17,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -25,9 +30,18 @@ type RelicWalletRuntime = {
   ready: boolean;
   authenticated: boolean;
   address: string | null;
+  profile: {
+    name: string | null;
+    email: string | null;
+    imageUrl: string | null;
+    isGoogleUser: boolean;
+    avatarIndex: number;
+  } | null;
   loginPending: boolean;
   loginError: string | null;
+  identityToken: string | null;
   login: () => void;
+  loginWithGoogle: () => void;
   logout: () => Promise<void>;
   getProvider: () => Promise<EthereumProvider>;
 };
@@ -37,9 +51,12 @@ const unavailableRuntime: RelicWalletRuntime = {
   ready: true,
   authenticated: false,
   address: null,
+  profile: null,
   loginPending: false,
   loginError: null,
+  identityToken: null,
   login: () => undefined,
+  loginWithGoogle: () => undefined,
   logout: () => Promise.resolve(),
   getProvider: () =>
     Promise.reject(
@@ -53,7 +70,17 @@ const RelicWalletContext =
 function selectWallet(
   wallets: ConnectedWallet[],
   authenticatedAddress: string | undefined,
+  preferEmbedded = false,
 ) {
+  if (preferEmbedded) {
+    return (
+      wallets.find(
+        (wallet) =>
+          wallet.walletClientType === "privy" ||
+          wallet.walletClientType === "privy-v2",
+      ) ?? null
+    );
+  }
   if (authenticatedAddress !== undefined) {
     const matching = wallets.find(
       (wallet) =>
@@ -64,10 +91,38 @@ function selectWallet(
   return wallets[0] ?? null;
 }
 
+function avatarIndex(seed: string | undefined) {
+  if (seed === undefined || seed.length === 0) return 0;
+  return (
+    Array.from(seed).reduce(
+      (total, character) => total + character.charCodeAt(0),
+      0,
+    ) % 10
+  );
+}
+
+function googleProfileImage(user: ReturnType<typeof usePrivy>["user"]) {
+  if (user?.google === undefined) return null;
+  // Privy's stable user type does not promise a photo, but preserves it when
+  // the configured Google provider makes one available.
+  const profile = user.google as typeof user.google & {
+    profilePictureUrl?: string | null;
+    picture?: string | null;
+  };
+  return profile.profilePictureUrl ?? profile.picture ?? null;
+}
+
 function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const { ready: privyReady, authenticated, user, logout } = usePrivy();
+  const { identityToken } = useIdentityToken();
+  const { createWallet } = useCreateWallet();
+  const { initOAuth } = useLoginWithOAuth();
+  const { initOAuth: initGoogleLink } = useLinkWithOAuth();
   const { ready: walletsReady, wallets } = useWallets();
   const [loginPending, setLoginPending] = useState(false);
+  const [pendingLoginMethod, setPendingLoginMethod] = useState<
+    "google" | "wallet" | null
+  >(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [selectedWalletAddress, setSelectedWalletAddress] = useState<
     string | undefined
@@ -78,6 +133,7 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
   );
   const [walletAwaitingAuthentication, setWalletAwaitingAuthentication] =
     useState<string | null>(null);
+  const embeddedWalletCreationStarted = useRef(false);
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet }) => {
       const address = wallet.address;
@@ -87,13 +143,53 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     },
     onError: (error) => {
       setLoginPending(false);
+      setPendingLoginMethod(null);
       setLoginError(String(error));
     },
   });
   const activeWallet = selectWallet(
     wallets,
     selectedWalletAddress ?? user?.wallet?.address,
+    user?.google !== undefined,
   );
+
+  useEffect(() => {
+    const hasEmbeddedWallet = wallets.some(
+      (wallet) =>
+        wallet.walletClientType === "privy" ||
+        wallet.walletClientType === "privy-v2",
+    );
+    if (
+      !authenticated ||
+      user?.google === undefined ||
+      !walletsReady ||
+      hasEmbeddedWallet ||
+      embeddedWalletCreationStarted.current
+    )
+      return;
+    embeddedWalletCreationStarted.current = true;
+    void createWallet().catch((error: unknown) => {
+      embeddedWalletCreationStarted.current = false;
+      setLoginError(
+        error instanceof Error
+          ? error.message
+          : "Relic could not create your embedded wallet",
+      );
+    });
+  }, [authenticated, createWallet, user?.google, wallets, walletsReady]);
+
+  useEffect(() => {
+    if (!loginPending || !authenticated || activeWallet === null) return;
+    if (pendingLoginMethod === "google" && user?.google === undefined) return;
+    setLoginPending(false);
+    setPendingLoginMethod(null);
+  }, [
+    activeWallet,
+    authenticated,
+    loginPending,
+    pendingLoginMethod,
+    user?.google,
+  ]);
 
   useEffect(() => {
     if (walletAwaitingAuthentication === null || !walletsReady) return;
@@ -120,6 +216,7 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const beginLogin = useCallback(() => {
     setLoginError(null);
     setLoginPending(true);
+    setPendingLoginMethod("wallet");
     connectWallet({
       description:
         "Choose the BSC Testnet buyer wallet you want to use with Relic.",
@@ -133,8 +230,27 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     });
   }, [connectWallet]);
 
+  const beginGoogleLogin = useCallback(() => {
+    setLoginError(null);
+    setLoginPending(true);
+    setPendingLoginMethod("google");
+    const startGoogleFlow = authenticated
+      ? initGoogleLink({ provider: "google" })
+      : initOAuth({ provider: "google" });
+    void startGoogleFlow.catch((error: unknown) => {
+      setLoginPending(false);
+      setPendingLoginMethod(null);
+      setLoginError(
+        error instanceof Error
+          ? error.message
+          : "Could not start Google sign-in",
+      );
+    });
+  }, [authenticated, initGoogleLink, initOAuth]);
+
   const disconnect = useCallback(async () => {
     setLoginPending(false);
+    setPendingLoginMethod(null);
     setLoginError(null);
     window.sessionStorage.removeItem("relic_active_wallet");
     setSelectedWalletAddress(undefined);
@@ -154,9 +270,23 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
       ready: privyReady && walletsReady,
       authenticated: authenticated && !loginPending,
       address: activeWallet?.address ?? null,
+      profile:
+        user === null
+          ? null
+          : {
+              name: user.google?.name ?? null,
+              email: user.google?.email ?? user.email?.address ?? null,
+              imageUrl: googleProfileImage(user),
+              isGoogleUser: user.google !== undefined,
+              avatarIndex: avatarIndex(
+                user.google?.subject ?? activeWallet?.address ?? user.id,
+              ),
+            },
       loginPending,
       loginError,
+      identityToken,
       login: beginLogin,
+      loginWithGoogle: beginGoogleLogin,
       logout: disconnect,
       getProvider,
     }),
@@ -166,9 +296,12 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
       beginLogin,
       disconnect,
       getProvider,
+      beginGoogleLogin,
       loginError,
+      identityToken,
       loginPending,
       privyReady,
+      user,
       walletsReady,
     ],
   );
@@ -197,10 +330,12 @@ export function RelicWalletProvider({ children }: { children: ReactNode }) {
         ? {}
         : { clientId: process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID })}
       config={{
-        loginMethods: ["wallet"],
+        loginMethods: ["google", "wallet"],
         defaultChain: bscTestnet,
         supportedChains: [bscTestnet],
-        embeddedWallets: { ethereum: { createOnLogin: "off" } },
+        embeddedWallets: {
+          ethereum: { createOnLogin: "off" },
+        },
         appearance: {
           theme: "dark",
           accentColor: "#A9483F",

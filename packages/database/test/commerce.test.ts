@@ -41,6 +41,10 @@ beforeEach(async () => {
       migration = migration.split(
         "ALTER TABLE public.authorization_challenges ENABLE ROW LEVEL SECURITY",
       )[0]!;
+    if (name.startsWith("0018_"))
+      migration = migration.split(
+        "ALTER TABLE public.seller_agent_authorizations ENABLE ROW LEVEL SECURITY",
+      )[0]!;
     await database.exec(migration);
   }
   await database.exec(`
@@ -178,6 +182,259 @@ describe("production commerce persistence", () => {
         request: request(),
       }),
     ).rejects.toThrow(/owner|eligible/i);
+  });
+
+  it("allows a verified seller to create an offer before commerce validation", async () => {
+    await database.exec(
+      `update launch_candidates set status = 'INVOCATION_VERIFIED' where agent_id = '${agentId}'`,
+    );
+    const offer = await store.createOffer({
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+      request: request(),
+    });
+    expect(offer).toMatchObject({
+      status: "DRAFT",
+      agentId,
+      serviceId,
+    });
+    await expect(
+      store.createOffer({
+        operatorPrincipalId: operator,
+        operatorAddress: owner,
+        request: request(),
+      }),
+    ).rejects.toThrow(/current offer already exists/i);
+  });
+
+  it("creates generic paid validation handoffs from the active offer snapshot", async () => {
+    const offer = await store.createOffer({
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+      request: {
+        ...request(),
+        capability: "Yield optimisation",
+        capabilitySnapshot: ["compare_yield_opportunities"],
+        price: {
+          chainId: 97,
+          tokenAddress: "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565",
+          decimals: 18,
+          amountBaseUnits: "1000000000",
+          symbol: "U",
+        },
+        terms: "Return a deterministic yield comparison artifact.",
+      },
+    });
+    await store.activateOffer({
+      offerId: offer!.id,
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+    });
+    const first = await store.createCommerceValidationSession({
+      offerId: offer!.id,
+      sellerPrincipalId: operator,
+      handoffTokenHash: "a".repeat(64),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    expect(first).toMatchObject({
+      session: {
+        offerId: offer!.id,
+        offerVersionId: offer!.version.id,
+        agentId,
+        serviceId,
+        chainId: 97,
+        status: "OPEN",
+      },
+      offer: {
+        version: {
+          capability: "Yield optimisation",
+          price: { amountBaseUnits: "1000000000", symbol: "U" },
+        },
+      },
+    });
+    const second = await store.createCommerceValidationSession({
+      offerId: offer!.id,
+      sellerPrincipalId: operator,
+      handoffTokenHash: "b".repeat(64),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    expect(
+      await store.commerceValidationSession({
+        sessionId: first.session.id,
+        handoffTokenHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "CANCELLED" });
+    expect(
+      await store.commerceValidationSession({
+        sessionId: second.session.id,
+        handoffTokenHash: "b".repeat(64),
+      }),
+    ).toMatchObject({ status: "OPEN" });
+    await expect(
+      store.claimCommerceValidationSession({
+        sessionId: second.session.id,
+        handoffTokenHash: "b".repeat(64),
+        buyerPrincipalId: operator,
+        buyerAddress: owner,
+        chainId: 97,
+      }),
+    ).rejects.toThrow(/seller wallet cannot act as the validation buyer/i);
+    const claimed = await store.claimCommerceValidationSession({
+      sessionId: second.session.id,
+      handoffTokenHash: "b".repeat(64),
+      buyerPrincipalId: buyer,
+      buyerAddress,
+      chainId: 97,
+    });
+    expect(claimed).toMatchObject({
+      status: "CLAIMED",
+      buyerPrincipalId: buyer,
+    });
+    await expect(
+      store.claimCommerceValidationSession({
+        sessionId: second.session.id,
+        handoffTokenHash: "b".repeat(64),
+        buyerPrincipalId: buyer,
+        buyerAddress,
+        chainId: 97,
+      }),
+    ).resolves.toMatchObject({ id: second.session.id, status: "CLAIMED" });
+    const prepared = await store.prepareCommerceValidationSession({
+      sessionId: second.session.id,
+      handoffTokenHash: "b".repeat(64),
+      buyerPrincipalId: buyer,
+    });
+    expect(prepared).toMatchObject({
+      status: "CLAIMED",
+      buyerPrincipalId: buyer,
+    });
+    expect(typeof prepared.mandateId).toBe("string");
+    expect(typeof prepared.agreementId).toBe("string");
+    await expect(
+      store.prepareCommerceValidationSession({
+        sessionId: second.session.id,
+        handoffTokenHash: "b".repeat(64),
+        buyerPrincipalId: buyer,
+      }),
+    ).resolves.toMatchObject({
+      mandateId: prepared.mandateId,
+      agreementId: prepared.agreementId,
+    });
+    const validation = await database.query<{
+      mandate_status: string;
+      approval_mode: string;
+      allowed_capabilities: string[];
+      agreement_status: string;
+      session_expires_at: Date;
+      mandate_expires_at: Date;
+      agreement_expires_at: Date;
+      price: string;
+      terms_hash: string;
+      operations: number;
+      outcomes: number;
+    }>(`
+      select m.status mandate_status,
+             mv.approval_mode,
+             mv.allowed_capabilities,
+             ca.status agreement_status,
+             cvs.expires_at session_expires_at,
+             mv.expires_at mandate_expires_at,
+             ca.expires_at agreement_expires_at,
+             ca.amount_base_units::text price,
+             ca.terms_hash,
+             (select count(*)::int from commerce_operations co where co.agreement_id = ca.id) operations,
+             (select count(*)::int from marketplace_outcomes mo where mo.activation_id in
+               (select a.id from activations a where a.commerce_agreement_id = ca.id)) outcomes
+        from commerce_validation_sessions cvs
+        join mandates m on m.id = cvs.mandate_id
+        join mandate_versions mv on mv.mandate_id = m.id and mv.version = m.active_version
+        join commerce_agreements ca on ca.id = cvs.agreement_id
+       where cvs.id = '${second.session.id}'
+    `);
+    expect(validation.rows).toEqual([
+      expect.objectContaining({
+        mandate_status: "ACTIVE",
+        approval_mode: "OBSERVE_ONLY",
+        allowed_capabilities: [
+          "Yield optimisation",
+          "compare_yield_opportunities",
+        ],
+        agreement_status: "DRAFT",
+        price: "1000000000",
+        terms_hash: offer!.version.termsHash,
+        operations: 0,
+        outcomes: 0,
+      }),
+    ]);
+    expect(validation.rows[0]!.mandate_expires_at.getTime()).toBeGreaterThan(
+      validation.rows[0]!.session_expires_at.getTime(),
+    );
+    expect(validation.rows[0]!.agreement_expires_at).toEqual(
+      validation.rows[0]!.mandate_expires_at,
+    );
+    const authorizationId = "01945b1e-7e80-7000-8000-000000000398";
+    await database.exec(`
+      insert into authorization_artifacts
+        (id, principal_id, agreement_id, mandate_id, mandate_version,
+         authorization_type, signer_address, chain_id, normalized_payload,
+         signature, message_hash, terms_hash, nonce_hash, verification_status,
+         evidence_reference, expires_at)
+      values
+        ('${authorizationId}', '${buyer}', '${prepared.agreementId}', '${prepared.mandateId}', 1,
+         'WALLET_SIGNATURE', '${buyerAddress}', 97, '{}', '0x01',
+         '0x${"ab".repeat(32)}', '${offer!.version.termsHash}', 'validation-activation',
+         'VERIFIED', '{}', now() + interval '1 hour');
+      update commerce_agreements
+         set status = 'AUTHORIZED', authorization_artifact_id = '${authorizationId}'
+       where id = '${prepared.agreementId}';
+    `);
+    const activation = await store.prepareCommerceValidationActivation({
+      agreementId: prepared.agreementId!,
+      principalId: buyer,
+      clientAddress: buyerAddress,
+      commerceAddress: "0xa206c0517B6371C6638CD9e4a42Cc9f02A33B0DE",
+      evaluatorAddress: "0xD7d36D66d2F1B608A0F943f722D27e3744f66F25",
+      providerAddress: owner,
+      approvalPayloadHash: `0x${"12".repeat(32)}`,
+      approvalEvidence: {
+        commerceValidation: true,
+        amountBaseUnits: "1000000000",
+        transactionSubmitted: false,
+      },
+    });
+    expect(activation).toMatchObject({
+      purpose: "VERIFICATION",
+      marketplaceHistoryEligible: false,
+      lifecycleState: "PREPARING",
+      budgetBaseUnits: "1000000000",
+      executionRequestId: null,
+    });
+    const activatedAgreement = await store.findAgreement(
+      prepared.agreementId!,
+      buyer,
+    );
+    expect(activatedAgreement).toMatchObject({ status: "ACTIVE" });
+    expect(activatedAgreement?.operations).toHaveLength(1);
+    const approval = activatedAgreement!.operations[0]!;
+    expect(approval).toMatchObject({
+      operationType: "APPROVE_TOKEN",
+      state: "AWAITING_SIGNATURE",
+      transactionHash: null,
+    });
+    expect(approval.evidence).toMatchObject({
+      commerceValidation: true,
+      transactionSubmitted: false,
+    });
+    expect(activatedAgreement?.movements).toHaveLength(0);
+    expect(activatedAgreement?.settlements).toHaveLength(0);
+    await expect(
+      store.createCommerceValidationSession({
+        offerId: offer!.id,
+        sellerPrincipalId: buyer,
+        handoffTokenHash: "c".repeat(64),
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      }),
+    ).rejects.toThrow(/owned by this seller/i);
   });
 
   it("preserves accepted offer versions when the operator publishes a revision", async () => {

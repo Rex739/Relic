@@ -6,7 +6,14 @@ packages:
 enableGlobalVirtualStore: false
 
 allowBuilds:
+  # These optional native helpers are not needed by the local Relic runtime.
+  # Declaring them explicitly prevents pnpm from blocking every dev process
+  # while preserving the policy of never running unreviewed build scripts.
+  '@reown/appkit': false
+  bufferutil: false
   esbuild: true
+  keccak: false
+  utf-8-validate: false
 
 onlyBuiltDependencies:
   - esbuild

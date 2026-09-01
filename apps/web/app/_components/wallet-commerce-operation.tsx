@@ -13,7 +13,8 @@ import {
 import { useRelicWallet } from "./relic-wallet-provider";
 import { switchWalletChain } from "./wallet-provider";
 
-type OperationType = "CREATE_JOB" | "REGISTER_JOB" | "SET_BUDGET" | "FUND";
+type OperationType =
+  "APPROVE_TOKEN" | "CREATE_JOB" | "REGISTER_JOB" | "SET_BUDGET" | "FUND";
 type OperationState =
   "AWAITING_SIGNATURE" | "SUBMITTED" | "PENDING" | "CONFIRMED";
 type PreparedWalletTransaction = {
@@ -51,6 +52,7 @@ export function WalletCommerceOperation({
   operationState,
   initialQuoteExpiresAt,
   initialQuoteNegotiatedAt,
+  paidValidation = false,
 }: {
   agreementId: string;
   operationId: string;
@@ -58,6 +60,7 @@ export function WalletCommerceOperation({
   operationState: OperationState;
   initialQuoteExpiresAt?: string;
   initialQuoteNegotiatedAt?: string;
+  paidValidation?: boolean;
 }) {
   const router = useRouter();
   const wallet = useRelicWallet();
@@ -101,14 +104,24 @@ export function WalletCommerceOperation({
   const quoteExpiresAt = prepared?.quoteExpiresAt ?? initialQuoteExpiresAt;
   const quoteNegotiatedAt =
     prepared?.quoteNegotiatedAt ?? initialQuoteNegotiatedAt;
-  const setupStep =
-    operationType === "CREATE_JOB"
+  const setupStep = paidValidation
+    ? operationType === "APPROVE_TOKEN"
+      ? 1
+      : operationType === "CREATE_JOB"
+        ? 2
+        : operationType === "REGISTER_JOB"
+          ? 3
+          : operationType === "SET_BUDGET"
+            ? 4
+            : 5
+    : operationType === "CREATE_JOB"
       ? 1
       : operationType === "REGISTER_JOB"
         ? 2
         : operationType === "SET_BUDGET"
           ? 3
           : 4;
+  const setupSteps = paidValidation ? 5 : 4;
 
   const submit = async () => {
     if (!wallet.authenticated || wallet.address === null) {
@@ -134,7 +147,8 @@ export function WalletCommerceOperation({
         transaction.operationType !== operationType ||
         transaction.chainId !== 97 ||
         transaction.value !== "0x0" ||
-        transaction.presentation.fundsExpectedToMove
+        (transaction.presentation.fundsExpectedToMove &&
+          operationType !== "FUND")
       )
         throw new Error("The prepared operation does not match this request.");
       setPrepared(transaction);
@@ -215,6 +229,7 @@ export function WalletCommerceOperation({
   };
 
   const label =
+    operationType === "APPROVE_TOKEN" ||
     operationType === "REGISTER_JOB" ||
     operationType === "SET_BUDGET" ||
     operationType === "FUND"
@@ -228,9 +243,13 @@ export function WalletCommerceOperation({
         aria-label="Activation setup session"
       >
         <div>
-          <strong>Agent setup · step {setupStep} of 4</strong>
+          <strong>
+            Agent setup · step {setupStep} of {setupSteps}
+          </strong>
           <span>
-            Create service → Apply safety → Confirm free limit → Start running
+            {paidValidation
+              ? "Approve payment → Create service → Apply safety → Set budget → Fund escrow"
+              : "Create service → Apply safety → Set budget → Start service"}
           </span>
         </div>
         {quoteExpiresAt === undefined ? (
@@ -254,11 +273,14 @@ export function WalletCommerceOperation({
           </div>
         )}
       </div>
-      {operationType === "SET_BUDGET" || operationType === "FUND" ? (
+      {prepared !== null &&
+      (operationType === "APPROVE_TOKEN" ||
+        operationType === "SET_BUDGET" ||
+        operationType === "FUND") ? (
         <dl className="wallet-operation-summary">
           <div>
             <dt>Budget</dt>
-            <dd>Free / 0</dd>
+            <dd>{prepared.presentation.servicePrice}</dd>
           </div>
           <div>
             <dt>Network</dt>
@@ -266,11 +288,15 @@ export function WalletCommerceOperation({
           </div>
           <div>
             <dt>Funds moved</dt>
-            <dd>None</dd>
+            <dd>
+              {prepared.presentation.fundsExpectedToMove
+                ? "Escrow deposit"
+                : "None"}
+            </dd>
           </div>
           <div>
             <dt>Cost</dt>
-            <dd>Gas only</dd>
+            <dd>{prepared.presentation.cost ?? "Gas only"}</dd>
           </div>
         </dl>
       ) : null}
@@ -297,13 +323,17 @@ export function WalletCommerceOperation({
             ? "Your wallet returned a transaction hash. Relic is recording it now."
             : stage === "confirming"
               ? "Transaction recorded. Relic is reconciling finality and will prepare the next manual wallet step automatically."
-              : operationType === "REGISTER_JOB"
-                ? "This applies the approved safety policy. You pay network gas only; the service remains free and no funds move."
-                : operationType === "SET_BUDGET"
-                  ? "This confirms the service has a zero spending limit. No tokens move; you pay BSC Testnet gas only."
-                  : operationType === "FUND"
-                    ? "This finishes the free setup and puts the agent in its ready state. No tokens move; you pay BSC Testnet gas only."
-                    : "This starts one free service setup. It does not fund or settle anything."}
+              : operationType === "APPROVE_TOKEN"
+                ? "This grants the commerce contract an exact-amount token allowance. It does not move tokens."
+                : operationType === "REGISTER_JOB"
+                  ? paidValidation
+                    ? "This applies the approved safety policy. No tokens move in this step."
+                    : "This applies the approved safety policy. You pay network gas only; the service remains free and no funds move."
+                  : operationType === "SET_BUDGET"
+                    ? "This records the exact offer budget. No tokens move in this step."
+                    : operationType === "FUND"
+                      ? "This deposits the approved offer amount into escrow and starts the job."
+                      : "This creates the offer-bound service job. It does not fund or settle anything."}
       </span>
       {transactionHash === null ? null : (
         <small>Transaction: {transactionHash}</small>
@@ -334,7 +364,7 @@ export function WalletCommerceOperation({
                 </span>
               ) : null}
               <small>
-                Complete all four confirmations before this setup window
+                Complete all {setupSteps} confirmations before this setup window
                 expires. Relic stops safely when too little time remains.
               </small>
             </div>
@@ -361,7 +391,9 @@ export function WalletCommerceOperation({
                 </div>
                 <div>
                   <dt>Funds expected to move</dt>
-                  <dd>No</dd>
+                  <dd>
+                    {prepared.presentation.fundsExpectedToMove ? "Yes" : "No"}
+                  </dd>
                 </div>
               </dl>
             </details>

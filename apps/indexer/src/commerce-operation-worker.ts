@@ -73,6 +73,8 @@ const setupJobAbi = [
 ] as const;
 
 const setupHeadroom = {
+  APPROVE_TOKEN: 13 * 60,
+  CREATE_JOB: 12 * 60,
   REGISTER_JOB: 8 * 60,
   SET_BUDGET: 4 * 60,
   FUND: 2 * 60,
@@ -90,6 +92,60 @@ const nextSetupOperation = (input: {
     "operation_type",
   );
   if (currentType === "FUND") return undefined;
+  if (currentType === "APPROVE_TOKEN") {
+    const activationId = field<string>(
+      input.operation,
+      "activationId",
+      "activation_id",
+    );
+    const evidence = field<Record<string, unknown>>(
+      input.operation,
+      "evidence",
+      "evidence",
+    );
+    const next = evidence?.nextOperation as Record<string, unknown> | undefined;
+    if (
+      activationId === undefined ||
+      next === undefined ||
+      next.operationType !== "CREATE_JOB" ||
+      typeof next.contract !== "string" ||
+      typeof next.calldata !== "string" ||
+      typeof next.preparedPayloadHash !== "string" ||
+      typeof next.negotiatedAt !== "number" ||
+      typeof next.quoteExpiresAt !== "number" ||
+      next.functionArguments === null ||
+      typeof next.functionArguments !== "object"
+    )
+      throw new Error(
+        "Token approval is missing its bound CREATE_JOB operation",
+      );
+    const remaining =
+      next.quoteExpiresAt - Math.floor(input.now.getTime() / 1_000);
+    const safe = remaining >= setupHeadroom.CREATE_JOB;
+    return {
+      operationType: "CREATE_JOB",
+      idempotencyKey: `activation:${activationId}:create-job`,
+      state: safe ? "AWAITING_SIGNATURE" : "CANCELLED",
+      preparedPayloadHash: next.preparedPayloadHash,
+      ...(safe
+        ? {}
+        : {
+            failure: {
+              code: "SIGNED_QUOTE_WINDOW_UNSAFE",
+              quoteExpiresAt: next.quoteExpiresAt,
+              remainingSeconds: remaining,
+              requiredSeconds: setupHeadroom.CREATE_JOB,
+            },
+          }),
+      evidence: {
+        ...next,
+        commerceValidation: true,
+        transactionPrepared: true,
+        transactionSubmitted: false,
+        quoteMinimumRemainingSeconds: setupHeadroom.CREATE_JOB,
+      },
+    };
+  }
   const nextType =
     currentType === "CREATE_JOB"
       ? "REGISTER_JOB"
@@ -126,6 +182,10 @@ const nextSetupOperation = (input: {
     currentType === "CREATE_JOB"
       ? currentArguments?.evaluator
       : evidence?.routerAddress;
+  const amountBaseUnits =
+    typeof evidence?.amountBaseUnits === "string"
+      ? evidence.amountBaseUnits
+      : "0";
   if (
     activationId === undefined ||
     jobId === undefined ||
@@ -151,12 +211,12 @@ const nextSetupOperation = (input: {
         ? encodeFunctionData({
             abi: setupJobAbi,
             functionName: "setBudget",
-            args: [id, 0n, "0x"],
+            args: [id, BigInt(amountBaseUnits), "0x"],
           })
         : encodeFunctionData({
             abi: setupJobAbi,
             functionName: "fund",
-            args: [id, 0n, "0x"],
+            args: [id, BigInt(amountBaseUnits), "0x"],
           });
   const remaining = quoteExpiresAt - Math.floor(input.now.getTime() / 1_000);
   const safe = remaining >= setupHeadroom[nextType];
@@ -185,14 +245,16 @@ const nextSetupOperation = (input: {
       negotiatedAt,
       quoteExpiresAt,
       quoteMinimumRemainingSeconds: setupHeadroom[nextType],
+      amountBaseUnits,
+      paymentTokenAddress: evidence?.paymentTokenAddress,
       calldata: data,
       preparedPayloadHash: keccak256(data),
       functionArguments:
         nextType === "REGISTER_JOB"
           ? { jobId, policy }
           : nextType === "SET_BUDGET"
-            ? { jobId, amount: "0", optParams: "0x" }
-            : { jobId, expectedBudget: "0", optParams: "0x" },
+            ? { jobId, amount: amountBaseUnits, optParams: "0x" }
+            : { jobId, expectedBudget: amountBaseUnits, optParams: "0x" },
       ...(failure === undefined ? {} : { setupSessionFailure: failure }),
     },
   };
@@ -439,7 +501,9 @@ export async function reconcileCommerceOperations(input: {
       }
       if (
         finalized &&
-        ["REGISTER_JOB", "SET_BUDGET", "FUND"].includes(String(operationType))
+        ["APPROVE_TOKEN", "REGISTER_JOB", "SET_BUDGET", "FUND"].includes(
+          String(operationType),
+        )
       ) {
         const nextOperation = nextSetupOperation({
           operation,

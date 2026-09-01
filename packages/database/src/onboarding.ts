@@ -9,16 +9,19 @@ import {
   assertActivationLifecycleTransition,
   assertSubmissionTransition,
 } from "@relic/domain";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
   activationLifecycleTransitions,
   activations,
   agentIdentities,
+  agentServices,
   agentSubmissions,
   marketplaceOutcomes,
   ownershipChallenges,
+  sellerAgentAuthorizations,
+  sellerMarketplaceProfiles,
   submissionTransitions,
 } from "./schema.js";
 
@@ -27,8 +30,10 @@ const asSubmission = (
 ): AgentSubmission => ({
   id: row.id,
   chainId: row.chainId,
+  registryAddress: row.registryAddress as `0x${string}`,
   externalAgentId: row.externalAgentId,
   supplyType: row.supplyType,
+  relicPrincipalId: row.relicPrincipalId,
   status: row.status,
   submitterAddress: row.submitterAddress as `0x${string}` | null,
   ownershipVerifiedAt: row.ownershipVerifiedAt?.toISOString() ?? null,
@@ -37,6 +42,24 @@ const asSubmission = (
   developerOverrides: row.developerOverrides as Record<string, unknown>,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
+});
+
+const asAuthorization = (
+  row: typeof sellerAgentAuthorizations.$inferSelect,
+) => ({
+  id: row.id,
+  principalId: row.principalId,
+  submissionId: row.submissionId,
+  agentId: row.agentId,
+  chainId: row.chainId,
+  registryAddress: row.registryAddress as `0x${string}`,
+  externalAgentId: row.externalAgentId,
+  verifiedOwner: row.verifiedOwner as `0x${string}`,
+  challengeId: row.challengeId,
+  verifiedAt: row.verifiedAt.toISOString(),
+  lastOwnerCheckedAt: row.lastOwnerCheckedAt.toISOString(),
+  revokedAt: row.revokedAt?.toISOString() ?? null,
+  revocationReason: row.revocationReason,
 });
 
 export class DrizzleOnboardingStore implements OnboardingRepository {
@@ -50,15 +73,57 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         .where(
           and(
             eq(agentSubmissions.chainId, input.chainId),
+            sql`lower(${agentSubmissions.registryAddress}) = lower(${input.registryAddress})`,
             eq(agentSubmissions.externalAgentId, input.externalAgentId),
           ),
         )
         .limit(1);
       if (existing !== undefined) {
+        if (
+          existing.relicPrincipalId !== null &&
+          existing.relicPrincipalId !== input.relicPrincipalId
+        ) {
+          const [authorization] = await transaction
+            .select()
+            .from(sellerAgentAuthorizations)
+            .where(
+              and(
+                eq(sellerAgentAuthorizations.chainId, input.chainId),
+                sql`lower(${sellerAgentAuthorizations.registryAddress}) = lower(${input.registryAddress})`,
+                eq(
+                  sellerAgentAuthorizations.externalAgentId,
+                  input.externalAgentId,
+                ),
+                isNull(sellerAgentAuthorizations.revokedAt),
+              ),
+            )
+            .limit(1);
+          if (
+            authorization === undefined ||
+            authorization.verifiedOwner.toLowerCase() ===
+              input.liveOwner.toLowerCase()
+          )
+            throw new Error(
+              "This agent listing is already bound to another Relic account",
+            );
+          await transaction
+            .update(sellerAgentAuthorizations)
+            .set({
+              revokedAt: new Date(),
+              revocationReason: "erc8004_ownership_transferred",
+            })
+            .where(eq(sellerAgentAuthorizations.id, authorization.id));
+        }
         const [updated] = await transaction
           .update(agentSubmissions)
           .set({
             submitterAddress: input.submitterAddress,
+            relicPrincipalId: input.relicPrincipalId,
+            registryAddress: input.registryAddress,
+            ownershipVerifiedAt:
+              existing.relicPrincipalId === input.relicPrincipalId
+                ? existing.ownershipVerifiedAt
+                : null,
             developerOverrides: input.developerOverrides ?? {},
             updatedAt: new Date(),
           })
@@ -72,8 +137,10 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         .insert(agentSubmissions)
         .values({
           chainId: input.chainId,
+          registryAddress: input.registryAddress,
           externalAgentId: input.externalAgentId,
           supplyType: input.supplyType,
+          relicPrincipalId: input.relicPrincipalId,
           submitterAddress: input.submitterAddress,
           developerOverrides: input.developerOverrides ?? {},
           evidence: input.evidence,
@@ -95,6 +162,55 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
       .select()
       .from(agentSubmissions)
       .where(eq(agentSubmissions.id, id))
+      .limit(1);
+    return row === undefined ? null : asSubmission(row);
+  }
+
+  async listPendingCatalogSubmissions(limit: number) {
+    return (
+      await this.database
+        .select()
+        .from(agentSubmissions)
+        .where(
+          and(
+            isNotNull(agentSubmissions.ownershipVerifiedAt),
+            or(
+              and(
+                eq(agentSubmissions.status, "SUBMITTED"),
+                isNull(agentSubmissions.agentId),
+              ),
+              and(
+                eq(agentSubmissions.status, "SERVICE_VERIFICATION"),
+                isNotNull(agentSubmissions.agentId),
+                isNotNull(agentSubmissions.candidateId),
+                sql`not exists (
+                  select 1 from ${agentServices}
+                  where ${agentServices.agentId} = ${agentSubmissions.agentId}
+                )`,
+              ),
+            ),
+          ),
+        )
+        .orderBy(asc(agentSubmissions.createdAt))
+        .limit(limit)
+    ).map(asSubmission);
+  }
+
+  async findSubmissionByIdentity(
+    chainId: number,
+    registryAddress: `0x${string}`,
+    externalAgentId: string,
+  ) {
+    const [row] = await this.database
+      .select()
+      .from(agentSubmissions)
+      .where(
+        and(
+          eq(agentSubmissions.chainId, chainId),
+          sql`lower(${agentSubmissions.registryAddress}) = lower(${registryAddress})`,
+          eq(agentSubmissions.externalAgentId, externalAgentId),
+        ),
+      )
       .limit(1);
     return row === undefined ? null : asSubmission(row);
   }
@@ -131,9 +247,14 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
 
   async createOwnershipChallenge(input: {
     submissionId: string;
+    principalId: string;
+    chainId: number;
+    registryAddress: `0x${string}`;
+    externalAgentId: string;
     nonceHash: string;
     message: string;
     expectedOwner: `0x${string}`;
+    issuedAt: Date;
     expiresAt: Date;
   }) {
     const [row] = await this.database
@@ -145,8 +266,13 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     return {
       id: row.id,
       submissionId: row.submissionId,
+      principalId: row.principalId!,
+      chainId: row.chainId!,
+      registryAddress: row.registryAddress as `0x${string}`,
+      externalAgentId: row.externalAgentId!,
       message: row.message,
       expectedOwner: row.expectedOwner as `0x${string}`,
+      issuedAt: row.issuedAt!.toISOString(),
       expiresAt: row.expiresAt.toISOString(),
     };
   }
@@ -161,14 +287,24 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     return {
       id: row.id,
       submissionId: row.submissionId,
+      principalId: row.principalId!,
+      chainId: row.chainId!,
+      registryAddress: row.registryAddress as `0x${string}`,
+      externalAgentId: row.externalAgentId!,
       message: row.message,
       expectedOwner: row.expectedOwner as `0x${string}`,
+      issuedAt: row.issuedAt!.toISOString(),
       expiresAt: row.expiresAt.toISOString(),
     };
   }
 
-  async consumeOwnershipChallenge(input: {
+  async consumeOwnershipChallengeAndAuthorize(input: {
     challengeId: string;
+    principalId: string;
+    submissionId: string;
+    chainId: number;
+    registryAddress: `0x${string}`;
+    externalAgentId: string;
     signerAddress: `0x${string}`;
     signatureDigest: string;
     verifiedAt: Date;
@@ -185,13 +321,81 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         .where(
           and(
             eq(ownershipChallenges.id, input.challengeId),
+            eq(ownershipChallenges.submissionId, input.submissionId),
+            eq(ownershipChallenges.principalId, input.principalId),
+            eq(ownershipChallenges.chainId, input.chainId),
+            sql`lower(${ownershipChallenges.registryAddress}) = lower(${input.registryAddress})`,
+            eq(ownershipChallenges.externalAgentId, input.externalAgentId),
             isNull(ownershipChallenges.consumedAt),
             gt(ownershipChallenges.expiresAt, input.verifiedAt),
             sql`lower(${ownershipChallenges.expectedOwner}) = lower(${input.signerAddress})`,
           ),
         )
         .returning({ submissionId: ownershipChallenges.submissionId });
-      if (challenge === undefined) return false;
+      if (challenge === undefined) return null;
+      const [submission] = await transaction
+        .select({ agentId: agentSubmissions.agentId })
+        .from(agentSubmissions)
+        .where(
+          and(
+            eq(agentSubmissions.id, challenge.submissionId),
+            eq(agentSubmissions.relicPrincipalId, input.principalId),
+          ),
+        )
+        .limit(1);
+      if (submission === undefined)
+        throw new Error("Submission is not bound to this Relic account");
+      const [active] = await transaction
+        .select()
+        .from(sellerAgentAuthorizations)
+        .where(
+          and(
+            eq(sellerAgentAuthorizations.chainId, input.chainId),
+            sql`lower(${sellerAgentAuthorizations.registryAddress}) = lower(${input.registryAddress})`,
+            eq(
+              sellerAgentAuthorizations.externalAgentId,
+              input.externalAgentId,
+            ),
+            isNull(sellerAgentAuthorizations.revokedAt),
+          ),
+        )
+        .limit(1);
+      if (
+        active !== undefined &&
+        active.principalId !== input.principalId &&
+        active.verifiedOwner.toLowerCase() === input.signerAddress.toLowerCase()
+      )
+        throw new Error(
+          "This agent is already authorized to another Relic account",
+        );
+      if (active !== undefined)
+        await transaction
+          .update(sellerAgentAuthorizations)
+          .set({
+            revokedAt: input.verifiedAt,
+            revocationReason:
+              active.principalId === input.principalId
+                ? "ownership_reverified"
+                : "erc8004_ownership_transferred",
+          })
+          .where(eq(sellerAgentAuthorizations.id, active.id));
+      const [authorization] = await transaction
+        .insert(sellerAgentAuthorizations)
+        .values({
+          principalId: input.principalId,
+          submissionId: challenge.submissionId,
+          agentId: submission.agentId,
+          chainId: input.chainId,
+          registryAddress: input.registryAddress,
+          externalAgentId: input.externalAgentId,
+          verifiedOwner: input.signerAddress,
+          challengeId: input.challengeId,
+          verifiedAt: input.verifiedAt,
+          lastOwnerCheckedAt: input.verifiedAt,
+        })
+        .returning();
+      if (authorization === undefined)
+        throw new Error("Seller authorization insert failed");
       await transaction
         .update(agentSubmissions)
         .set({
@@ -199,8 +403,99 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
           updatedAt: input.verifiedAt,
         })
         .where(eq(agentSubmissions.id, challenge.submissionId));
-      return true;
+      return asAuthorization(authorization);
     });
+  }
+
+  async findSellerAuthorization(input: {
+    principalId: string;
+    agentId: string;
+  }) {
+    const [row] = await this.database
+      .select()
+      .from(sellerAgentAuthorizations)
+      .where(
+        and(
+          eq(sellerAgentAuthorizations.principalId, input.principalId),
+          eq(sellerAgentAuthorizations.agentId, input.agentId),
+          isNull(sellerAgentAuthorizations.revokedAt),
+        ),
+      )
+      .limit(1);
+    return row === undefined ? null : asAuthorization(row);
+  }
+
+  async listSellerAuthorizations(principalId: string) {
+    const rows = await this.database
+      .select()
+      .from(sellerAgentAuthorizations)
+      .where(
+        and(
+          eq(sellerAgentAuthorizations.principalId, principalId),
+          isNull(sellerAgentAuthorizations.revokedAt),
+        ),
+      );
+    return rows.map(asAuthorization);
+  }
+
+  async revokeSellerAuthorization(input: {
+    authorizationId: string;
+    reason: string;
+    revokedAt: Date;
+  }) {
+    const rows = await this.database
+      .update(sellerAgentAuthorizations)
+      .set({
+        revokedAt: input.revokedAt,
+        revocationReason: input.reason,
+        lastOwnerCheckedAt: input.revokedAt,
+      })
+      .where(
+        and(
+          eq(sellerAgentAuthorizations.id, input.authorizationId),
+          isNull(sellerAgentAuthorizations.revokedAt),
+        ),
+      )
+      .returning({ id: sellerAgentAuthorizations.id });
+    return rows.length === 1;
+  }
+
+  async upsertSellerMarketplaceProfile(input: {
+    agentId: string;
+    principalId: string;
+    description: string;
+    imageUrl: string | null;
+    updatedAt: Date;
+  }) {
+    const [profile] = await this.database
+      .insert(sellerMarketplaceProfiles)
+      .values({
+        agentId: input.agentId,
+        description: input.description,
+        imageUrl: input.imageUrl,
+        updatedByPrincipalId: input.principalId,
+        createdAt: input.updatedAt,
+        updatedAt: input.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: sellerMarketplaceProfiles.agentId,
+        set: {
+          description: input.description,
+          imageUrl: input.imageUrl,
+          updatedByPrincipalId: input.principalId,
+          updatedAt: input.updatedAt,
+        },
+      })
+      .returning();
+    if (profile === undefined)
+      throw new Error("Marketplace profile update did not persist");
+    return {
+      agentId: profile.agentId,
+      description: profile.description,
+      imageUrl: profile.imageUrl,
+      updatedByPrincipalId: profile.updatedByPrincipalId,
+      updatedAt: profile.updatedAt.toISOString(),
+    };
   }
 
   async transitionSubmission(input: {
@@ -230,6 +525,20 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         .returning({ id: agentSubmissions.id });
       if (changed.length !== 1)
         throw new Error("Submission state changed concurrently");
+      // Ownership can be proven before the background catalog worker has
+      // resolved Relic's internal agent ID. Bind the authorization as soon as
+      // that ID becomes durable so the seller can use the controls they just
+      // unlocked, without requiring a second ownership proof.
+      if (input.agentId !== undefined)
+        await transaction
+          .update(sellerAgentAuthorizations)
+          .set({ agentId: input.agentId })
+          .where(
+            and(
+              eq(sellerAgentAuthorizations.submissionId, input.submissionId),
+              isNull(sellerAgentAuthorizations.revokedAt),
+            ),
+          );
       await transaction.insert(submissionTransitions).values({
         submissionId: input.submissionId,
         fromStatus: input.from,

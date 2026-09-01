@@ -1,0 +1,1 @@
+ALTER TYPE "public"."commerce_operation_type" ADD VALUE IF NOT EXISTS 'APPROVE_TOKEN' BEFORE 'CREATE_JOB';

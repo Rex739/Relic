@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+import type { TokenAmount } from "./money.js";
+
 export type PublicVerificationTier = "Working" | "Actionable" | "Proven";
 
 export type MarketplaceReviewSentiment = "GOOD" | "BAD";
@@ -222,6 +226,34 @@ export interface PublicCategoryCount {
 
 export type SellerReadinessState = "complete" | "attention" | "blocked";
 
+export const sellerMarketplaceProfileInputSchema = z
+  .object({
+    description: z.string().trim().min(20).max(2_000),
+    imageUrl: z
+      .union([
+        z.url().max(2_048),
+        z
+          .string()
+          .regex(
+            /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/,
+            "Profile image must be a JPEG upload",
+          )
+          .max(2_800_000),
+        z.literal(""),
+      ])
+      .transform((value) => (value === "" ? null : value)),
+  })
+  .strict();
+export type SellerMarketplaceProfileInput = z.infer<
+  typeof sellerMarketplaceProfileInputSchema
+>;
+
+export interface SellerMarketplaceProfile extends SellerMarketplaceProfileInput {
+  agentId: string;
+  updatedByPrincipalId: string;
+  updatedAt: string;
+}
+
 export interface SellerReadinessRequirement {
   state: SellerReadinessState;
   label: string;
@@ -239,6 +271,7 @@ export interface SellerAgentReadiness {
   chainId: 56 | 97;
   externalAgentId: string;
   testDeployment: boolean;
+  verifiedPrice: TokenAmount | null;
   requirements: {
     identity: SellerReadinessRequirement;
     service: SellerReadinessRequirement;
@@ -249,6 +282,8 @@ export interface SellerAgentReadiness {
   marketplaceStatus: "PUBLIC" | "NOT_READY";
   hireable: boolean;
   lastVerifiedAt: string | null;
+  /** Present while ownership is verified but catalog setup has not finished. */
+  onboardingState?: "PENDING_CATALOG_SETUP";
 }
 
 export interface SellerReadinessFacts {
@@ -267,6 +302,7 @@ export interface SellerReadinessFacts {
   commerceValidated: boolean;
   activeOffer: boolean;
   publicEligible: boolean;
+  verifiedPrice: TokenAmount | null;
 }
 
 export function sellerReadinessProjection(
@@ -300,11 +336,11 @@ export function sellerReadinessProjection(
         nextAction: null,
       }
     : {
-        state: "blocked",
-        label: "Service is not available",
+        state: "attention",
+        label: "Relic is checking the service",
         explanation:
-          "Buyers cannot use this agent until its advertised service is reachable.",
-        nextAction: "Waiting for agent owner",
+          "Relic is safely checking the service advertised by this agent. No seller setup is required.",
+        nextAction: "Relic check in progress",
       };
   const verification: SellerReadinessRequirement = facts.verificationPassed
     ? {
@@ -317,26 +353,26 @@ export function sellerReadinessProjection(
         state: "attention",
         label:
           facts.lastVerifiedAt === null
-            ? "Service verification is missing"
+            ? "Relic has not checked the service yet"
             : "Verification expired — refresh required",
         explanation:
-          "A recent independent service check is required before this agent can appear to buyers.",
-        nextAction: "Waiting for Relic verification",
+          "Relic checks this agent automatically before it can appear to buyers.",
+        nextAction: "Waiting for Relic’s check",
       };
   const commerce: SellerReadinessRequirement = facts.commerceValidated
     ? {
         state: "complete",
-        label: "Commerce validation completed",
+        label: "Commerce history available",
         explanation:
-          "Relic has genuine evidence that this service completed the commerce lifecycle.",
+          "Completed buyer work is available as part of this agent's track record.",
         nextAction: null,
       }
     : {
-        state: "blocked",
-        label: "No completed customer job yet",
+        state: "complete",
+        label: "Commerce history starts after hiring",
         explanation:
-          "Hireability requires genuine successful commerce evidence, not a service check or engineering test.",
-        nextAction: "Complete genuine commerce validation",
+          "Buyer agreements and completed work build this agent's track record after it is available to hire.",
+        nextAction: null,
       };
   const offer: SellerReadinessRequirement = facts.activeOffer
     ? {
@@ -354,10 +390,15 @@ export function sellerReadinessProjection(
           facts.identityVerified &&
           facts.serviceAvailable &&
           facts.verificationPassed &&
-          facts.commerceValidated &&
-          !testDeployment
+          !testDeployment &&
+          facts.verifiedPrice !== null
             ? "Create marketplace offer"
-            : "Waiting for readiness checks",
+            : facts.identityVerified &&
+                facts.serviceAvailable &&
+                facts.verificationPassed &&
+                !testDeployment
+              ? "Waiting for verified seller quote"
+              : "Waiting for readiness checks",
       };
   return {
     agentId: facts.agentId,
@@ -369,14 +410,11 @@ export function sellerReadinessProjection(
     chainId: facts.chainId,
     externalAgentId: facts.externalAgentId,
     testDeployment,
+    verifiedPrice: facts.verifiedPrice,
     requirements: { identity, service, verification, commerce, offer },
     marketplaceStatus:
       facts.publicEligible && !testDeployment ? "PUBLIC" : "NOT_READY",
-    hireable:
-      facts.publicEligible &&
-      facts.commerceValidated &&
-      facts.activeOffer &&
-      !testDeployment,
+    hireable: facts.publicEligible && facts.activeOffer && !testDeployment,
     lastVerifiedAt: facts.lastVerifiedAt,
   };
 }

@@ -175,8 +175,10 @@ and settlements. The same ownership rule applies to Relic and third parties.
 
 Public inventory distinguishes Working, Actionable, and Hireable. Hireable
 means Actionable plus a current active offer with matching network, terms,
-payment snapshot, and fresh service evidence. Dead, expired, paused, stale,
-unavailable, or conflicted offers are never Hireable.
+payment snapshot, and fresh service evidence. Completed buyer commerce builds
+an agent's track record after it is hireable; it is not an activation
+requirement. Dead, expired, paused, stale, unavailable, or conflicted offers
+are never Hireable.
 
 ## Database security and real validation
 

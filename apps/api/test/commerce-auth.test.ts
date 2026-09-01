@@ -10,6 +10,7 @@ import {
 
 import {
   activationSetupRequiredGasBalance,
+  commerceValidationJobExpiry,
   CommerceApplicationService,
   principalIdForWallet,
   WalletAuthenticationService,
@@ -28,6 +29,25 @@ describe("activation setup readiness", () => {
     expect(activationSetupRequiredGasBalance(1_000_000_000n)).toBe(
       2_000_000_000_000_000n,
     );
+  });
+
+  it("separates the policy-safe job deadline from the short handoff window", () => {
+    const nowSeconds = 1_787_631_300n;
+    const disputeWindowSeconds = 2n * 86_400n;
+    expect(
+      commerceValidationJobExpiry({
+        nowSeconds,
+        disputeWindowSeconds,
+        relationshipExpiresAtSeconds: nowSeconds + 30n * 86_400n,
+      }),
+    ).toBe(nowSeconds + 9n * 86_400n);
+    expect(() =>
+      commerceValidationJobExpiry({
+        nowSeconds,
+        disputeWindowSeconds,
+        relationshipExpiresAtSeconds: nowSeconds + 60n * 60n,
+      }),
+    ).toThrow(/relationship expires before/i);
   });
 });
 
@@ -241,6 +261,75 @@ describe("verified marketplace review authorization", () => {
         message: "Reliable result.",
       }),
     );
+  });
+});
+
+describe("commerce validation preparation", () => {
+  const principal = {
+    principalId: principalIdForWallet(account.address, 97),
+    walletAddress: account.address,
+    chainId: 97,
+    sessionId: "01945b1e-7e80-7000-8000-000000000080",
+  };
+
+  it("prepares the exact claimed offer without exposing internal principals", async () => {
+    const sessionId = "01945b1e-7e80-7000-8000-000000000081";
+    const offerId = "01945b1e-7e80-7000-8000-000000000082";
+    const offerVersionId = "01945b1e-7e80-7000-8000-000000000083";
+    const mandateId = "01945b1e-7e80-7000-8000-000000000084";
+    const agreementId = "01945b1e-7e80-7000-8000-000000000085";
+    const dates = {
+      expiresAt: new Date(now.getTime() + 60 * 60_000),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const claimed = {
+      id: sessionId,
+      offerId,
+      offerVersionId,
+      agentId: "01945b1e-7e80-7000-8000-000000000086",
+      serviceId: "01945b1e-7e80-7000-8000-000000000087",
+      chainId: 97,
+      sellerPrincipalId: "internal-seller-principal",
+      buyerPrincipalId: principal.principalId,
+      mandateId: null,
+      agreementId: null,
+      status: "CLAIMED",
+      completedActivationId: null,
+      handoffTokenHash: "secret-hash",
+      ...dates,
+    };
+    const prepared = { ...claimed, mandateId, agreementId };
+    const offer = { id: offerId, version: { id: offerVersionId } };
+    const store = {
+      claimCommerceValidationSession: vi.fn().mockResolvedValue(claimed),
+      prepareCommerceValidationSession: vi.fn().mockResolvedValue(prepared),
+      findOffer: vi.fn().mockResolvedValue(offer),
+    };
+    const service = new CommerceApplicationService(
+      store as never,
+      account.address,
+      () => now,
+    );
+    const result = await service.claimCommerceValidationSession(
+      principal,
+      sessionId,
+      "validation-handoff-token-with-enough-entropy",
+    );
+    expect(store.prepareCommerceValidationSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        buyerPrincipalId: principal.principalId,
+      }),
+    );
+    expect(result).toMatchObject({
+      session: { mandateId, agreementId, status: "CLAIMED" },
+      nextState: "REVIEW_VALIDATION_AGREEMENT",
+      transactionSubmitted: false,
+    });
+    expect(result.session).not.toHaveProperty("sellerPrincipalId");
+    expect(result.session).not.toHaveProperty("buyerPrincipalId");
+    expect(result.session).not.toHaveProperty("handoffTokenHash");
   });
 });
 

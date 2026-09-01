@@ -7,6 +7,7 @@ import type {
 import { createHash } from "node:crypto";
 import {
   getAddress,
+  hexToString,
   type Address,
   type GetContractEventsReturnType,
   type PublicClient,
@@ -144,6 +145,9 @@ export class Erc8004RegistryProvider implements AgentRegistryProvider {
     log?: RegistrationLog,
   ): Promise<RegistryAgentRecord> {
     const fetchedAt = new Date().toISOString();
+    const relicVerificationUrl = await this.#readRelicVerificationUrl(
+      identity.agentId,
+    );
     let metadata: unknown = null;
     let metadataResolution: RegistryAgentRecord["metadataResolution"];
     if (identity.agentURI.trim() === "") {
@@ -151,6 +155,10 @@ export class Erc8004RegistryProvider implements AgentRegistryProvider {
     } else {
       try {
         metadata = await this.#metadataResolver.resolve(identity.agentURI);
+        metadata = this.#withRelicVerificationUrl(
+          metadata,
+          relicVerificationUrl,
+        );
         metadataResolution = {
           status: "resolved",
           contentHash: createHash("sha256")
@@ -195,5 +203,44 @@ export class Erc8004RegistryProvider implements AgentRegistryProvider {
         metadata,
       },
     };
+  }
+
+  async #readRelicVerificationUrl(
+    agentId: bigint,
+  ): Promise<string | undefined> {
+    try {
+      const value = await this.#client.readContract({
+        address: this.#registryAddress,
+        abi: erc8004IdentityRegistryAbi,
+        functionName: "getMetadata",
+        args: [agentId, "relicVerificationUrl"],
+      });
+      if (value === "0x") return undefined;
+      const url = hexToString(value).trim();
+      return url === "" ? undefined : url;
+    } catch {
+      // Older ERC-8004 registries may not implement the optional metadata API.
+      // Their token-URI metadata remains fully usable.
+      return undefined;
+    }
+  }
+
+  #withRelicVerificationUrl(
+    metadata: unknown,
+    relicVerificationUrl: string | undefined,
+  ): unknown {
+    const profile =
+      metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : null;
+    if (
+      relicVerificationUrl === undefined ||
+      profile === null ||
+      !Array.isArray(profile.services) ||
+      profile.services.length !== 1
+    )
+      return metadata;
+
+    return { ...profile, relicVerificationUrl };
   }
 }

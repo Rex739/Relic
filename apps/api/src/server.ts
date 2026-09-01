@@ -19,6 +19,10 @@ import {
   USER_COMMERCE_JOB_LIFETIME_SECONDS,
   WalletAuthenticationService,
 } from "./commerce.js";
+import {
+  SellerAuthorizationGuard,
+  ViemErc8004OwnershipReader,
+} from "./seller-ownership.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -40,6 +44,14 @@ const repository =
     : new DrizzleAgentRepository(connection.db);
 const onboarding =
   connection === null ? undefined : new DrizzleOnboardingStore(connection.db);
+const ownershipReader = new ViemErc8004OwnershipReader({
+  mainnetRpcUrl: environment.BSC_MAINNET_RPC_URL,
+  testnetRpcUrl: environment.BSC_TESTNET_RPC_URL,
+});
+const sellerAuthorization =
+  onboarding === undefined
+    ? undefined
+    : new SellerAuthorizationGuard(onboarding, ownershipReader);
 const mandates =
   connection === null
     ? undefined
@@ -116,6 +128,7 @@ const commerce =
                 ? {}
                 : { rpcUrl: process.env.BSC_TESTNET_RPC_URL }),
             },
+        sellerAuthorization,
       );
 const mandateApiSecret =
   environment.MANDATE_API_SECRET ??
@@ -128,7 +141,19 @@ const app = createApp(repository, onboarding, mandates, {
   ...(mandateApiSecret === undefined ? {} : { mandateApiSecret }),
   ...(executions === undefined ? {} : { executionService: executions }),
   ...(walletAuth === undefined ? {} : { walletAuthService: walletAuth }),
+  ...(environment.NEXT_PUBLIC_PRIVY_APP_ID === undefined
+    ? {}
+    : { privyAppId: environment.NEXT_PUBLIC_PRIVY_APP_ID }),
+  ...(environment.PRIVY_JWT_VERIFICATION_KEY === undefined
+    ? {}
+    : { privyJwtVerificationKey: environment.PRIVY_JWT_VERIFICATION_KEY }),
   ...(commerce === undefined ? {} : { commerceService: commerce }),
+  ownershipReader,
+  ...(sellerAuthorization === undefined
+    ? {}
+    : { sellerAuthorizationGuard: sellerAuthorization }),
+  publicOrigin: environment.RELIC_PUBLIC_ORIGIN ?? "http://localhost:3000",
+  environmentName: environment.NODE_ENV,
 });
 
 serve({ fetch: app.fetch, port: environment.API_PORT }, (info) => {

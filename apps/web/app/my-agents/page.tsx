@@ -14,6 +14,7 @@ import {
   selectRelationshipAgreement,
 } from "../../lib/relationship-status";
 import { WalletSession } from "../_components/wallet-session";
+import { AccountSidebar } from "../_components/account-sidebar";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "My Agents" };
@@ -112,156 +113,170 @@ export default async function MyAgentsPage() {
           permissions.
         </p>
       </header>
-      {error ? (
-        <div className="state-panel">
-          <h2>Mandates are temporarily unavailable.</h2>
-          <p>{error}</p>
-        </div>
-      ) : items.length === 0 ? (
-        <div className="empty-relationships">
-          <span>0 active relationships</span>
-          <h2>No agents have been activated.</h2>
-          <p>Hire an available agent from the marketplace to see it here.</p>
-          <Link href="/marketplace">Browse verified agents →</Link>
-        </div>
-      ) : (
-        <div className="relationship-list">
-          {items.map(({ mandate, agent, nextExpectedAction }) => {
-            const agreement = agreementByMandate[mandate.id]!;
-            const pendingWalletAction = agreement.operations.some(
-              (operation) => operation.state === "AWAITING_SIGNATURE",
-            );
-            const mandateExpired =
-              Date.parse(mandate.version.expiresAt) <= Date.now();
-            const settled = agreement.movements
-              .filter((movement) => movement.movementType === "PAYMENT")
-              .reduce(
-                (total, movement) => total + movementAmount(movement),
-                0n,
-              );
-            const displayStatus = relationshipStatus({ mandate, agreement });
-            return (
-              <article key={mandate.id}>
-                <div className="relationship-main">
-                  <div className="agent-avatar">
-                    {agent.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <span className="overline">
-                      {agent.network} · {displayStatus}
-                    </span>
-                    <h2>
+      <div className="account-workspace">
+        <AccountSidebar />
+        <div className="account-workspace-content">
+          {error ? (
+            <div className="state-panel">
+              <h2>Mandates are temporarily unavailable.</h2>
+              <p>{error}</p>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="empty-relationships">
+              <span>0 active relationships</span>
+              <h2>No agents have been activated.</h2>
+              <p>
+                Hire an available agent from the marketplace to see it here.
+              </p>
+              <Link href="/marketplace">Browse verified agents →</Link>
+            </div>
+          ) : (
+            <div className="relationship-list">
+              {items.map(({ mandate, agent, nextExpectedAction }) => {
+                const agreement = agreementByMandate[mandate.id]!;
+                const pendingWalletAction = agreement.operations.some(
+                  (operation) => operation.state === "AWAITING_SIGNATURE",
+                );
+                const mandateExpired =
+                  Date.parse(mandate.version.expiresAt) <= Date.now();
+                const settled = agreement.movements
+                  .filter((movement) => movement.movementType === "PAYMENT")
+                  .reduce(
+                    (total, movement) => total + movementAmount(movement),
+                    0n,
+                  );
+                const displayStatus = relationshipStatus({
+                  mandate,
+                  agreement,
+                });
+                return (
+                  <article key={mandate.id}>
+                    <div className="relationship-main">
+                      <div className="agent-avatar">
+                        {agent.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="overline">
+                          {agent.network} · {displayStatus}
+                        </span>
+                        <h2>
+                          <Link href={`/my-agents/mandates/${mandate.id}`}>
+                            {agent.name}
+                          </Link>
+                        </h2>
+                        <p>{mandate.version.objective}</p>
+                      </div>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Status</dt>
+                        <dd
+                          className={`relationship-status ${displayStatus.toLowerCase().replaceAll(" ", "-")}`}
+                        >
+                          {displayStatus}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Permissions</dt>
+                        <dd>
+                          {mandate.version.approvalMode.replaceAll("_", " ")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Service price</dt>
+                        <dd>{commercePriceLabel(agreement.pricingSnapshot)}</dd>
+                      </div>
+                      <div>
+                        <dt>Last execution</dt>
+                        <dd>
+                          {executionState[mandate.id]?.lastAt
+                            ? relativeTime(executionState[mandate.id]!.lastAt!)
+                            : "None"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Expires</dt>
+                        <dd>
+                          {new Date(
+                            mandate.version.expiresAt,
+                          ).toLocaleDateString()}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Next expected action</dt>
+                        <dd>
+                          {pendingWalletAction
+                            ? mandateExpired
+                              ? "No further action"
+                              : "Confirm setup in wallet"
+                            : nextExpectedAction}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Latest result</dt>
+                        <dd>{executionState[mandate.id]?.result ?? "None"}</dd>
+                      </div>
+                      <div>
+                        <dt>Spend to date</dt>
+                        <dd>
+                          {isFreePrice(agreement.pricingSnapshot)
+                            ? "None"
+                            : commercePriceLabel({
+                                ...agreement.pricingSnapshot,
+                                amountBaseUnits: settled.toString(),
+                              })}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="relationship-actions">
                       <Link href={`/my-agents/mandates/${mandate.id}`}>
-                        {agent.name}
+                        View agent
                       </Link>
-                    </h2>
-                    <p>{mandate.version.objective}</p>
-                  </div>
-                </div>
-                <dl>
-                  <div>
-                    <dt>Status</dt>
-                    <dd
-                      className={`relationship-status ${displayStatus.toLowerCase().replaceAll(" ", "-")}`}
-                    >
-                      {displayStatus}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Permissions</dt>
-                    <dd>{mandate.version.approvalMode.replaceAll("_", " ")}</dd>
-                  </div>
-                  <div>
-                    <dt>Service price</dt>
-                    <dd>{commercePriceLabel(agreement.pricingSnapshot)}</dd>
-                  </div>
-                  <div>
-                    <dt>Last execution</dt>
-                    <dd>
-                      {executionState[mandate.id]?.lastAt
-                        ? relativeTime(executionState[mandate.id]!.lastAt!)
-                        : "None"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Expires</dt>
-                    <dd>
-                      {new Date(mandate.version.expiresAt).toLocaleDateString()}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Next expected action</dt>
-                    <dd>
-                      {pendingWalletAction
-                        ? mandateExpired
-                          ? "No further action"
-                          : "Confirm setup in wallet"
-                        : nextExpectedAction}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Latest result</dt>
-                    <dd>{executionState[mandate.id]?.result ?? "None"}</dd>
-                  </div>
-                  <div>
-                    <dt>Spend to date</dt>
-                    <dd>
-                      {isFreePrice(agreement.pricingSnapshot)
-                        ? "None"
-                        : commercePriceLabel({
-                            ...agreement.pricingSnapshot,
-                            amountBaseUnits: settled.toString(),
-                          })}
-                    </dd>
-                  </div>
-                </dl>
-                <div className="relationship-actions">
-                  <Link href={`/my-agents/mandates/${mandate.id}`}>
-                    View agent
-                  </Link>
-                  <Link href={`/mandates/${mandate.id}`}>
-                    Manage permissions
-                  </Link>
-                  {mandate.status === "ACTIVE" && !mandateExpired ? (
-                    <form
-                      action={transitionMandateAction.bind(
-                        null,
-                        mandate.id,
-                        "pause",
-                      )}
-                    >
-                      <button>Pause</button>
-                    </form>
-                  ) : null}
-                  {mandate.status === "PAUSED" && !mandateExpired ? (
-                    <form
-                      action={transitionMandateAction.bind(
-                        null,
-                        mandate.id,
-                        "resume",
-                      )}
-                    >
-                      <button>Resume</button>
-                    </form>
-                  ) : null}
-                  {!mandateExpired &&
-                  !["REVOKED", "EXPIRED"].includes(mandate.status) ? (
-                    <form
-                      action={transitionMandateAction.bind(
-                        null,
-                        mandate.id,
-                        "revoke",
-                      )}
-                    >
-                      <button className="danger-link">Revoke</button>
-                    </form>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
+                      <Link href={`/mandates/${mandate.id}`}>
+                        Manage permissions
+                      </Link>
+                      {mandate.status === "ACTIVE" && !mandateExpired ? (
+                        <form
+                          action={transitionMandateAction.bind(
+                            null,
+                            mandate.id,
+                            "pause",
+                          )}
+                        >
+                          <button>Pause</button>
+                        </form>
+                      ) : null}
+                      {mandate.status === "PAUSED" && !mandateExpired ? (
+                        <form
+                          action={transitionMandateAction.bind(
+                            null,
+                            mandate.id,
+                            "resume",
+                          )}
+                        >
+                          <button>Resume</button>
+                        </form>
+                      ) : null}
+                      {!mandateExpired &&
+                      !["REVOKED", "EXPIRED"].includes(mandate.status) ? (
+                        <form
+                          action={transitionMandateAction.bind(
+                            null,
+                            mandate.id,
+                            "revoke",
+                          )}
+                        >
+                          <button className="danger-link">Revoke</button>
+                        </form>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </main>
   );
 }

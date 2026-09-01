@@ -93,6 +93,7 @@ export const serviceSchema = z.object({
   outputSchema: z.record(z.string(), z.unknown()).nullable(),
   pricing: z.record(z.string(), z.unknown()).nullable(),
   endpoint: z.string().min(1).nullable(),
+  verificationUrl: z.url().nullable(),
   sla: z.record(z.string(), z.unknown()).nullable(),
   availabilityStatus: z.enum([
     "unknown",

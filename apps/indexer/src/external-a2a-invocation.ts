@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createDatabase, DrizzleSupplyStore } from "@relic/database";
 import { z } from "zod";
 
-import { createAgentcoreAwareRequester } from "./agentcore-oauth.js";
+import { safeHttpRequest } from "./endpoint-observer.js";
 
 const arg = (name: string) =>
   process.argv
@@ -116,6 +116,7 @@ async function main() {
       selected.service.endpoint === null
     )
       throw new Error("Service must have a currently available endpoint");
+    const endpoint = selected.service.endpoint;
     if (selected.candidate.status !== "SERVICE_OBSERVED")
       throw new Error("Candidate must be in SERVICE_OBSERVED state");
     const task = invocationTasks[selected.candidate.categorySlug];
@@ -124,10 +125,7 @@ async function main() {
         "No bounded invocation template exists for this category",
       );
 
-    const requestService = createAgentcoreAwareRequester(
-      selected.service.endpoint,
-    );
-    const cardResponse = await requestService(selected.service.endpoint, {
+    const cardResponse = await safeHttpRequest(endpoint, {
       method: "GET",
       timeoutMs: 5_000,
       maxRedirects: 2,
@@ -138,7 +136,7 @@ async function main() {
     const card = cardSchema.parse(JSON.parse(cardResponse.body));
     if (!card.skills.some(({ id }) => id === "negotiate"))
       throw new Error("A2A card does not declare a negotiate skill");
-    const cardUrl = new URL(selected.service.endpoint);
+    const cardUrl = new URL(endpoint);
     const invocationUrl = new URL(card.url);
     if (
       invocationUrl.protocol !== "https:" ||
@@ -159,7 +157,7 @@ async function main() {
         },
       },
     };
-    const response = await requestService(invocationUrl.toString(), {
+    const response = await safeHttpRequest(invocationUrl.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),

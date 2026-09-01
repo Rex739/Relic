@@ -19,7 +19,9 @@ import {
   DrizzleReconciliationStore,
   DrizzleSupplyStore,
 } from "@relic/database";
-import { normalizeRegistryAgent } from "@relic/domain";
+import {
+  normalizeRegistryAgent,
+} from "@relic/domain";
 import { getAddress } from "viem";
 
 import { RelicIndexer } from "./engine.js";
@@ -37,6 +39,7 @@ import { materializeLaunchServices } from "./service-catalog.js";
 import { inspectLaunchServices } from "./service-inspector.js";
 import { runSafeActivationAttempt } from "./activation.js";
 import { reconcileCommerceOperations } from "./commerce-operation-worker.js";
+import { onboardVerifiedSellerSubmission } from "./seller-onboarding.js";
 
 const environment = getServerEnvironment();
 if (environment.DATABASE_URL === undefined)
@@ -169,6 +172,7 @@ try {
     });
   } else if (command === "supply-inspect") {
     const limit = positiveIntegerFlag("limit", 10)!;
+    const serviceId = flag("service-id");
     if (limit > 25)
       throw new Error("Service inspection is bounded to 25 services per run");
     log({
@@ -176,6 +180,10 @@ try {
       ...(await inspectLaunchServices(
         new DrizzleSupplyStore(connection.db),
         limit,
+        {
+          force: booleanFlag("force"),
+          ...(serviceId === undefined ? {} : { serviceId }),
+        },
       )),
     });
   } else if (command === "supply-activate") {
@@ -196,106 +204,16 @@ try {
     if (submissionId === undefined)
       throw new Error("supply-onboard requires --submission-id=<uuid>");
     const onboarding = new DrizzleOnboardingStore(connection.db);
-    const submission = await onboarding.findSubmission(submissionId);
-    if (submission === null)
-      throw new Error(`Submission ${submissionId} does not exist`);
-    if (submission.chainId !== chainId)
-      throw new Error(
-        `Submission chain ${submission.chainId} does not match configured canonical indexer chain ${chainId}`,
-      );
-    const category = submission.developerOverrides.categorySlug;
-    if (typeof category !== "string")
-      throw new Error(
-        "Submission needs a developer-declared categorySlug before curation",
-      );
-    if (submission.status === "SUBMITTED")
-      await onboarding.transitionSubmission({
-        submissionId,
-        from: "SUBMITTED",
-        to: "IDENTITY_CHECK",
-        evidence: {
-          provider: "direct-erc8004-registry",
-          chainId,
-          registryAddress,
-        },
-      });
-    const record = await provider.getAgent(submission.externalAgentId);
-    if (record === null) {
-      await onboarding.transitionSubmission({
-        submissionId,
-        from: "IDENTITY_CHECK",
-        to: "BLOCKED",
-        evidence: {
-          reason: "onchain_identity_not_found",
-          chainId,
-          registryAddress,
-        },
-      });
-      throw new Error(
-        `Agent ${submission.externalAgentId} does not exist on the configured registry`,
-      );
-    }
-    const internalId = await writer.persist(
-      normalizeRegistryAgent(record),
-      record,
-    );
-    await onboarding.transitionSubmission({
-      submissionId,
-      from: "IDENTITY_CHECK",
-      to: "METADATA_CHECK",
-      evidence: {
-        canonicalAgentId: internalId,
-        metadataStatus: record.metadataResolution?.status,
-        provenance: "onchain_verified",
+    const result = await onboardVerifiedSellerSubmission(
+      {
+        onboarding,
+        supplyStore: new DrizzleSupplyStore(connection.db),
+        writer,
+        providerFor: () => provider,
       },
-      agentId: internalId,
-    });
-    if (record.metadataResolution?.status !== "resolved") {
-      await onboarding.transitionSubmission({
-        submissionId,
-        from: "METADATA_CHECK",
-        to: "BLOCKED",
-        evidence: {
-          reason: "metadata_not_resolved",
-          metadataStatus: record.metadataResolution?.status,
-        },
-        agentId: internalId,
-      });
-      throw new Error("Canonical identity metadata is not resolved");
-    }
-    const supplyStore = new DrizzleSupplyStore(connection.db);
-    await onboarding.transitionSubmission({
       submissionId,
-      from: "METADATA_CHECK",
-      to: "SERVICE_DISCOVERY",
-      evidence: { source: "canonical-registration-file" },
-      agentId: internalId,
-    });
-    const candidateId = await supplyStore.createOnboardingCandidate({
-      agentId: internalId,
-      categorySlug: category,
-      supplyType: submission.supplyType,
-      submissionId,
-    });
-    const materialized = await materializeLaunchServices(supplyStore, {
-      limit: 25,
-    });
-    await onboarding.transitionSubmission({
-      submissionId,
-      from: "SERVICE_DISCOVERY",
-      to: "SERVICE_VERIFICATION",
-      evidence: { candidateId, materialized },
-      agentId: internalId,
-      candidateId,
-    });
-    log({
-      event: "agent_submission_onboarded",
-      submissionId,
-      internalId,
-      candidateId,
-      supplyType: submission.supplyType,
-      materialized,
-    });
+    );
+    log({ event: "agent_submission_onboarded", submissionId, result });
   } else if (command === "corpus-bootstrap") {
     const pageSize = positiveIntegerFlag("page-size", 100)!;
     if (pageSize > 100) throw new Error("--page-size cannot exceed 100");

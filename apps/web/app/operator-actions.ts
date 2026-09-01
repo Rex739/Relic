@@ -1,13 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
-import { parseBaseUnits, type CreateOfferRequest } from "@relic/domain";
+import {
+  parseBaseUnits,
+  sellerMarketplaceProfileInputSchema,
+  type CreateOfferRequest,
+} from "@relic/domain";
 
 import {
   createOperatorOffer,
+  createOperatorValidationSession,
   reviseOperatorOffer,
   transitionOperatorOffer,
+  updateOperatorAgentProfile,
 } from "../lib/commerce";
 
 const field = (formData: FormData, name: string) => {
@@ -52,14 +59,54 @@ const offerRequest = (formData: FormData): CreateOfferRequest => {
   };
 };
 
-export async function createOfferAction(formData: FormData) {
-  await createOperatorOffer(offerRequest(formData));
-  revalidatePath("/operator/offers");
+export type CreateOfferActionResult = { error: string | null };
+
+export async function updateSellerProfileAction(
+  agentId: string,
+  formData: FormData,
+): Promise<CreateOfferActionResult> {
+  try {
+    const profile = sellerMarketplaceProfileInputSchema.parse({
+      description: field(formData, "description"),
+      imageUrl: field(formData, "imageUrl"),
+    });
+    await updateOperatorAgentProfile(agentId, profile);
+    revalidatePath("/marketplace");
+    revalidatePath("/account/mylistings");
+    revalidatePath(`/agents/${agentId}`);
+    return { error: null };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to update the marketplace profile. Try again.",
+    };
+  }
+}
+
+export async function createOfferAction(
+  formData: FormData,
+): Promise<CreateOfferActionResult> {
+  try {
+    await createOperatorOffer(offerRequest(formData));
+    revalidatePath("/operator/offers");
+    revalidatePath("/account/mylistings");
+    return { error: null };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to save the offer draft. Try again.",
+    };
+  }
 }
 
 export async function reviseOfferAction(id: string, formData: FormData) {
   await reviseOperatorOffer(id, offerRequest(formData));
   revalidatePath("/operator/offers");
+  revalidatePath("/account/mylistings");
 }
 
 export async function transitionOfferAction(
@@ -68,4 +115,12 @@ export async function transitionOfferAction(
 ) {
   await transitionOperatorOffer(id, action);
   revalidatePath("/operator/offers");
+  revalidatePath("/account/mylistings");
+}
+
+export async function startCommerceValidationAction(offerId: string) {
+  const handoff = await createOperatorValidationSession(offerId);
+  redirect(
+    `/commerce-validation/${encodeURIComponent(handoff.session.id)}?token=${encodeURIComponent(handoff.handoffToken)}`,
+  );
 }

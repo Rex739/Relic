@@ -8,5 +8,6 @@ export const erc8004IdentityRegistryAbi = parseAbi([
   "event MetadataUpdate(uint256 _tokenId)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function tokenURI(uint256 tokenId) view returns (string)",
+  "function getMetadata(uint256 agentId, string metadataKey) view returns (bytes)",
   "function getAgentWallet(uint256 agentId) view returns (address)",
 ]);

@@ -161,6 +161,55 @@ describe("commerce operation reconciliation", () => {
     });
   });
 
+  it("finalizes an exact token approval and prepares only its bound CREATE_JOB", async () => {
+    const fake = storeFor([
+      operation({
+        operation_type: "APPROVE_TOKEN",
+        activation_id: "45e5394a-43aa-47ee-acc9-e86637245bff",
+        evidence: {
+          commerceValidation: true,
+          nextOperation: {
+            operationType: "CREATE_JOB",
+            contract: "0xa206c0517B6371C6638CD9e4a42Cc9f02A33B0DE",
+            calldata: `0x${"12".repeat(32)}`,
+            preparedPayloadHash: `0x${"34".repeat(32)}`,
+            negotiatedAt: 1_787_631_300,
+            quoteExpiresAt: 1_787_632_200,
+            amountBaseUnits: "1000000000",
+            functionArguments: {
+              provider: "0x323F064B777745703Fa8eB56109A763503AeE4Dd",
+            },
+          },
+        },
+      }),
+    ]);
+    const result = await reconcileCommerceOperations({
+      store: fake.store as never,
+      client: {
+        getTransactionReceipt: async () => ({
+          blockNumber: 100n,
+          blockHash: `0x${"ab".repeat(32)}`,
+          status: "success",
+        }),
+        getBlockNumber: async () => 114n,
+      } as never,
+      workerId: "worker-a",
+      confirmationDepth: 15,
+      now: new Date(1_787_631_300_000),
+    });
+    expect(result.finalized).toBe(1);
+    expect(fake.setupFinalizations[0]?.nextOperation).toMatchObject({
+      operationType: "CREATE_JOB",
+      state: "AWAITING_SIGNATURE",
+      evidence: {
+        commerceValidation: true,
+        amountBaseUnits: "1000000000",
+        transactionSubmitted: false,
+      },
+    });
+    expect(fake.transitions).toHaveLength(0);
+  });
+
   it.each([
     ["REGISTER_JOB", "SET_BUDGET"],
     ["SET_BUDGET", "FUND"],
@@ -178,6 +227,7 @@ describe("commerce operation reconciliation", () => {
             routerAddress: "0xD7d36D66d2F1B608A0F943f722D27e3744f66F25",
             negotiatedAt: 1_787_631_300,
             quoteExpiresAt: 1_787_632_200,
+            amountBaseUnits: "1000000000",
             functionArguments: { jobId: "621" },
           },
         }),
@@ -205,6 +255,13 @@ describe("commerce operation reconciliation", () => {
         expect(fake.setupFinalizations[0]?.nextOperation).toMatchObject({
           operationType: expectedNext,
           state: "AWAITING_SIGNATURE",
+          evidence: {
+            amountBaseUnits: "1000000000",
+            functionArguments:
+              expectedNext === "SET_BUDGET"
+                ? { jobId: "621", amount: "1000000000" }
+                : { jobId: "621", expectedBudget: "1000000000" },
+          },
         });
       }
     },

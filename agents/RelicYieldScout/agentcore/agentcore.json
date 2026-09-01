@@ -31,7 +31,8 @@
         "customJwtAuthorizer": {
           "discoveryUrl": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_kM2SHi2Qz/.well-known/openid-configuration",
           "allowedClients": [
-            "5l1tc2g39911prqdt5os8ak87"
+            "5l1tc2g39911prqdt5os8ak87",
+            "6u8t24qnt813q0bfmkcej59vp5"
           ]
         }
       }

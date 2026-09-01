@@ -35,14 +35,20 @@ const serverEnvironmentSchema = z.object({
   ERC8004_RPC_RETRIES: optionalInteger.default(3),
   INDEXER_MAX_BLOCKS: optionalInteger,
   "8004SCAN_API_KEY": z.string().min(1).optional(),
-  RELIC_AGENTCORE_OAUTH_CLIENTS_JSON: z.string().min(2).optional(),
+  RELIC_CONNECT_SIGNING_PRIVATE_KEY_PEM: z.string().min(32).optional(),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   NEXT_PUBLIC_API_URL: optionalUrl,
+  // The app ID is public, but the verification key must only be available to
+  // the API runtime. Together they let Relic exchange a Privy identity token
+  // for its own http-only session without asking an embedded wallet to sign.
+  NEXT_PUBLIC_PRIVY_APP_ID: z.string().trim().min(1).optional(),
+  PRIVY_JWT_VERIFICATION_KEY: z.string().trim().min(1).optional(),
   MANDATE_API_SECRET: z.string().min(32).optional(),
   RELIC_DEVELOPMENT_PRINCIPAL_ID: z.uuid().optional(),
   RELIC_WALLET_AUTH_DOMAIN: z.string().trim().min(1).optional(),
   RELIC_WALLET_AUTH_URI: optionalUrl,
+  RELIC_PUBLIC_ORIGIN: optionalUrl,
   RELIC_COMMERCE_AUTHORIZER_ADDRESS: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/)

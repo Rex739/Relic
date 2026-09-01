@@ -10,6 +10,7 @@ import {
   count,
   desc,
   eq,
+  gt,
   inArray,
   notExists,
   sql,
@@ -79,7 +80,7 @@ export class DrizzleSupplyStore {
           source: "agent-submission",
           evidence: {
             submissionId: input.submissionId,
-            categoryProvenance: "developer_declared",
+            categoryProvenance: "relic_metadata_classification",
           },
         })
         .onConflictDoUpdate({
@@ -319,7 +320,17 @@ export class DrizzleSupplyStore {
           "INVOCATION_VERIFIED",
         ]),
       )
-      .orderBy(asc(launchCandidates.categorySlug), asc(agents.id))
+      // Always repair candidates with no materialized service before spending
+      // a bounded cycle on already-catalogued inventory. This prevents a
+      // verified seller from being starved by unrelated discovery backlog.
+      .orderBy(
+        asc(sql`case when not exists (
+          select 1 from ${marketplaceServices}
+          where ${marketplaceServices.agentId} = ${agents.id}
+        ) then 0 else 1 end`),
+        asc(launchCandidates.categorySlug),
+        asc(agents.id),
+      )
       .limit(limit);
   }
 
@@ -347,6 +358,7 @@ export class DrizzleSupplyStore {
     categorySlug: string;
     interfaceProtocol: string;
     endpoint?: string | null;
+    verificationUrl?: string | null;
     httpMethod?: string | null;
     inputSchema?: unknown;
     outputSchema?: unknown;
@@ -377,6 +389,7 @@ export class DrizzleSupplyStore {
         categorySlug: input.categorySlug,
         interfaceProtocol: input.interfaceProtocol,
         endpoint: input.endpoint,
+        verificationUrl: input.verificationUrl,
         httpMethod: input.httpMethod,
         inputSchema: input.inputSchema,
         outputSchema: input.outputSchema,
@@ -403,6 +416,7 @@ export class DrizzleSupplyStore {
           categorySlug: input.categorySlug,
           interfaceProtocol: input.interfaceProtocol,
           endpoint: input.endpoint,
+          verificationUrl: input.verificationUrl,
           httpMethod: input.httpMethod,
           inputSchema: input.inputSchema,
           outputSchema: input.outputSchema,
@@ -422,10 +436,22 @@ export class DrizzleSupplyStore {
     return row.id;
   }
 
-  async serviceInspectionCandidates(limit: number) {
+  async serviceInspectionCandidates(
+    limit: number,
+    options: { force?: boolean; serviceId?: string } = {},
+  ) {
+    const retryAfter = new Date(Date.now() - 15 * 60 * 1_000);
     return this.database
-      .select({ service: marketplaceServices, candidate: launchCandidates })
+      .select({
+        service: marketplaceServices,
+        candidate: launchCandidates,
+        identity: agentIdentities,
+      })
       .from(marketplaceServices)
+      .innerJoin(
+        agentIdentities,
+        eq(agentIdentities.agentId, marketplaceServices.agentId),
+      )
       .innerJoin(
         launchCandidates,
         and(
@@ -435,18 +461,34 @@ export class DrizzleSupplyStore {
       )
       .where(
         and(
-          eq(marketplaceServices.verificationLevel, "DECLARED"),
-          notExists(
-            this.database
-              .select({ id: serviceVerificationObservations.id })
-              .from(serviceVerificationObservations)
-              .where(
-                eq(
-                  serviceVerificationObservations.serviceId,
-                  marketplaceServices.id,
+          // Re-check services at a bounded interval even after a prior
+          // success. Readiness has a freshness window, so restricting this
+          // queue to DECLARED services leaves an otherwise healthy seller
+          // permanently stale once that window expires.
+          ...(options.force
+            ? []
+            : [
+                notExists(
+                  this.database
+                    .select({ id: serviceVerificationObservations.id })
+                    .from(serviceVerificationObservations)
+                    .where(
+                      and(
+                        eq(
+                          serviceVerificationObservations.serviceId,
+                          marketplaceServices.id,
+                        ),
+                        gt(
+                          serviceVerificationObservations.observedAt,
+                          retryAfter,
+                        ),
+                      ),
+                    ),
                 ),
-              ),
-          ),
+              ]),
+          ...(options.serviceId === undefined
+            ? []
+            : [eq(marketplaceServices.id, options.serviceId)]),
           inArray(launchCandidates.status, [
             "SERVICE_IDENTIFIED",
             "IDENTITY_VERIFIED",
@@ -457,6 +499,7 @@ export class DrizzleSupplyStore {
         ),
       )
       .orderBy(
+        asc(marketplaceServices.lastVerifiedAt),
         desc(
           sql`case when ${marketplaceServices.endpoint} is not null then 1 else 0 end`,
         ),

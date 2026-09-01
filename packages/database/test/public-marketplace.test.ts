@@ -39,6 +39,10 @@ beforeEach(async () => {
       migration = migration.split(
         "ALTER TABLE public.authorization_challenges ENABLE ROW LEVEL SECURITY",
       )[0]!;
+    if (name.startsWith("0018_"))
+      migration = migration.split(
+        "ALTER TABLE public.seller_agent_authorizations ENABLE ROW LEVEL SECURITY",
+      )[0]!;
     await database.exec(migration);
   }
   await database.exec(`
@@ -69,8 +73,8 @@ beforeEach(async () => {
     insert into service_verification_observations
       (service_id, from_level, to_level, result, protocol, evidence, observed_at)
     values
-      ('01945b1e-7e80-7000-8000-000000001002', 'ENDPOINT_OBSERVED', 'INVOCATION_VERIFIED', 'passed', 'a2a', '{}', '2026-08-20'),
-      ('01945b1e-7e80-7000-8000-000000001003', 'PAYMENT_UNDERSTOOD', 'INVOCATION_VERIFIED', 'passed', 'erc8183', '{}', '2026-08-20'),
+      ('01945b1e-7e80-7000-8000-000000001002', 'ENDPOINT_OBSERVED', 'INVOCATION_VERIFIED', 'passed', 'a2a', '{"price":"1000000000","currency":"0xcE24439F2D9C6a2289F741120FE202248B666666"}', '2026-08-20'),
+      ('01945b1e-7e80-7000-8000-000000001003', 'PAYMENT_UNDERSTOOD', 'INVOCATION_VERIFIED', 'passed', 'erc8183', '{"price":"1000000000","currency":"0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565"}', '2026-08-20'),
       ('01945b1e-7e80-7000-8000-000000001004', 'ENDPOINT_OBSERVED', 'INVOCATION_VERIFIED', 'passed', 'a2a', '{}', '2026-08-01');
     insert into activations (id, agent_id, service_id, chain_id, status)
     values
@@ -292,11 +296,16 @@ describe("verified public marketplace", () => {
       name: "Working rebalancer",
       marketplaceStatus: "PUBLIC",
       hireable: false,
+      verifiedPrice: {
+        chainId: 56,
+        amountBaseUnits: "1000000000",
+        symbol: "U",
+      },
       requirements: {
         identity: { state: "complete" },
         service: { state: "complete" },
         verification: { state: "complete" },
-        commerce: { state: "blocked" },
+        commerce: { state: "complete" },
         offer: { state: "blocked" },
       },
     });
@@ -308,7 +317,24 @@ describe("verified public marketplace", () => {
       name: "Actionable monitor",
       marketplaceStatus: "PUBLIC",
       hireable: true,
+      verifiedPrice: {
+        chainId: 97,
+        amountBaseUnits: "1000000000",
+        symbol: "U",
+      },
     });
+  });
+
+  it("does not project an unrecognized payment token as a verified seller price", async () => {
+    await database.exec(`
+      update service_verification_observations
+      set evidence = '{"price":"1000000000","currency":"0x9999999999999999999999999999999999999999"}'
+      where service_id = '01945b1e-7e80-7000-8000-000000001002';
+    `);
+    const [readiness] = await repository.sellerReadiness(
+      "0x0000000000000000000000000000000000000002",
+    );
+    expect(readiness?.verifiedPrice).toBeNull();
   });
 
   it("reports stale verification honestly in owner readiness", async () => {

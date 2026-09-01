@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/commerce-operation-service.ts",
+    "dev": "node --watch --env-file=../../.env.local --import tsx src/commerce-operation-service.ts",
     "build": "tsc -p tsconfig.json",
     "ingest": "tsx src/cli.ts sync",
     "backfill": "tsx src/cli.ts backfill",
@@ -31,7 +31,7 @@
     "supply:onboard": "tsx src/cli.ts supply-onboard",
     "commerce:live:health-factor": "tsx src/live-health-commerce.ts",
     "commerce:operations": "tsx src/cli.ts commerce-operations",
-    "commerce:operations:watch": "tsx src/commerce-operation-service.ts",
+    "commerce:operations:watch": "node --env-file=../../.env.local --import tsx src/commerce-operation-service.ts",
     "sync:watch": "tsx watch src/cli.ts",
     "lint": "eslint src test",
     "typecheck": "tsc -p tsconfig.json",

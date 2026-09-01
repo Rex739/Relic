@@ -15,10 +15,7 @@ export function SiteHeader() {
       </Link>
       <AppNavigation />
       <div className="header-actions">
-        <Link className="header-compare" href="/compare">
-          Compare
-        </Link>
-        <WalletSession />
+        <WalletSession showRegisterAgent />
       </div>
     </header>
   );

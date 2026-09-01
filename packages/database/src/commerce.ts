@@ -33,13 +33,16 @@ import {
   commerceAgreements,
   commerceArtifacts,
   commerceOperations,
+  commerceValidationSessions,
   commerceReputationObservations,
   commerceValueMovements,
   executionRequests,
   executionApprovals,
   launchCandidates,
   mandates,
+  mandateEvidenceBindings,
   mandateEvents,
+  mandateVersions,
   marketplaceServices,
   marketplaceOutcomes,
   marketplaceReviews,
@@ -48,12 +51,15 @@ import {
   walletSessions,
 } from "./schema.js";
 
+const COMMERCE_VALIDATION_RELATIONSHIP_LIFETIME_MS = 30 * 86_400_000;
+
 const asObject = (value: unknown) => (value ?? {}) as Record<string, unknown>;
 const strings = (value: unknown) =>
   Array.isArray(value) ? value.map(String) : [];
 
 export interface PreparedSetupOperation {
-  operationType: "REGISTER_JOB" | "SET_BUDGET" | "FUND";
+  operationType:
+    "CREATE_JOB" | "REGISTER_JOB" | "SET_BUDGET" | "APPROVE_TOKEN" | "FUND";
   idempotencyKey: string;
   state: "AWAITING_SIGNATURE" | "CANCELLED";
   preparedPayloadHash: string;
@@ -316,6 +322,22 @@ export class DrizzleCommerceStore {
     if (eligibility === null)
       throw new Error(
         "Only the current ERC-8004 owner of an eligible verified service can create an offer",
+      );
+    const [existingOffer] = await this.database
+      .select({ id: agentOffers.id })
+      .from(agentOffers)
+      .where(
+        and(
+          eq(agentOffers.operatorPrincipalId, input.operatorPrincipalId),
+          eq(agentOffers.agentId, request.agentId),
+          eq(agentOffers.serviceId, request.serviceId),
+          inArray(agentOffers.status, ["DRAFT", "ACTIVE", "PAUSED"]),
+        ),
+      )
+      .limit(1);
+    if (existingOffer !== undefined)
+      throw new Error(
+        "A current offer already exists for this agent service; revise or discard it instead",
       );
     const termsHash = immutableContentHash({
       terms: request.terms,
@@ -614,6 +636,503 @@ export class DrizzleCommerceStore {
       .orderBy(desc(commerceAgreements.updatedAt));
   }
 
+  public async createCommerceValidationSession(input: {
+    offerId: string;
+    sellerPrincipalId: string;
+    handoffTokenHash: string;
+    expiresAt: Date;
+    now?: Date;
+  }) {
+    const now = input.now ?? new Date();
+    const offer = await this.findOffer(input.offerId);
+    if (
+      offer === null ||
+      offer.status !== "ACTIVE" ||
+      offer.operatorPrincipalId !== input.sellerPrincipalId ||
+      (offer.version.expiresAt !== null &&
+        new Date(offer.version.expiresAt) <= now)
+    )
+      throw new Error(
+        "A current active offer owned by this seller is required for validation",
+      );
+    return this.database.transaction(async (transaction) => {
+      await transaction
+        .update(commerceValidationSessions)
+        .set({ status: "CANCELLED", updatedAt: now })
+        .where(
+          and(
+            eq(commerceValidationSessions.offerId, offer.id),
+            eq(
+              commerceValidationSessions.sellerPrincipalId,
+              input.sellerPrincipalId,
+            ),
+            inArray(commerceValidationSessions.status, ["OPEN", "CLAIMED"]),
+          ),
+        );
+      const [session] = await transaction
+        .insert(commerceValidationSessions)
+        .values({
+          offerId: offer.id,
+          offerVersionId: offer.version.id,
+          agentId: offer.agentId,
+          serviceId: offer.serviceId,
+          chainId: offer.version.chainId,
+          sellerPrincipalId: input.sellerPrincipalId,
+          handoffTokenHash: input.handoffTokenHash,
+          expiresAt: input.expiresAt,
+          status: "OPEN",
+        })
+        .returning();
+      if (session === undefined)
+        throw new Error("Commerce validation session insert failed");
+      await transaction.insert(agentOfferEvents).values({
+        offerId: offer.id,
+        offerVersionId: offer.version.id,
+        eventType: "COMMERCE_VALIDATION_SESSION_CREATED",
+        actorPrincipalId: input.sellerPrincipalId,
+        evidence: {
+          validationSessionId: session.id,
+          expiresAt: input.expiresAt.toISOString(),
+          offerVersion: offer.currentVersion,
+          transactionSubmitted: false,
+        },
+      });
+      return { session, offer };
+    });
+  }
+
+  public async commerceValidationSession(input: {
+    sessionId: string;
+    handoffTokenHash: string;
+    now?: Date;
+  }) {
+    const now = input.now ?? new Date();
+    const [row] = await this.database
+      .select({ session: commerceValidationSessions })
+      .from(commerceValidationSessions)
+      .where(
+        and(
+          eq(commerceValidationSessions.id, input.sessionId),
+          eq(
+            commerceValidationSessions.handoffTokenHash,
+            input.handoffTokenHash,
+          ),
+        ),
+      )
+      .limit(1);
+    if (row === undefined) return null;
+    if (row.session.status === "OPEN" && row.session.expiresAt <= now) {
+      const [expired] = await this.database
+        .update(commerceValidationSessions)
+        .set({ status: "EXPIRED", updatedAt: now })
+        .where(
+          and(
+            eq(commerceValidationSessions.id, row.session.id),
+            eq(commerceValidationSessions.status, "OPEN"),
+          ),
+        )
+        .returning();
+      return expired ?? { ...row.session, status: "EXPIRED" as const };
+    }
+    return row.session;
+  }
+
+  public async claimCommerceValidationSession(input: {
+    sessionId: string;
+    handoffTokenHash: string;
+    buyerPrincipalId: string;
+    buyerAddress: string;
+    chainId: number;
+    now?: Date;
+  }) {
+    const now = input.now ?? new Date();
+    return this.database.transaction(async (transaction) => {
+      const [row] = await transaction
+        .select({
+          session: commerceValidationSessions,
+          ownerAddress: agentIdentities.ownerAddress,
+        })
+        .from(commerceValidationSessions)
+        .innerJoin(
+          agentIdentities,
+          eq(agentIdentities.agentId, commerceValidationSessions.agentId),
+        )
+        .where(
+          and(
+            eq(commerceValidationSessions.id, input.sessionId),
+            eq(
+              commerceValidationSessions.handoffTokenHash,
+              input.handoffTokenHash,
+            ),
+          ),
+        )
+        .limit(1);
+      if (row === undefined) throw new Error("Validation handoff is invalid");
+      if (
+        row.session.status === "CLAIMED" &&
+        row.session.buyerPrincipalId === input.buyerPrincipalId &&
+        row.session.expiresAt > now &&
+        row.session.chainId === input.chainId
+      )
+        return row.session;
+      if (
+        row.session.status !== "OPEN" ||
+        row.session.expiresAt <= now ||
+        row.session.chainId !== input.chainId
+      )
+        throw new Error("Validation handoff is no longer claimable");
+      if (row.ownerAddress.toLowerCase() === input.buyerAddress.toLowerCase())
+        throw new Error(
+          "The registered seller wallet cannot act as the validation buyer",
+        );
+      const [claimed] = await transaction
+        .update(commerceValidationSessions)
+        .set({
+          status: "CLAIMED",
+          buyerPrincipalId: input.buyerPrincipalId,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(commerceValidationSessions.id, row.session.id),
+            eq(commerceValidationSessions.status, "OPEN"),
+            gt(commerceValidationSessions.expiresAt, now),
+            isNull(commerceValidationSessions.buyerPrincipalId),
+          ),
+        )
+        .returning();
+      if (claimed === undefined)
+        throw new Error("Validation handoff was claimed by another buyer");
+      await transaction.insert(agentOfferEvents).values({
+        offerId: claimed.offerId,
+        offerVersionId: claimed.offerVersionId,
+        eventType: "COMMERCE_VALIDATION_SESSION_CLAIMED",
+        actorPrincipalId: input.buyerPrincipalId,
+        evidence: {
+          validationSessionId: claimed.id,
+          buyerAddress: input.buyerAddress,
+          transactionSubmitted: false,
+        },
+      });
+      return claimed;
+    });
+  }
+
+  public async prepareCommerceValidationSession(input: {
+    sessionId: string;
+    handoffTokenHash: string;
+    buyerPrincipalId: string;
+    now?: Date;
+  }) {
+    const now = input.now ?? new Date();
+    return this.database.transaction(async (transaction) => {
+      const [row] = await transaction
+        .select({
+          session: commerceValidationSessions,
+          offer: agentOffers,
+          version: agentOfferVersions,
+          service: marketplaceServices,
+          identity: agentIdentities,
+        })
+        .from(commerceValidationSessions)
+        .innerJoin(
+          agentOffers,
+          eq(agentOffers.id, commerceValidationSessions.offerId),
+        )
+        .innerJoin(
+          agentOfferVersions,
+          eq(agentOfferVersions.id, commerceValidationSessions.offerVersionId),
+        )
+        .innerJoin(
+          marketplaceServices,
+          eq(marketplaceServices.id, commerceValidationSessions.serviceId),
+        )
+        .innerJoin(
+          agentIdentities,
+          eq(agentIdentities.agentId, commerceValidationSessions.agentId),
+        )
+        .where(
+          and(
+            eq(commerceValidationSessions.id, input.sessionId),
+            eq(
+              commerceValidationSessions.handoffTokenHash,
+              input.handoffTokenHash,
+            ),
+          ),
+        )
+        .limit(1);
+      if (row === undefined) throw new Error("Validation handoff is invalid");
+      if (
+        row.session.status !== "CLAIMED" ||
+        row.session.buyerPrincipalId !== input.buyerPrincipalId ||
+        row.session.expiresAt <= now
+      )
+        throw new Error("Validation handoff is not ready for preparation");
+      if (row.session.mandateId !== null || row.session.agreementId !== null) {
+        if (row.session.mandateId === null || row.session.agreementId === null)
+          throw new Error("Validation preparation is incomplete");
+        return row.session;
+      }
+      const serviceFreshAfter = new Date(now.getTime() - 7 * 86_400_000);
+      if (
+        row.offer.status !== "ACTIVE" ||
+        row.offer.currentVersion !== row.version.version ||
+        row.offer.agentId !== row.session.agentId ||
+        row.offer.serviceId !== row.session.serviceId ||
+        row.version.offerId !== row.offer.id ||
+        row.version.chainId !== row.session.chainId ||
+        (row.version.expiresAt !== null && row.version.expiresAt <= now) ||
+        row.service.agentId !== row.session.agentId ||
+        row.service.availability !== "available" ||
+        !["INVOCATION_VERIFIED", "COMMERCE_VERIFIED"].includes(
+          row.service.verificationLevel,
+        ) ||
+        row.service.lastVerifiedAt === null ||
+        row.service.lastVerifiedAt < serviceFreshAfter ||
+        row.service.endpoint === null ||
+        row.identity.chainId !== row.session.chainId
+      )
+        throw new Error(
+          "The exact offer and verified service must remain current for validation",
+        );
+
+      const capabilitySet = [
+        ...new Set([
+          row.version.capability,
+          ...strings(row.version.capabilitySnapshot),
+        ]),
+      ];
+      const objective =
+        `Validate the advertised ${row.version.capability} service under its immutable marketplace offer terms.`.slice(
+          0,
+          1_000,
+        );
+      const relationshipExpiresAt = new Date(
+        now.getTime() + COMMERCE_VALIDATION_RELATIONSHIP_LIFETIME_MS,
+      );
+      const boundedRelationshipExpiresAt =
+        row.version.expiresAt !== null &&
+        row.version.expiresAt < relationshipExpiresAt
+          ? row.version.expiresAt
+          : relationshipExpiresAt;
+      const [mandate] = await transaction
+        .insert(mandates)
+        .values({
+          principalId: input.buyerPrincipalId,
+          principalType: "WALLET",
+          agentId: row.session.agentId,
+          chainId: row.session.chainId,
+          status: "ACTIVE",
+          authorizationBoundary: "POLICY_ONLY",
+          currentVersion: 1,
+          activeVersion: 1,
+        })
+        .returning({ id: mandates.id });
+      if (mandate === undefined)
+        throw new Error("Validation mandate insert failed");
+      const [mandateVersion] = await transaction
+        .insert(mandateVersions)
+        .values({
+          mandateId: mandate.id,
+          version: 1,
+          state: "ACTIVE",
+          serviceId: row.session.serviceId,
+          objective,
+          allowedCapabilities: capabilitySet,
+          deniedCapabilities: [],
+          allowedAssets: [],
+          allowedProtocols: [],
+          allowedContracts: [],
+          perActionLimit: null,
+          aggregateLimit: null,
+          executionFrequency: { maxActions: 1, windowSeconds: 3_600 },
+          startAt: now,
+          expiresAt: boundedRelationshipExpiresAt,
+          approvalMode: "OBSERVE_ONLY",
+          riskConstraints: {
+            purpose: "COMMERCE_VALIDATION",
+            offerId: row.offer.id,
+            offerVersionId: row.version.id,
+            paymentAuthority: false,
+          },
+          stopConditions: [
+            { type: "VALIDATION_RELATIONSHIP_EXPIRES" },
+            { type: "ONE_SUCCESSFUL_EXECUTION" },
+          ],
+          approvedAt: now,
+          activatedAt: now,
+        })
+        .returning({ id: mandateVersions.id });
+      if (mandateVersion === undefined)
+        throw new Error("Validation mandate version insert failed");
+      await transaction.insert(mandateEvidenceBindings).values({
+        mandateVersionId: mandateVersion.id,
+        agentId: row.session.agentId,
+        externalAgentId: row.identity.externalAgentId,
+        registryAddress: row.identity.registryAddress,
+        serviceId: row.session.serviceId,
+        serviceEndpoint: row.service.endpoint,
+        verificationTier: "Actionable",
+        verificationTimestamp: row.service.lastVerifiedAt,
+        chainId: row.session.chainId,
+        capabilitySet,
+        evidenceSnapshot: {
+          purpose: "COMMERCE_VALIDATION",
+          validationSessionId: row.session.id,
+          offerId: row.offer.id,
+          offerVersionId: row.version.id,
+          termsHash: row.version.termsHash,
+          serviceVerificationLevel: row.service.verificationLevel,
+          serviceSource: row.service.source,
+          serviceProvenance: row.service.provenance,
+          transactionSubmitted: false,
+        },
+      });
+      await transaction.insert(mandateEvents).values([
+        {
+          mandateId: mandate.id,
+          mandateVersionId: mandateVersion.id,
+          eventType: "MANDATE_CREATED",
+          securitySensitive: true,
+          details: {
+            purpose: "COMMERCE_VALIDATION",
+            authorizationBoundary: "POLICY_ONLY",
+          },
+          evidenceReferences: {
+            validationSessionId: row.session.id,
+            offerVersionId: row.version.id,
+          },
+          occurredAt: now,
+        },
+        {
+          mandateId: mandate.id,
+          mandateVersionId: mandateVersion.id,
+          eventType: "MANDATE_REVIEWED",
+          securitySensitive: true,
+          details: { exactOfferSnapshotVerified: true },
+          evidenceReferences: { termsHash: row.version.termsHash },
+          occurredAt: now,
+        },
+        {
+          mandateId: mandate.id,
+          mandateVersionId: mandateVersion.id,
+          eventType: "MANDATE_ACTIVATED",
+          securitySensitive: true,
+          details: {
+            policyActivated: true,
+            walletAuthorization: false,
+            transactionSubmitted: false,
+          },
+          evidenceReferences: { validationSessionId: row.session.id },
+          occurredAt: now,
+        },
+      ]);
+
+      const pricingSnapshot = exactTokenAmount({
+        chainId: row.version.chainId,
+        amountBaseUnits: row.version.priceBaseUnits,
+        decimals: row.version.paymentTokenDecimals,
+        tokenAddress: row.version.paymentTokenAddress,
+        symbol: row.version.currencySymbol,
+      });
+      const [agreement] = await transaction
+        .insert(commerceAgreements)
+        .values({
+          principalId: input.buyerPrincipalId,
+          agentId: row.session.agentId,
+          serviceId: row.session.serviceId,
+          offerId: row.offer.id,
+          offerVersionId: row.version.id,
+          mandateId: mandate.id,
+          mandateVersion: 1,
+          status: "DRAFT",
+          currentVersion: 1,
+          chainId: row.session.chainId,
+          termsHash: row.version.termsHash,
+          termsSnapshot: row.version.termsContent,
+          pricingSnapshot,
+          amountBaseUnits: row.version.priceBaseUnits,
+          paymentTokenAddress: row.version.paymentTokenAddress,
+          paymentTokenDecimals: row.version.paymentTokenDecimals,
+          expiresAt: boundedRelationshipExpiresAt,
+        })
+        .returning({ id: commerceAgreements.id });
+      if (agreement === undefined)
+        throw new Error("Validation agreement insert failed");
+      const [agreementVersion] = await transaction
+        .insert(commerceAgreementVersions)
+        .values({
+          agreementId: agreement.id,
+          version: 1,
+          status: "DRAFT",
+          offerVersionId: row.version.id,
+          mandateId: mandate.id,
+          mandateVersion: 1,
+          termsHash: row.version.termsHash,
+          termsSnapshot: row.version.termsContent,
+          pricingSnapshot,
+        })
+        .returning({ id: commerceAgreementVersions.id });
+      if (agreementVersion === undefined)
+        throw new Error("Validation agreement version insert failed");
+      await transaction.insert(commerceAgreementEvents).values({
+        agreementId: agreement.id,
+        agreementVersionId: agreementVersion.id,
+        fromStatus: null,
+        toStatus: "DRAFT",
+        eventType: "VALIDATION_AGREEMENT_CREATED",
+        actorPrincipalId: input.buyerPrincipalId,
+        evidence: {
+          validationSessionId: row.session.id,
+          offerVersionId: row.version.id,
+          termsHash: row.version.termsHash,
+          purpose: "VERIFICATION",
+          marketplaceHistoryEligible: false,
+          transactionSubmitted: false,
+        },
+        occurredAt: now,
+      });
+      const [prepared] = await transaction
+        .update(commerceValidationSessions)
+        .set({
+          mandateId: mandate.id,
+          agreementId: agreement.id,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(commerceValidationSessions.id, row.session.id),
+            eq(commerceValidationSessions.status, "CLAIMED"),
+            eq(
+              commerceValidationSessions.buyerPrincipalId,
+              input.buyerPrincipalId,
+            ),
+            isNull(commerceValidationSessions.mandateId),
+            isNull(commerceValidationSessions.agreementId),
+          ),
+        )
+        .returning();
+      if (prepared === undefined)
+        throw new Error("Validation preparation changed concurrently");
+      await transaction.insert(agentOfferEvents).values({
+        offerId: row.offer.id,
+        offerVersionId: row.version.id,
+        eventType: "COMMERCE_VALIDATION_PREPARED",
+        actorPrincipalId: input.buyerPrincipalId,
+        evidence: {
+          validationSessionId: row.session.id,
+          mandateId: mandate.id,
+          agreementId: agreement.id,
+          purpose: "VERIFICATION",
+          marketplaceHistoryEligible: false,
+          transactionSubmitted: false,
+        },
+        occurredAt: now,
+      });
+      return prepared;
+    });
+  }
+
   public async createAgreement(input: {
     principalId: string;
     offerId: string;
@@ -710,6 +1229,8 @@ export class DrizzleCommerceStore {
       input.principalId,
     );
     if (agreement === null) throw new Error("Agreement not found");
+    if (agreement.expiresAt !== null && agreement.expiresAt <= new Date())
+      throw new Error("Agreement has expired");
     if (agreement.termsHash !== input.termsHash)
       throw new Error("Accepted terms hash does not match the immutable offer");
     assertAgreementTransition(agreement.status, "TERMS_ACCEPTED");
@@ -1124,6 +1645,195 @@ export class DrizzleCommerceStore {
     return row?.endpoint ?? null;
   }
 
+  public async commerceValidationContext(input: {
+    agreementId: string;
+    principalId: string;
+  }) {
+    const [row] = await this.database
+      .select({
+        agreement: commerceAgreements,
+        session: commerceValidationSessions,
+        offer: agentOffers,
+        version: agentOfferVersions,
+        service: marketplaceServices,
+        identity: agentIdentities,
+      })
+      .from(commerceAgreements)
+      .innerJoin(
+        commerceValidationSessions,
+        eq(commerceValidationSessions.agreementId, commerceAgreements.id),
+      )
+      .innerJoin(agentOffers, eq(agentOffers.id, commerceAgreements.offerId))
+      .innerJoin(
+        agentOfferVersions,
+        eq(agentOfferVersions.id, commerceAgreements.offerVersionId),
+      )
+      .innerJoin(
+        marketplaceServices,
+        eq(marketplaceServices.id, commerceAgreements.serviceId),
+      )
+      .innerJoin(
+        agentIdentities,
+        eq(agentIdentities.agentId, commerceAgreements.agentId),
+      )
+      .where(
+        and(
+          eq(commerceAgreements.id, input.agreementId),
+          eq(commerceAgreements.principalId, input.principalId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  public async prepareCommerceValidationActivation(input: {
+    agreementId: string;
+    principalId: string;
+    clientAddress: string;
+    commerceAddress: string;
+    evaluatorAddress: string;
+    providerAddress: string;
+    approvalPayloadHash: string;
+    approvalEvidence: Record<string, unknown>;
+  }) {
+    return this.database.transaction(async (transaction) => {
+      const [context] = await transaction
+        .select({
+          agreement: commerceAgreements,
+          session: commerceValidationSessions,
+          identity: agentIdentities,
+        })
+        .from(commerceAgreements)
+        .innerJoin(
+          commerceValidationSessions,
+          eq(commerceValidationSessions.agreementId, commerceAgreements.id),
+        )
+        .innerJoin(
+          agentIdentities,
+          eq(agentIdentities.agentId, commerceAgreements.agentId),
+        )
+        .where(
+          and(
+            eq(commerceAgreements.id, input.agreementId),
+            eq(commerceAgreements.principalId, input.principalId),
+          ),
+        )
+        .limit(1);
+      if (
+        context === undefined ||
+        context.agreement.status !== "AUTHORIZED" ||
+        context.agreement.authorizationArtifactId === null ||
+        context.agreement.mandateId === null ||
+        context.agreement.mandateVersion === null ||
+        context.session.status !== "CLAIMED" ||
+        context.session.expiresAt <= new Date() ||
+        context.session.buyerPrincipalId !== input.principalId ||
+        context.identity.ownerAddress.toLowerCase() !==
+          input.providerAddress.toLowerCase()
+      )
+        throw new Error("Authorized commerce validation agreement is required");
+      const [authorization] = await transaction
+        .select()
+        .from(authorizationArtifacts)
+        .where(
+          eq(
+            authorizationArtifacts.id,
+            context.agreement.authorizationArtifactId,
+          ),
+        )
+        .limit(1);
+      if (
+        authorization === undefined ||
+        authorization.verificationStatus !== "VERIFIED" ||
+        authorization.revokedAt !== null ||
+        authorization.expiresAt <= new Date() ||
+        authorization.signerAddress?.toLowerCase() !==
+          input.clientAddress.toLowerCase()
+      )
+        throw new Error("A current buyer wallet authorization is required");
+      const [existing] = await transaction
+        .select()
+        .from(activations)
+        .where(
+          and(
+            eq(activations.commerceAgreementId, context.agreement.id),
+            eq(activations.purpose, "VERIFICATION"),
+            inArray(activations.lifecycleState, [
+              "PREPARING",
+              "ONCHAIN_CREATED",
+              "ACTIVE",
+              "DELIVERED",
+              "SETTLING",
+            ]),
+          ),
+        )
+        .limit(1);
+      if (existing !== undefined) return existing;
+      const [activation] = await transaction
+        .insert(activations)
+        .values({
+          agentId: context.agreement.agentId,
+          serviceId: context.agreement.serviceId,
+          chainId: context.agreement.chainId,
+          purpose: "VERIFICATION",
+          marketplaceHistoryEligible: false,
+          commerceAgreementId: context.agreement.id,
+          mandateId: context.agreement.mandateId,
+          mandateVersion: context.agreement.mandateVersion,
+          principalId: input.principalId,
+          acceptedTermsHash: context.agreement.termsHash,
+          pricingSnapshot: context.agreement.pricingSnapshot,
+          budgetBaseUnits: context.agreement.amountBaseUnits,
+          paymentTokenDecimals: context.agreement.paymentTokenDecimals,
+          authorizationId: context.agreement.authorizationArtifactId,
+          commerceAddress: input.commerceAddress,
+          clientAddress: input.clientAddress,
+          providerAddress: input.providerAddress,
+          evaluatorAddress: input.evaluatorAddress,
+          currencyToken: context.agreement.paymentTokenAddress,
+          lifecycleState: "PREPARING",
+          status: "PREPARED",
+        })
+        .returning();
+      if (activation === undefined)
+        throw new Error("Validation activation insert failed");
+      await transaction.insert(commerceOperations).values({
+        agreementId: context.agreement.id,
+        activationId: activation.id,
+        operationType: "APPROVE_TOKEN",
+        state: "AWAITING_SIGNATURE",
+        idempotencyKey: `validation:${context.session.id}:approve-token`,
+        preparedPayloadHash: input.approvalPayloadHash,
+        evidence: input.approvalEvidence,
+        nextAttemptAt: new Date(),
+      });
+      await transaction
+        .update(commerceAgreements)
+        .set({ status: "ACTIVE", updatedAt: new Date() })
+        .where(
+          and(
+            eq(commerceAgreements.id, context.agreement.id),
+            eq(commerceAgreements.status, "AUTHORIZED"),
+          ),
+        );
+      await transaction.insert(commerceAgreementEvents).values({
+        agreementId: context.agreement.id,
+        fromStatus: "AUTHORIZED",
+        toStatus: "ACTIVE",
+        eventType: "COMMERCE_VALIDATION_PAYMENT_PREPARED",
+        actorPrincipalId: input.principalId,
+        evidence: {
+          activationId: activation.id,
+          validationSessionId: context.session.id,
+          purpose: "VERIFICATION",
+          marketplaceHistoryEligible: false,
+          transactionSubmitted: false,
+        },
+      });
+      return activation;
+    });
+  }
+
   public async refreshPreparedWalletOperation(input: {
     operationId: string;
     agreementId: string;
@@ -1270,6 +1980,7 @@ export class DrizzleCommerceStore {
           eq(commerceOperations.id, input.operationId),
           eq(commerceOperations.agreementId, agreement.id),
           inArray(commerceOperations.operationType, [
+            "APPROVE_TOKEN",
             "CREATE_JOB",
             "REGISTER_JOB",
             "SET_BUDGET",
@@ -1594,7 +2305,7 @@ export class DrizzleCommerceStore {
       ]);
       if (
         activation === undefined ||
-        activation.purpose !== "USER_COMMERCE" ||
+        !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
         activation.commerceAgreementId !== input.agreementId ||
         activation.executionRequestId !== input.executionRequestId ||
         activation.externalJobId !== input.externalJobId ||
@@ -2146,7 +2857,7 @@ export class DrizzleCommerceStore {
         .limit(1);
       if (
         activation === undefined ||
-        activation.purpose !== "USER_COMMERCE" ||
+        !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
         activation.externalJobId !== input.externalJobId ||
         activation.commerceAgreementId === null ||
         activation.principalId === null
@@ -2319,7 +3030,7 @@ export class DrizzleCommerceStore {
         .limit(1);
       if (
         activation === undefined ||
-        activation.purpose !== "USER_COMMERCE" ||
+        !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
         activation.externalJobId !== input.externalJobId ||
         activation.commerceAgreementId === null ||
         activation.principalId === null
@@ -2589,7 +3300,7 @@ export class DrizzleCommerceStore {
         .limit(1);
       if (
         activation === undefined ||
-        activation.purpose !== "USER_COMMERCE" ||
+        !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
         activation.commerceAgreementId !== operation.agreementId ||
         activation.executionRequestId !== operation.executionRequestId ||
         activation.lifecycleState !== "PREPARING" ||
@@ -2751,7 +3462,7 @@ export class DrizzleCommerceStore {
             .limit(1);
           if (
             activation === undefined ||
-            activation.purpose !== "USER_COMMERCE" ||
+            !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
             activation.commerceAgreementId === null ||
             activation.principalId === null ||
             activation.lifecycleState !== "ONCHAIN_CREATED"
@@ -2840,6 +3551,7 @@ export class DrizzleCommerceStore {
             eq(commerceOperations.id, input.id),
             eq(commerceOperations.leaseOwner, input.workerId),
             inArray(commerceOperations.operationType, [
+              "APPROVE_TOKEN",
               "REGISTER_JOB",
               "SET_BUDGET",
               "FUND",
@@ -2856,13 +3568,19 @@ export class DrizzleCommerceStore {
       )
         return null;
       const observedAt = new Date();
+      const operationEvidence = operation.evidence as Record<string, unknown>;
+      const amountBaseUnits = operationEvidence.amountBaseUnits;
+      const fundedAmount =
+        typeof amountBaseUnits === "string" && /^\d+$/.test(amountBaseUnits)
+          ? BigInt(amountBaseUnits)
+          : 0n;
       const receiptEvidence = {
         ...input.evidence,
         transactionHash: input.transactionHash,
         blockNumber: input.blockNumber.toString(),
         blockHash: input.blockHash,
         confirmationCount: input.confirmationCount,
-        fundsMoved: false,
+        fundsMoved: operation.operationType === "FUND" && fundedAmount > 0n,
         settlementCreated: false,
       };
       const [finalized] = await transaction
@@ -2935,17 +3653,21 @@ export class DrizzleCommerceStore {
             .from(activations)
             .where(eq(activations.id, operation.activationId))
             .limit(1);
+          const expectedLifecycleState =
+            operation.operationType === "APPROVE_TOKEN"
+              ? "PREPARING"
+              : "ONCHAIN_CREATED";
           if (
             activation === undefined ||
-            activation.purpose !== "USER_COMMERCE" ||
+            !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
             activation.commerceAgreementId === null ||
             activation.principalId === null ||
-            activation.lifecycleState !== "ONCHAIN_CREATED"
+            activation.lifecycleState !== expectedLifecycleState
           )
             throw new Error(
               "Cancelled setup operation does not match an active commerce attempt",
             );
-          assertActivationLifecycleTransition("ONCHAIN_CREATED", "FAILED");
+          assertActivationLifecycleTransition(expectedLifecycleState, "FAILED");
           const failure = {
             ...input.nextOperation.failure,
             failedAfterOperation: operation.operationType,
@@ -2965,7 +3687,7 @@ export class DrizzleCommerceStore {
             .where(
               and(
                 eq(activations.id, activation.id),
-                eq(activations.lifecycleState, "ONCHAIN_CREATED"),
+                eq(activations.lifecycleState, expectedLifecycleState),
               ),
             )
             .returning({ id: activations.id });
@@ -2975,7 +3697,7 @@ export class DrizzleCommerceStore {
             );
           await transaction.insert(activationLifecycleTransitions).values({
             activationId: activation.id,
-            fromState: "ONCHAIN_CREATED",
+            fromState: expectedLifecycleState,
             toState: "FAILED",
             transactionHash: input.transactionHash,
             blockNumber: input.blockNumber,
@@ -3010,7 +3732,7 @@ export class DrizzleCommerceStore {
           .limit(1);
         if (
           activation === undefined ||
-          activation.purpose !== "USER_COMMERCE" ||
+          !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
           activation.commerceAgreementId === null ||
           activation.principalId === null ||
           activation.lifecycleState !== "ONCHAIN_CREATED"
@@ -3019,16 +3741,18 @@ export class DrizzleCommerceStore {
             "Finalized FUND does not match an onchain-created commerce activation",
           );
         assertActivationLifecycleTransition("ONCHAIN_CREATED", "ACTIVE");
+        const budgetBaseUnits = activation.budgetBaseUnits ?? "0";
+        const paid = BigInt(budgetBaseUnits) > 0n;
         const lifecycleEvidence = {
           operationId: operation.id,
           transactionHash: input.transactionHash,
           blockNumber: input.blockNumber.toString(),
           blockHash: input.blockHash,
           confirmationCount: input.confirmationCount,
-          budgetBaseUnits: "0",
-          fundsMoved: false,
+          budgetBaseUnits,
+          fundsMoved: paid,
           settlementCreated: false,
-          zeroValueProtocolTransition: true,
+          zeroValueProtocolTransition: !paid,
         };
         const [activeActivation] = await transaction
           .update(activations)
@@ -3036,7 +3760,7 @@ export class DrizzleCommerceStore {
             lifecycleState: "ACTIVE",
             status: legacyActivationStatusForLifecycle("ACTIVE"),
             reconciliationState: "CURRENT",
-            budget: "0",
+            budget: budgetBaseUnits,
             failure: null,
             updatedAt: observedAt,
           })
@@ -3048,9 +3772,7 @@ export class DrizzleCommerceStore {
           )
           .returning({ id: activations.id });
         if (activeActivation === undefined)
-          throw new Error(
-            "Commerce activation changed while finalizing zero-value FUND",
-          );
+          throw new Error("Commerce activation changed while finalizing FUND");
         await transaction.insert(activationLifecycleTransitions).values({
           activationId: activation.id,
           fromState: "ONCHAIN_CREATED",
@@ -3067,18 +3789,44 @@ export class DrizzleCommerceStore {
           evidence: {
             compatibilityProjection: true,
             canonicalLifecycleState: "ACTIVE",
-            zeroValueProtocolTransition: true,
-            fundsMoved: false,
+            zeroValueProtocolTransition: !paid,
+            fundsMoved: paid,
           },
         });
         await transaction.insert(commerceAgreementEvents).values({
           agreementId: activation.commerceAgreementId,
           fromStatus: "ACTIVE",
           toStatus: "ACTIVE",
-          eventType: "ERC8183_ZERO_VALUE_FUNDED",
+          eventType: paid ? "ERC8183_FUNDED" : "ERC8183_ZERO_VALUE_FUNDED",
           actorPrincipalId: activation.principalId,
           evidence: lifecycleEvidence,
         });
+        if (paid) {
+          if (
+            activation.currencyToken === null ||
+            activation.paymentTokenDecimals === null ||
+            activation.clientAddress === null ||
+            activation.commerceAddress === null
+          )
+            throw new Error("Paid validation funding evidence is incomplete");
+          await transaction.insert(commerceValueMovements).values({
+            agreementId: activation.commerceAgreementId,
+            activationId: activation.id,
+            sourceOperationId: operation.id,
+            movementType: "ESCROW_LOCK",
+            chainId: activation.chainId,
+            tokenAddress: activation.currencyToken,
+            tokenDecimals: activation.paymentTokenDecimals,
+            amountBaseUnits: budgetBaseUnits,
+            payerAddress: activation.clientAddress,
+            payeeAddress: activation.commerceAddress,
+            transactionHash: input.transactionHash,
+            blockNumber: input.blockNumber,
+            blockHash: input.blockHash,
+            finalityState: "FINALIZED",
+            provenance: "onchain_verified",
+          });
+        }
       }
       return finalized;
     });
@@ -3242,11 +3990,16 @@ export class DrizzleCommerceStore {
           sql`coalesce(${marketplaceServices.networkChainId}, ${agentIdentities.chainId}) = ${chainId}`,
           eq(marketplaceServices.availability, "available"),
           inArray(marketplaceServices.verificationLevel, [
+            "SCHEMA_UNDERSTOOD",
             "INVOCATION_VERIFIED",
             "COMMERCE_VERIFIED",
           ]),
           gt(marketplaceServices.lastVerifiedAt, freshness),
-          eq(launchCandidates.status, "ACTIONABLE"),
+          inArray(launchCandidates.status, [
+            "SERVICE_OBSERVED",
+            "INVOCATION_VERIFIED",
+            "ACTIONABLE",
+          ]),
           sql`lower(${agentIdentities.ownerAddress}) = lower(${operatorAddress})`,
         ),
       )
