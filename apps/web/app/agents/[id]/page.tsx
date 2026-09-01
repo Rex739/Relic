@@ -13,6 +13,7 @@ import {
 } from "../../../lib/marketplace";
 import { activeOffers } from "../../../lib/commerce";
 import { AgentAvatar } from "../../_components/agent-avatar";
+import { OnChainDataDialog } from "../../_components/on-chain-data-dialog";
 import { VerificationDialog } from "../../_components/verification-dialog";
 import { VerificationTier } from "../../_components/verification-tier";
 
@@ -166,16 +167,7 @@ export default async function AgentIntelligencePage({
             </div>
           </section>
 
-          <section className="profile-section track-record-section">
-            <div className="section-heading compact-heading">
-              <div>
-                <span className="overline">Track record</span>
-                <h2>Recent, attributable history</h2>
-              </div>
-              <span className="live-status">
-                <i /> Last active {relativeTime(agent.lastVerifiedAt)}
-              </span>
-            </div>
+          <section className="profile-metrics" aria-label="Agent metrics">
             <dl className="track-record-grid">
               <div>
                 <dt>Completion rate</dt>
@@ -209,19 +201,39 @@ export default async function AgentIntelligencePage({
                     : "No verified invocations yet"}
                 </dd>
               </div>
+              <div>
+                <dt>On-chain data</dt>
+                <dd>
+                  <OnChainDataDialog
+                    data={{
+                      externalAgentId: agent.externalAgentId,
+                      chainId: agent.chainId,
+                      registryAddress: agent.registryAddress,
+                      ownerAddress: agent.ownerAddress,
+                      registrationBlock: agent.registrationBlock,
+                      metadataUri: agent.metadataUri,
+                      serviceEndpoints: agent.services.map(
+                        (service) => service.endpoint,
+                      ),
+                      offerTerms: offers.map((offer) => ({
+                        version: offer.version.version,
+                        termsHash: offer.version.termsHash,
+                      })),
+                      evidence: agent.evidence.map((item) => ({
+                        fieldPath: item.fieldPath,
+                        source: item.source,
+                        observedAt: new Date(item.observedAt).toLocaleString(),
+                      })),
+                    }}
+                  />
+                </dd>
+              </div>
             </dl>
-            <p className="data-integrity-note">
-              Verification checks and user jobs are kept separate. Relic does
-              not infer ratings or success rates from missing history.
-            </p>
           </section>
           <div className="profile-secondary-grid">
             <section className="profile-section marketplace-reviews">
               <div className="section-heading compact-heading">
-                <div>
-                  <span className="overline">Verified reviews</span>
-                  <h2>Feedback from completed marketplace jobs</h2>
-                </div>
+                <h2>Verified reviews</h2>
                 {agent.reviewCount > 0 ? (
                   <span>
                     {agent.reviewCount}{" "}
@@ -234,11 +246,6 @@ export default async function AgentIntelligencePage({
               {agent.reviews.length === 0 ? (
                 <div className="empty-review-state">
                   <b>No verified reviews yet</b>
-                  <p>
-                    Reviews appear only after a genuine marketplace job is
-                    completed. Service checks and engineering tests never create
-                    reviews.
-                  </p>
                 </div>
               ) : (
                 <div className="review-list">
@@ -264,8 +271,7 @@ export default async function AgentIntelligencePage({
             </section>
             {agent.outcomes.length > 0 ? (
               <section className="profile-section">
-                <span className="overline">Recent activity</span>
-                <h2>What happened recently</h2>
+                <h2>Recent activity</h2>
                 <div className="outcome-list">
                   {agent.outcomes.map((outcome, index) => (
                     <article key={`${outcome.observedAt}-${index}`}>
@@ -324,58 +330,6 @@ export default async function AgentIntelligencePage({
               ))}
             </section>
           ) : null}
-          <details className="profile-section technical-details">
-            <summary>View technical details</summary>
-            <dl>
-              <div>
-                <dt>ERC-8004 Agent ID</dt>
-                <dd>{agent.externalAgentId}</dd>
-              </div>
-              <div>
-                <dt>Chain ID</dt>
-                <dd>{agent.chainId}</dd>
-              </div>
-              <div>
-                <dt>Registry address</dt>
-                <dd>{agent.registryAddress}</dd>
-              </div>
-              <div>
-                <dt>Owner</dt>
-                <dd>{agent.ownerAddress}</dd>
-              </div>
-              <div>
-                <dt>Registration block</dt>
-                <dd>{agent.registrationBlock ?? "Not recorded"}</dd>
-              </div>
-              <div>
-                <dt>Metadata URI</dt>
-                <dd>{agent.metadataUri}</dd>
-              </div>
-              {agent.services.map((service) => (
-                <div key={service.id}>
-                  <dt>Service URI</dt>
-                  <dd>{service.endpoint}</dd>
-                </div>
-              ))}
-              {offers.map((offer) => (
-                <div key={offer.id}>
-                  <dt>Offer v{offer.version.version} terms hash</dt>
-                  <dd>{offer.version.termsHash}</dd>
-                </div>
-              ))}
-            </dl>
-            {agent.evidence.length > 0 ? (
-              <div className="technical-evidence">
-                <h3>Evidence and provenance</h3>
-                {agent.evidence.map((item, index) => (
-                  <p key={`${item.fieldPath}-${item.observedAt}-${index}`}>
-                    <b>{item.fieldPath}</b> · {item.source} ·{" "}
-                    {new Date(item.observedAt).toLocaleString()}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-          </details>
         </div>
         <aside className="profile-status-rail">
           <div className="profile-action">
