@@ -81,6 +81,9 @@ function pendingSellerReadiness(
     chainId: authorization.chainId,
     externalAgentId: authorization.externalAgentId,
     testDeployment: false,
+    listingStatus: "NEEDS_VERIFICATION",
+    listingStatusReasons: ["catalog_and_service_setup_pending"],
+    listingStatusUpdatedAt: null,
     verifiedPrice: null,
     requirements: {
       identity: {

@@ -133,6 +133,12 @@ beforeEach(async () => {
     values
       ('01945b1e-7e80-7000-8000-000000000003', '8004scan', 99, 4.9, 98,
        '{"source":"external"}', '2026-08-20');
+    update marketplace_services
+      set last_verified_at = now()
+      where id in (
+        '01945b1e-7e80-7000-8000-000000001002',
+        '01945b1e-7e80-7000-8000-000000001003'
+      );
   `);
   repository = new DrizzleAgentRepository(
     drizzle(database, { schema }) as unknown as RelicDatabase,
@@ -347,7 +353,7 @@ describe("verified public marketplace", () => {
       requirements: {
         verification: {
           state: "attention",
-          label: "Verification expired — refresh required",
+          label: "Verification is stale",
         },
       },
     });

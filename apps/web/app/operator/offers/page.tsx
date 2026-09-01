@@ -67,6 +67,16 @@ const setupBlockers = (agent: SellerAgentReadiness) => {
     : readiness;
 };
 
+const listingStatusLabel = (status: SellerAgentReadiness["listingStatus"]) =>
+  ({
+    NEEDS_VERIFICATION: "Verification required",
+    READY_FOR_OFFER: "Ready for an offer",
+    LIVE: "Live",
+    PAUSED: "Offer paused",
+    OWNERSHIP_CHANGED: "Ownership changed",
+    UNAVAILABLE: "Service unavailable",
+  })[status];
+
 export default async function OffersPage({
   searchParams,
 }: {
@@ -195,13 +205,15 @@ export default async function OffersPage({
                   const blockers = setupBlockers(agent);
                   const status = agent.hireable
                     ? "Ready to hire"
+                    : agent.listingStatus === "OWNERSHIP_CHANGED"
+                      ? "Ownership changed — replace offer"
                     : currentOffer
                       ? currentOffer.status === "ACTIVE"
                         ? "Offer active"
                         : "Draft"
                     : canSetUpOffer
                       ? "Ready to configure"
-                      : blockers[0]?.label ?? "Setup required";
+                      : blockers[0]?.label ?? listingStatusLabel(agent.listingStatus);
                   return (
                     <article
                       className="seller-agent-list-item"
@@ -326,6 +338,8 @@ export default async function OffersPage({
                 <p>
                   {selectedAgent?.hireable
                     ? "This agent is live and ready for buyers to hire. Completed buyer work will appear in its track record."
+                    : selectedAgent?.listingStatus === "OWNERSHIP_CHANGED"
+                      ? "A previous seller’s offer is no longer valid for this owner. Create and activate a replacement offer to list this agent."
                     : offerableAgents.length > 0
                     ? "Save the marketplace profile, then create the first offer when you are ready."
                     : selectedAgentHasCurrentOffer

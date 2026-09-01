@@ -392,6 +392,10 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       last_verified_at: Date | string | null;
       commerce_validated: boolean;
       active_offer: boolean;
+      listing_status: "NEEDS_VERIFICATION" | "READY_FOR_OFFER" | "LIVE" | "PAUSED" | "OWNERSHIP_CHANGED" | "UNAVAILABLE";
+      listing_status_reasons: unknown;
+      listing_is_hireable: boolean;
+      listing_status_updated_at: Date | string | null;
       verified_price_base_units: string | null;
       verified_currency: string | null;
       latest_verification_result: "passed" | "failed" | "blocked" | null;
@@ -437,6 +441,10 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             )
           ) verification_passed,
           ms.last_verified_at,
+          ms.listing_status,
+          ms.listing_status_reasons,
+          ms.listing_is_hireable,
+          ms.listing_status_updated_at,
           verified_quote.price verified_price_base_units,
           verified_quote.currency verified_currency,
           latest_verification.result latest_verification_result,
@@ -545,7 +553,18 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             ? null
             : new Date(row.last_verified_at).toISOString(),
         commerceValidated: row.commerce_validated,
-        activeOffer: row.active_offer,
+        activeOffer: row.listing_is_hireable,
+        listingStatus: row.listing_status,
+        listingStatusReasons: Array.isArray(row.listing_status_reasons)
+          ? row.listing_status_reasons.filter(
+              (reason): reason is string => typeof reason === "string",
+            )
+          : [],
+        listingStatusUpdatedAt:
+          row.listing_status_updated_at === null
+            ? null
+            : new Date(row.listing_status_updated_at).toISOString(),
+        listingIsHireable: row.listing_is_hireable,
         publicEligible: publicCandidates.has(`${row.agent_id}:${row.category}`),
         verifiedPrice,
         latestVerification:
@@ -802,6 +821,19 @@ export class DrizzleAgentRepository implements AgentReadRepository {
               and price_version.effective_at <= now()
               and (price_version.expires_at is null or price_version.expires_at > now())
               and price_version.chain_id = ai.chain_id
+              and (
+                not exists (
+                  select 1 from seller_agent_authorizations current_owner
+                  where current_owner.agent_id = price_offer.agent_id
+                    and current_owner.revoked_at is null
+                )
+                or exists (
+                  select 1 from seller_agent_authorizations offer_owner
+                  where offer_owner.agent_id = price_offer.agent_id
+                    and offer_owner.principal_id = price_offer.operator_principal_id
+                    and offer_owner.revoked_at is null
+                )
+              )
           )) "pricingKnown",
           (
             select jsonb_build_object(
@@ -820,10 +852,23 @@ export class DrizzleAgentRepository implements AgentReadRepository {
               and price_version.effective_at <= now()
               and (price_version.expires_at is null or price_version.expires_at > now())
               and price_version.chain_id = ai.chain_id
+              and (
+                not exists (
+                  select 1 from seller_agent_authorizations current_owner
+                  where current_owner.agent_id = price_offer.agent_id
+                    and current_owner.revoked_at is null
+                )
+                or exists (
+                  select 1 from seller_agent_authorizations offer_owner
+                  where offer_owner.agent_id = price_offer.agent_id
+                    and offer_owner.principal_id = price_offer.operator_principal_id
+                    and offer_owner.revoked_at is null
+                )
+              )
             order by price_version.effective_at desc, price_offer.id
             limit 1
           ) "activeOfferPrice",
-          (${actionable} and exists (
+          (${actionable} and ms.listing_is_hireable and exists (
             select 1
             from agent_offers ao
             join agent_offer_versions aov
@@ -834,6 +879,19 @@ export class DrizzleAgentRepository implements AgentReadRepository {
               and aov.effective_at <= now()
               and (aov.expires_at is null or aov.expires_at > now())
               and aov.chain_id = ai.chain_id
+              and (
+                not exists (
+                  select 1 from seller_agent_authorizations current_owner
+                  where current_owner.agent_id = ao.agent_id
+                    and current_owner.revoked_at is null
+                )
+                or exists (
+                  select 1 from seller_agent_authorizations offer_owner
+                  where offer_owner.agent_id = ao.agent_id
+                    and offer_owner.principal_id = ao.operator_principal_id
+                    and offer_owner.revoked_at is null
+                )
+              )
           )) "hireable",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "verifiedInvocationCount",
           (select count(*)::int

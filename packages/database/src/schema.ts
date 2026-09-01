@@ -1302,6 +1302,16 @@ export const marketplaceServices = pgTable(
     verificationRequestedAt: timestamp("verification_requested_at", {
       withTimezone: true,
     }),
+    listingStatus: text("listing_status").notNull().default("NEEDS_VERIFICATION"),
+    listingStatusReasons: jsonb("listing_status_reasons")
+      .notNull()
+      .default([]),
+    listingIsHireable: boolean("listing_is_hireable").notNull().default(false),
+    listingStatusUpdatedAt: timestamp("listing_status_updated_at", {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
     source: text("source").notNull(),
     provenance: provenanceKind("provenance").notNull(),
     raw: jsonb("raw").notNull(),

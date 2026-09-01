@@ -272,6 +272,15 @@ export interface SellerAgentReadiness {
   chainId: 56 | 97;
   externalAgentId: string;
   testDeployment: boolean;
+  listingStatus:
+    | "NEEDS_VERIFICATION"
+    | "READY_FOR_OFFER"
+    | "LIVE"
+    | "PAUSED"
+    | "OWNERSHIP_CHANGED"
+    | "UNAVAILABLE";
+  listingStatusReasons: string[];
+  listingStatusUpdatedAt: string | null;
   verifiedPrice: TokenAmount | null;
   latestVerification?: {
     result: "passed" | "failed" | "blocked";
@@ -308,6 +317,10 @@ export interface SellerReadinessFacts {
   lastVerifiedAt: string | null;
   commerceValidated: boolean;
   activeOffer: boolean;
+  listingStatus?: SellerAgentReadiness["listingStatus"];
+  listingStatusReasons?: string[];
+  listingStatusUpdatedAt?: string | null;
+  listingIsHireable?: boolean;
   publicEligible: boolean;
   verifiedPrice: TokenAmount | null;
   latestVerification?: {
@@ -424,12 +437,18 @@ export function sellerReadinessProjection(
     chainId: facts.chainId,
     externalAgentId: facts.externalAgentId,
     testDeployment,
+    listingStatus: facts.listingStatus ?? "NEEDS_VERIFICATION",
+    listingStatusReasons: facts.listingStatusReasons ?? [],
+    listingStatusUpdatedAt: facts.listingStatusUpdatedAt ?? null,
     verifiedPrice: facts.verifiedPrice,
     latestVerification: facts.latestVerification ?? null,
     requirements: { identity, service, verification, commerce, offer },
     marketplaceStatus:
       facts.publicEligible && !testDeployment ? "PUBLIC" : "NOT_READY",
-    hireable: facts.publicEligible && facts.activeOffer && !testDeployment,
+    hireable:
+      (facts.listingIsHireable ?? facts.activeOffer) &&
+      facts.publicEligible &&
+      !testDeployment,
     lastVerifiedAt: facts.lastVerifiedAt,
   };
 }

@@ -169,6 +169,13 @@
       "when": 1788249600000,
       "tag": "0023_phase13_requested_service_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788253200000,
+      "tag": "0024_phase13_deactivate_transferred_seller_offers",
+      "breakpoints": true
     }
   ]
 }

@@ -14,7 +14,7 @@ import {
   legacyActivationStatusForLifecycle,
   type ActivationLifecycleState,
 } from "@relic/domain";
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
@@ -46,6 +46,7 @@ import {
   marketplaceServices,
   marketplaceOutcomes,
   marketplaceReviews,
+  sellerAgentAuthorizations,
   settlementRecords,
   walletAuthChallenges,
   walletSessions,
@@ -587,6 +588,7 @@ export class DrizzleCommerceStore {
           eq(agentOffers.agentId, agentId),
           eq(agentOffers.status, "ACTIVE"),
           eq(marketplaceServices.availability, "available"),
+          eq(marketplaceServices.listingIsHireable, true),
           inArray(marketplaceServices.verificationLevel, [
             "INVOCATION_VERIFIED",
             "COMMERCE_VERIFIED",
@@ -598,6 +600,32 @@ export class DrizzleCommerceStore {
           or(
             isNull(agentOfferVersions.expiresAt),
             gt(agentOfferVersions.expiresAt, now),
+          ),
+          or(
+            notExists(
+              this.database
+                .select({ id: sellerAgentAuthorizations.id })
+                .from(sellerAgentAuthorizations)
+                .where(
+                  and(
+                    eq(sellerAgentAuthorizations.agentId, agentOffers.agentId),
+                    isNull(sellerAgentAuthorizations.revokedAt),
+                  ),
+                ),
+            ),
+            this.database
+              .select({ id: sellerAgentAuthorizations.id })
+              .from(sellerAgentAuthorizations)
+              .where(
+                and(
+                  eq(sellerAgentAuthorizations.agentId, agentOffers.agentId),
+                  eq(
+                    sellerAgentAuthorizations.principalId,
+                    agentOffers.operatorPrincipalId,
+                  ),
+                  isNull(sellerAgentAuthorizations.revokedAt),
+                ),
+              ),
           ),
         ),
       )
