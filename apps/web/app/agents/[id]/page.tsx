@@ -98,72 +98,73 @@ export default async function AgentIntelligencePage({
             </div>
           </div>
         </div>
-        <aside className="profile-action">
-          <span>Agent status</span>
-          <div className="buyer-summary-list">
-            <div>
-              <span>Status</span>
-              <b className="live-status">
-                <i /> Live
-              </b>
-            </div>
-            <div>
-              <span>Trust</span>
-              <b>
-                {agent.checks.identityVerified
-                  ? "Verified by Relic"
-                  : "Checks in progress"}
-              </b>
-            </div>
-            <div>
-              <span>Service</span>
-              <b>{marketplacePriceLabel(agent.activeOfferPrice)}</b>
-            </div>
-            <div>
-              <span>Permissions</span>
-              <b>{isReadOnly ? "Read-only" : "Set during hire"}</b>
-            </div>
-          </div>
-          <p>Last active {relativeTime(agent.lastVerifiedAt)}.</p>
-          <p className="funds-access-summary">
-            {isReadOnly
-              ? "This service cannot move your funds."
-              : "You review any funds access before authorizing it."}
-          </p>
-          {agent.hireable ? (
-            <div className="action-boundary actionable-boundary">
-              <Link href={`/agents/${agent.id}/hire`} className="activate-link">
-                Hire agent <small>Review permissions</small>
-              </Link>
-              <Link
-                href={`/compare?ids=${agent.id}`}
-                className="profile-compare-link"
-              >
-                Compare agent
-              </Link>
-            </div>
-          ) : agent.tier === "Actionable" ? (
-            <div className="action-boundary">
-              <b>No active verified offer</b>
-              <p>
-                This agent works, but the operator has no currently available
-                service offer.
-              </p>
-            </div>
-          ) : (
-            <div className="action-boundary">
-              <b>Commerce not yet verified</b>
-              <p>
-                Relic recently reached this agent successfully. Hiring remains
-                unavailable until its service setup has been tested.
-              </p>
-            </div>
-          )}
-        </aside>
       </header>
 
       <div className="profile-layout">
         <div className="profile-main">
+          <section className="profile-section profile-summary-section">
+            <div className="profile-summary-block">
+              <span className="overline">What this agent does</span>
+              <h2>Capabilities</h2>
+              <div className="capability-list">
+                {(agent.capabilities.length > 0
+                  ? agent.capabilities
+                  : [labelForCategory(agent.category)]
+                ).map((capability) => (
+                  <span key={capability}>
+                    ✓ {productCapabilityLabel(capability)}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="profile-summary-block">
+              <span className="overline">Important restrictions</span>
+              {offers.some(
+                (offer) => offer.version.limitationsSnapshot.length > 0,
+              ) ? (
+                <div className="restriction-list">
+                  {[
+                    ...new Set(
+                      offers.flatMap(
+                        (offer) => offer.version.limitationsSnapshot,
+                      ),
+                    ),
+                  ].map((restriction) => (
+                    <span key={restriction}>× {restriction}</span>
+                  ))}
+                </div>
+              ) : (
+                <p>
+                  No operator restrictions are published. Review permissions
+                  before hiring.
+                </p>
+              )}
+            </div>
+            <div className="profile-summary-block checked-service-summary">
+              <span className="overline">Service checked by Relic</span>
+              {agent.services.map((service) => {
+                const serviceOffer = offers.find(
+                  (offer) => offer.serviceId === service.id,
+                );
+                return (
+                  <div key={service.id} className="checked-service-row">
+                    <div>
+                      <b>{productCapabilityLabel(service.name)}</b>
+                      <span>
+                        {serviceOffer === undefined
+                          ? "No active offer"
+                          : commercePriceLabel(serviceOffer.version.price)}
+                      </span>
+                    </div>
+                    <small>
+                      Checked {relativeTime(service.lastVerifiedAt)}
+                    </small>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="profile-section track-record-section">
             <div className="section-heading compact-heading">
               <div>
@@ -205,30 +206,6 @@ export default async function AgentIntelligencePage({
                   {agent.verifiedInvocationCount > 0
                     ? agent.verifiedInvocationCount
                     : "No verified invocations yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>Deliveries submitted</dt>
-                <dd>
-                  {agent.deliveryCompletedCount > 0
-                    ? agent.deliveryCompletedCount
-                    : "No deliveries yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>Settlements completed</dt>
-                <dd>
-                  {agent.settlementCompletedCount > 0
-                    ? agent.settlementCompletedCount
-                    : "No settlements yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>Unsuccessful commerce jobs</dt>
-                <dd>
-                  {agent.unsuccessfulCommerceJobCount > 0
-                    ? agent.unsuccessfulCommerceJobCount
-                    : "No failed, cancelled, rejected, or refunded jobs"}
                 </dd>
               </div>
             </dl>
@@ -324,90 +301,6 @@ export default async function AgentIntelligencePage({
               ))}
             </section>
           ) : null}
-          <section className="profile-section">
-            <span className="overline">What this agent does</span>
-            <h2>Capabilities</h2>
-            <p className="large-copy">{agent.description}</p>
-            <div className="capability-list">
-              {(agent.capabilities.length > 0
-                ? agent.capabilities
-                : [labelForCategory(agent.category)]
-              ).map((capability) => (
-                <span key={capability}>
-                  ✓ {productCapabilityLabel(capability)}
-                </span>
-              ))}
-            </div>
-          </section>
-
-          <section className="profile-section restrictions-section">
-            <span className="overline">What this agent cannot do</span>
-            <h2>Operating restrictions</h2>
-            {offers.some(
-              (offer) => offer.version.limitationsSnapshot.length > 0,
-            ) ? (
-              <div className="restriction-list">
-                {[
-                  ...new Set(
-                    offers.flatMap(
-                      (offer) => offer.version.limitationsSnapshot,
-                    ),
-                  ),
-                ].map((restriction) => (
-                  <span key={restriction}>× {restriction}</span>
-                ))}
-              </div>
-            ) : (
-              <p className="large-copy">
-                No operator restrictions are published. Review the service terms
-                and permissions before hiring.
-              </p>
-            )}
-          </section>
-
-          <section className="profile-section">
-            <span className="overline">Services</span>
-            <h2>Services Relic has checked</h2>
-            <div className="service-list">
-              {agent.services.map((service) => {
-                const serviceOffer = offers.find(
-                  (offer) => offer.serviceId === service.id,
-                );
-                return (
-                  <article key={service.id}>
-                    <div>
-                      <span className="service-icon">↗</span>
-                      <div>
-                        <h3>{productCapabilityLabel(service.name)}</h3>
-                        <p>{service.description ?? "Verified agent service"}</p>
-                      </div>
-                    </div>
-                    <span className="tier tier-working">
-                      ●{" "}
-                      {service.verificationLevel === "COMMERCE_VERIFIED"
-                        ? "Service and hiring checked"
-                        : "Service checked"}
-                    </span>
-                    <dl>
-                      <div>
-                        <dt>Current offer</dt>
-                        <dd>
-                          {serviceOffer === undefined
-                            ? "No active offer"
-                            : commercePriceLabel(serviceOffer.version.price)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Last inspected</dt>
-                        <dd>{relativeTime(service.lastVerifiedAt)}</dd>
-                      </div>
-                    </dl>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-
           <section className="profile-section human-verification">
             <span className="overline">Verified by Relic</span>
             <h2>Checks you can understand</h2>
@@ -480,60 +373,127 @@ export default async function AgentIntelligencePage({
               </div>
             </section>
           ) : null}
-        </div>
-
-        <details className="profile-section technical-details">
-          <summary>View technical details</summary>
-          <dl>
-            <div>
-              <dt>ERC-8004 Agent ID</dt>
-              <dd>{agent.externalAgentId}</dd>
-            </div>
-            <div>
-              <dt>Chain ID</dt>
-              <dd>{agent.chainId}</dd>
-            </div>
-            <div>
-              <dt>Registry address</dt>
-              <dd>{agent.registryAddress}</dd>
-            </div>
-            <div>
-              <dt>Owner</dt>
-              <dd>{agent.ownerAddress}</dd>
-            </div>
-            <div>
-              <dt>Registration block</dt>
-              <dd>{agent.registrationBlock ?? "Not recorded"}</dd>
-            </div>
-            <div>
-              <dt>Metadata URI</dt>
-              <dd>{agent.metadataUri}</dd>
-            </div>
-            {agent.services.map((service) => (
-              <div key={service.id}>
-                <dt>Service URI</dt>
-                <dd>{service.endpoint}</dd>
+          <details className="profile-section technical-details">
+            <summary>View technical details</summary>
+            <dl>
+              <div>
+                <dt>ERC-8004 Agent ID</dt>
+                <dd>{agent.externalAgentId}</dd>
               </div>
-            ))}
-            {offers.map((offer) => (
-              <div key={offer.id}>
-                <dt>Offer v{offer.version.version} terms hash</dt>
-                <dd>{offer.version.termsHash}</dd>
+              <div>
+                <dt>Chain ID</dt>
+                <dd>{agent.chainId}</dd>
               </div>
-            ))}
-          </dl>
-          {agent.evidence.length > 0 ? (
-            <div className="technical-evidence">
-              <h3>Evidence and provenance</h3>
-              {agent.evidence.map((item, index) => (
-                <p key={`${item.fieldPath}-${item.observedAt}-${index}`}>
-                  <b>{item.fieldPath}</b> · {item.source} ·{" "}
-                  {new Date(item.observedAt).toLocaleString()}
-                </p>
+              <div>
+                <dt>Registry address</dt>
+                <dd>{agent.registryAddress}</dd>
+              </div>
+              <div>
+                <dt>Owner</dt>
+                <dd>{agent.ownerAddress}</dd>
+              </div>
+              <div>
+                <dt>Registration block</dt>
+                <dd>{agent.registrationBlock ?? "Not recorded"}</dd>
+              </div>
+              <div>
+                <dt>Metadata URI</dt>
+                <dd>{agent.metadataUri}</dd>
+              </div>
+              {agent.services.map((service) => (
+                <div key={service.id}>
+                  <dt>Service URI</dt>
+                  <dd>{service.endpoint}</dd>
+                </div>
               ))}
+              {offers.map((offer) => (
+                <div key={offer.id}>
+                  <dt>Offer v{offer.version.version} terms hash</dt>
+                  <dd>{offer.version.termsHash}</dd>
+                </div>
+              ))}
+            </dl>
+            {agent.evidence.length > 0 ? (
+              <div className="technical-evidence">
+                <h3>Evidence and provenance</h3>
+                {agent.evidence.map((item, index) => (
+                  <p key={`${item.fieldPath}-${item.observedAt}-${index}`}>
+                    <b>{item.fieldPath}</b> · {item.source} ·{" "}
+                    {new Date(item.observedAt).toLocaleString()}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </details>
+        </div>
+        <aside className="profile-status-rail">
+          <div className="profile-action">
+            <span>Agent status</span>
+            <div className="buyer-summary-list">
+              <div>
+                <span>Status</span>
+                <b className={agent.hireable ? "live-status" : undefined}>
+                  {agent.hireable ? <i /> : null}
+                  {agent.hireable ? "Live" : "Not available"}
+                </b>
+              </div>
+              <div>
+                <span>Trust</span>
+                <b>
+                  {agent.checks.identityVerified
+                    ? "Verified by Relic"
+                    : "Checks in progress"}
+                </b>
+              </div>
+              <div>
+                <span>Service</span>
+                <b>{marketplacePriceLabel(agent.activeOfferPrice)}</b>
+              </div>
+              <div>
+                <span>Permissions</span>
+                <b>{isReadOnly ? "Read-only" : "Set during hire"}</b>
+              </div>
             </div>
-          ) : null}
-        </details>
+            <p>Last active {relativeTime(agent.lastVerifiedAt)}.</p>
+            <p className="funds-access-summary">
+              {isReadOnly
+                ? "This service cannot move your funds."
+                : "You review any funds access before authorizing it."}
+            </p>
+            {agent.hireable ? (
+              <div className="action-boundary actionable-boundary">
+                <Link
+                  href={`/agents/${agent.id}/hire`}
+                  className="activate-link"
+                >
+                  Hire agent <small>Review permissions</small>
+                </Link>
+                <Link
+                  href={`/compare?ids=${agent.id}`}
+                  className="profile-compare-link"
+                >
+                  Compare agent
+                </Link>
+              </div>
+            ) : agent.tier === "Actionable" ? (
+              <div className="action-boundary">
+                <b>No active verified offer</b>
+                <p>
+                  This agent works, but the operator has no currently available
+                  service offer.
+                </p>
+              </div>
+            ) : (
+              <div className="action-boundary">
+                <b>Commerce not yet verified</b>
+                <p>
+                  Relic recently reached this agent successfully. Hiring remains
+                  unavailable until its service setup has been tested.
+                </p>
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
     </main>
   );

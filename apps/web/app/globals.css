@@ -4078,9 +4078,146 @@ summary:focus-visible {
   font-size: 11px;
   overflow-wrap: anywhere;
 }
+
+/* Compact buyer view: primary details on the left, decision and action always visible. */
+.profile-page .profile-header {
+  display: block;
+  padding: 34px 0 26px;
+}
+.profile-page .profile-layout {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: 28px;
+  padding-top: 28px;
+}
+.profile-main {
+  min-width: 0;
+}
+.profile-status-rail {
+  position: sticky;
+  top: 84px;
+  align-self: start;
+}
+.profile-page .profile-action {
+  padding: 18px;
+}
+.profile-page .profile-section {
+  margin-bottom: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.profile-page .profile-section:last-child {
+  border: 1px solid var(--line);
+}
+.profile-page .profile-section h2 {
+  margin: 6px 0 10px;
+  font-size: 19px;
+}
+.profile-summary-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.25fr;
+  gap: 0;
+  padding-block: 0 !important;
+}
+.profile-summary-block {
+  min-width: 0;
+  padding: 18px;
+  border-right: 1px solid var(--line);
+}
+.profile-summary-block:first-child {
+  padding-left: 0;
+}
+.profile-summary-block:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+.profile-summary-block > p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.profile-summary-block .capability-list {
+  margin-top: 10px;
+}
+.profile-summary-block .restriction-list {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.checked-service-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.checked-service-row > div {
+  display: grid;
+  gap: 4px;
+}
+.checked-service-row b {
+  color: var(--ink);
+  font-size: 12px;
+}
+.checked-service-row small {
+  color: var(--faint);
+  white-space: nowrap;
+}
+.profile-page .track-record-grid > div {
+  padding: 12px;
+}
+.profile-page .track-record-grid dd {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.profile-page .trust-check-list > div {
+  padding: 12px;
+}
+.profile-page .trust-check-list p {
+  font-size: 11px;
+}
+.profile-page .empty-review-state {
+  padding: 12px;
+}
+
 @media (max-width: 720px) {
   .trust-check-list {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .profile-page .profile-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding-top: 18px;
+  }
+  .profile-status-rail {
+    position: static;
+    order: -1;
+  }
+  .profile-summary-section {
+    grid-template-columns: 1fr;
+    padding-block: 0 !important;
+  }
+  .profile-summary-block,
+  .profile-summary-block:first-child,
+  .profile-summary-block:last-child {
+    padding: 15px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .profile-summary-block:first-child {
+    padding-top: 0;
+  }
+  .profile-summary-block:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
   }
 }
 
