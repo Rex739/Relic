@@ -45,6 +45,26 @@ const canCreateOffer = (
   agent.requirements.verification.state === "complete" &&
   agent.requirements.offer.state !== "complete";
 
+const setupBlockers = (agent: SellerAgentReadiness) => {
+  const readiness = [
+    agent.requirements.identity,
+    agent.requirements.service,
+    agent.requirements.verification,
+  ].filter((requirement) => requirement.state !== "complete");
+  return agent.testDeployment
+    ? [
+        ...readiness,
+        {
+          state: "blocked" as const,
+          label: "Production-ready agent required",
+          explanation:
+            "This agent identifies itself as a test deployment and cannot be listed for buyers.",
+          nextAction: "Use a production-ready agent",
+        },
+      ]
+    : readiness;
+};
+
 export default async function OffersPage({
   searchParams,
 }: {
@@ -121,6 +141,8 @@ export default async function OffersPage({
     currentOfferByAgentId.has(agent.agentId),
   );
   const selectedAgent = selectedReadiness[0] ?? null;
+  const selectedSetupBlockers =
+    selectedAgent === null ? [] : setupBlockers(selectedAgent);
   return (
     <main className="page-shell operator-page">
       <header className="operations-header">
@@ -168,6 +190,7 @@ export default async function OffersPage({
                 {readiness.map((agent) => {
                   const currentOffer = currentOfferByAgentId.get(agent.agentId);
                   const canSetUpOffer = canCreateOffer(agent);
+                  const blockers = setupBlockers(agent);
                   const status = agent.hireable
                     ? "Ready to hire"
                     : currentOffer
@@ -176,7 +199,7 @@ export default async function OffersPage({
                         : "Draft"
                     : canSetUpOffer
                       ? "Ready to configure"
-                      : "Setup required";
+                      : blockers[0]?.label ?? "Setup required";
                   return (
                     <article
                       className="seller-agent-list-item"
@@ -213,9 +236,12 @@ export default async function OffersPage({
                             <div>
                               <dt>Service</dt>
                               <dd>
-                                {agent.serviceId === null
-                                  ? "Checking"
-                                  : "Verified"}
+                                {agent.requirements.service.state ===
+                                  "complete" &&
+                                agent.requirements.verification.state ===
+                                  "complete"
+                                  ? "Verified"
+                                  : "Needs attention"}
                               </dd>
                             </div>
                             <div>
@@ -283,7 +309,8 @@ export default async function OffersPage({
                     ? "Save the marketplace profile, then create the first offer when you are ready."
                     : selectedAgentHasCurrentOffer
                       ? "Edit the buyer-facing details for this agent’s marketplace offer."
-                      : "Finish the remaining setup requirements before creating an offer."}
+                      : selectedSetupBlockers[0]?.explanation ??
+                        "Finish the remaining setup requirements before creating an offer."}
                 </p>
               </div>
               {visibleCurrentOffers.length === 0 ? (
