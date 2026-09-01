@@ -209,6 +209,23 @@ export function marketplaceOutcomeLabel(
   return "Service check unsuccessful";
 }
 
+export function marketplaceOutcomeDescription(
+  outcome: PublicMarketplaceAgentDetail["outcomes"][number],
+) {
+  const settlement = outcome.settlementState.toUpperCase();
+  if (settlement === "SETTLED")
+    return "Payment for a completed marketplace job was settled.";
+  if (["FAILED", "CANCELLED", "REJECTED", "REFUNDED"].includes(settlement))
+    return "This marketplace job did not complete successfully.";
+  if (outcome.deliveredAt !== null)
+    return "The agent submitted a result for a marketplace job.";
+  if (outcome.commerceSuccessful)
+    return "A marketplace job completed successfully.";
+  if (outcome.invocationSuccessful)
+    return "Relic successfully reached this agent's service.";
+  return "Relic was unable to complete a service check.";
+}
+
 export type ReadinessInventoryResponse = {
   data: {
     data: PublicMarketplaceAgent[];

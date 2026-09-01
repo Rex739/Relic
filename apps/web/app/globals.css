@@ -4293,13 +4293,25 @@ summary:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+.profile-secondary-panel {
+  min-width: 0;
+}
+.profile-secondary-panel > h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
 .profile-secondary-grid .profile-section {
   height: calc(100% - 14px);
 }
 .verification-dialog-trigger {
-  width: 100%;
-  margin-top: 14px;
-  justify-content: center;
+  min-height: 28px;
+  margin-top: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #c9d6ca;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 5px;
 }
 .verification-dialog-content {
   width: min(560px, calc(100vw - 32px));
@@ -4329,6 +4341,41 @@ summary:focus-visible {
   font-size: 12px;
   line-height: 1.5;
 }
+.outcome-list {
+  border-top: 1px solid var(--line);
+}
+.outcome-list article {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+}
+.outcome-list article > div:first-child {
+  min-width: 0;
+}
+.outcome-list article b {
+  color: var(--ink);
+  font-size: 13px;
+}
+.outcome-list article p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.outcome-meta {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  color: var(--faint);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+.mobile-listing-register {
+  display: none;
+}
 
 @media (max-width: 720px) {
   .trust-check-list {
@@ -4337,6 +4384,13 @@ summary:focus-visible {
 }
 
 @media (max-width: 760px) {
+  .site-header .header-register-agent {
+    display: none;
+  }
+  .mobile-listing-register {
+    display: inline-flex;
+    margin-top: 14px;
+  }
   .profile-page .profile-layout {
     grid-template-columns: 1fr;
     gap: 14px;
@@ -4383,6 +4437,19 @@ summary:focus-visible {
   }
   .profile-secondary-grid .profile-section {
     height: auto;
+  }
+  .profile-secondary-panel > h2 {
+    margin-bottom: 10px;
+  }
+  .outcome-list article {
+    display: grid;
+    gap: 10px;
+  }
+  .outcome-meta {
+    justify-items: start;
+    grid-template-columns: repeat(3, max-content);
+    text-align: left;
+    white-space: normal;
   }
   .profile-summary-block,
   .profile-summary-block:first-child,

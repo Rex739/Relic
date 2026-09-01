@@ -164,6 +164,12 @@ export default async function OffersPage({
           Configure the agents you offer on Relic. Each listing keeps its
           verified service and offer history together.
         </p>
+        <Link
+          className={`${buttonVariants({ size: "sm", variant: "outline" })} mobile-listing-register`}
+          href="/account/mylistings/new"
+        >
+          Register agent
+        </Link>
       </header>
       <div className="account-workspace">
         <AccountSidebar />
@@ -207,13 +213,14 @@ export default async function OffersPage({
                     ? "Ready to hire"
                     : agent.listingStatus === "OWNERSHIP_CHANGED"
                       ? "Ownership changed — replace offer"
-                    : currentOffer
-                      ? currentOffer.status === "ACTIVE"
-                        ? "Offer active"
-                        : "Draft"
-                    : canSetUpOffer
-                      ? "Ready to configure"
-                      : blockers[0]?.label ?? listingStatusLabel(agent.listingStatus);
+                      : currentOffer
+                        ? currentOffer.status === "ACTIVE"
+                          ? "Offer active"
+                          : "Draft"
+                        : canSetUpOffer
+                          ? "Ready to configure"
+                          : (blockers[0]?.label ??
+                            listingStatusLabel(agent.listingStatus));
                   return (
                     <article
                       className="seller-agent-list-item"
@@ -340,12 +347,12 @@ export default async function OffersPage({
                     ? "This agent is live and ready for buyers to hire. Completed buyer work will appear in its track record."
                     : selectedAgent?.listingStatus === "OWNERSHIP_CHANGED"
                       ? "A previous seller’s offer is no longer valid for this owner. Create and activate a replacement offer to list this agent."
-                    : offerableAgents.length > 0
-                    ? "Save the marketplace profile, then create the first offer when you are ready."
-                    : selectedAgentHasCurrentOffer
-                      ? "Edit the buyer-facing details for this agent’s marketplace offer."
-                      : selectedSetupBlockers[0]?.explanation ??
-                        "Finish the remaining setup requirements before creating an offer."}
+                      : offerableAgents.length > 0
+                        ? "Save the marketplace profile, then create the first offer when you are ready."
+                        : selectedAgentHasCurrentOffer
+                          ? "Edit the buyer-facing details for this agent’s marketplace offer."
+                          : (selectedSetupBlockers[0]?.explanation ??
+                            "Finish the remaining setup requirements before creating an offer.")}
                 </p>
               </div>
               {visibleCurrentOffers.length === 0 ? (

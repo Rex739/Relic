@@ -6,6 +6,7 @@ import { commercePriceLabel } from "../../../lib/commerce-display";
 import {
   labelForCategory,
   marketplaceAgent,
+  marketplaceOutcomeDescription,
   marketplaceOutcomeLabel,
   marketplacePriceLabel,
   productCapabilityLabel,
@@ -237,64 +238,84 @@ export default async function AgentIntelligencePage({
           </section>
 
           <div className="profile-secondary-grid">
-            <section
-              className={
-                agent.reviews.length > 0
-                  ? "profile-section marketplace-reviews"
-                  : "marketplace-reviews-empty"
-              }
-            >
-              <div className="section-heading compact-heading">
-                <h2>Reviews</h2>
+            <section className="profile-secondary-panel">
+              <h2>Reviews</h2>
+              <div
+                className={
+                  agent.reviews.length > 0
+                    ? "profile-section marketplace-reviews"
+                    : "marketplace-reviews-empty"
+                }
+              >
                 {agent.reviewCount > 0 ? (
-                  <span>
-                    {agent.reviewCount}{" "}
-                    {agent.reviewCount === 1 ? "Review" : "Reviews"}
-                    {" · "}
-                    {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
-                  </span>
+                  <div className="section-heading compact-heading">
+                    <span>
+                      {agent.reviewCount}{" "}
+                      {agent.reviewCount === 1 ? "Review" : "Reviews"}
+                      {" · "}
+                      {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
+                    </span>
+                  </div>
                 ) : null}
-              </div>
-              {agent.reviews.length === 0 ? (
-                <div className="empty-review-state">
-                  <b>No reviews yet</b>
-                </div>
-              ) : (
-                <div className="review-list">
-                  {agent.reviews.map((review) => (
-                    <article key={review.id}>
-                      <div>
-                        <b>{review.sentiment === "GOOD" ? "Good" : "Bad"}</b>
-                        <time>{relativeTime(review.createdAt)}</time>
-                      </div>
-                      {review.tags.length > 0 ? (
-                        <div className="tag-row">
-                          {review.tags.map((tag) => (
-                            <span key={tag}>{productCapabilityLabel(tag)}</span>
-                          ))}
+                {agent.reviews.length === 0 ? (
+                  <div className="empty-review-state">
+                    <b>No reviews yet</b>
+                  </div>
+                ) : (
+                  <div className="review-list">
+                    {agent.reviews.map((review) => (
+                      <article key={review.id}>
+                        <div>
+                          <b>{review.sentiment === "GOOD" ? "Good" : "Bad"}</b>
+                          <time>{relativeTime(review.createdAt)}</time>
                         </div>
-                      ) : null}
-                      {review.message === null ? null : <p>{review.message}</p>}
-                      <small>Verified hire</small>
-                    </article>
-                  ))}
-                </div>
-              )}
+                        {review.tags.length > 0 ? (
+                          <div className="tag-row">
+                            {review.tags.map((tag) => (
+                              <span key={tag}>
+                                {productCapabilityLabel(tag)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {review.message === null ? null : (
+                          <p>{review.message}</p>
+                        )}
+                        <small>Verified hire</small>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
             </section>
             {agent.outcomes.length > 0 ? (
-              <section className="profile-section">
-                <h2>Recent activity</h2>
+              <section className="profile-secondary-panel">
+                <h2>Activity</h2>
                 <div className="outcome-list">
                   {agent.outcomes.map((outcome, index) => (
                     <article key={`${outcome.observedAt}-${index}`}>
-                      <b>{marketplaceOutcomeLabel(outcome)}</b>
-                      <span>
-                        {outcome.responseStatus ?? "Execution observed"}
-                      </span>
-                      <span>Cost {outcome.observedCost}</span>
-                      <time>
-                        {new Date(outcome.observedAt).toLocaleString()}
-                      </time>
+                      <div>
+                        <b>{marketplaceOutcomeLabel(outcome)}</b>
+                        <p>{marketplaceOutcomeDescription(outcome)}</p>
+                      </div>
+                      <div className="outcome-meta">
+                        <span>
+                          {outcome.responseStatus ??
+                            (outcome.invocationSuccessful
+                              ? "Service responded"
+                              : "No service response")}
+                        </span>
+                        <span>Cost {outcome.observedCost}</span>
+                        <time dateTime={outcome.observedAt}>
+                          {new Intl.DateTimeFormat("en", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          }).format(new Date(outcome.observedAt))}
+                        </time>
+                      </div>
                     </article>
                   ))}
                 </div>

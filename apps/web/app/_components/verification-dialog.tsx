@@ -48,7 +48,7 @@ export function VerificationDialog({
     <Dialog>
       <DialogTrigger asChild>
         <Button className="verification-dialog-trigger" variant="outline">
-          <BadgeCheck aria-hidden="true" size={16} />
+          <BadgeCheck aria-hidden="true" size={13} />
           Verified by Relic
         </Button>
       </DialogTrigger>
