@@ -762,6 +762,20 @@ const prepareCommerceValidationRoute = createRoute({
     ),
   },
 });
+const notifyFundedProviderRoute = createRoute({
+  method: "post",
+  path: "/v1/commerce-agreements/{id}/notify-funded",
+  request: {
+    params: agreementParams,
+    headers: z.object({ authorization: z.string() }),
+  },
+  responses: {
+    200: json(
+      z.object({ data: z.any() }),
+      "Provider notified about a finalized buyer-funded job",
+    ),
+  },
+});
 const preparedWalletTransactionRoute = createRoute({
   method: "get",
   path: "/v1/commerce-agreements/{id}/operations/{operationId}/wallet-transaction",
@@ -1887,6 +1901,19 @@ export function createApp(
     return context.json(
       {
         data: await requireCommerce().prepareCommerceValidation(
+          await walletPrincipal(context),
+          id,
+        ),
+      },
+      200,
+    );
+  });
+
+  app.openapi(notifyFundedProviderRoute, async (context) => {
+    const { id } = agreementParams.parse(context.req.param());
+    return context.json(
+      {
+        data: await requireCommerce().notifyFundedProvider(
           await walletPrincipal(context),
           id,
         ),

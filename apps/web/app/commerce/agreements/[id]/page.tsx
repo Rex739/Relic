@@ -13,6 +13,7 @@ import { WalletCommerceOperation } from "../../../_components/wallet-commerce-op
 import {
   acceptTermsAction,
   cancelAgreementAction,
+  notifyFundedProviderAction,
   prepareCommerceValidationAction,
   revokeAuthorizationAction,
 } from "../../../commerce-actions";
@@ -269,11 +270,16 @@ export default async function CommerceAgreementPage({
             <p>
               The BNB task is funded. The production hand-off is
               <code>notify_funded</code>: the provider checks the funded
-              onchain job before running. This listing is not marked hireable
-              until that provider hand-off is available through its public A2A
-              interface.
+              onchain job before running. Relic never sends a provider
+              credential with this request.
             </p>
           </div>
+          <form action={notifyFundedProviderAction}>
+            <input type="hidden" name="agreementId" value={id} />
+            <button type="submit" className="primary-action">
+              Request delivery <span aria-hidden="true">→</span>
+            </button>
+          </form>
         </section>
       ) : null}
       <section className="profile-section execution-commerce">

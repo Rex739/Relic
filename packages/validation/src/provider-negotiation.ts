@@ -46,6 +46,14 @@ const responseSchema = z.object({
     ),
   }),
 });
+const fundedResponseSchema = z.object({
+  jsonrpc: z.literal("2.0"),
+  result: z.object({
+    parts: z.array(
+      z.object({ kind: z.string(), data: z.unknown().optional() }),
+    ),
+  }),
+});
 
 export type ProviderRequester = (
   endpoint: string,
@@ -65,6 +73,13 @@ export interface OfferNegotiationInput {
   chainId: number;
   amountBaseUnits: string;
   paymentTokenAddress: string;
+}
+
+export interface FundedJobNotificationInput {
+  endpoint: string;
+  interfaceProtocol: string;
+  agreementId: string;
+  jobId: string;
 }
 
 export async function negotiateOfferBoundService(
@@ -163,4 +178,88 @@ export async function negotiateOfferBoundService(
     messageId,
     responseSha256: createHash("sha256").update(response.body).digest("hex"),
   };
+}
+
+/**
+ * Sends the standard BNB Studio delivery hand-off after the buyer's funded
+ * ERC-8183 job has reached finality. The provider remains responsible for
+ * independently checking the job before accepting or delivering it.
+ */
+export async function notifyFundedService(
+  input: FundedJobNotificationInput,
+  options: { requester?: ProviderRequester; messageId?: string } = {},
+) {
+  if (input.interfaceProtocol.toLowerCase() !== "a2a")
+    throw new Error(
+      `Service interface ${input.interfaceProtocol} is not supported for funded-job notification`,
+    );
+  if (!/^\d+$/.test(input.jobId))
+    throw new Error("Funded job ID must be a non-negative integer");
+  const requester = options.requester ?? safeHttpRequest;
+  const cardResponse = await requester(input.endpoint, {
+    method: "GET",
+    timeoutMs: 5_000,
+    maxRedirects: 2,
+    maxResponseBytes: 64 * 1024,
+  });
+  if (!cardResponse.ok || cardResponse.status !== 200)
+    throw new Error(
+      `Provider card request failed (${cardResponse.errorCode ?? cardResponse.status})`,
+    );
+  const card = cardSchema.parse(JSON.parse(cardResponse.body));
+  if (!card.skills.some(({ id }) => id === "notify_funded"))
+    throw new Error("Provider does not advertise funded-job notification");
+  const reference = new URL(input.endpoint);
+  const invocation = new URL(card.url);
+  if (
+    invocation.protocol !== "https:" ||
+    invocation.hostname !== reference.hostname
+  )
+    throw new Error("Provider invocation URL must be same-host HTTPS");
+
+  const messageId = options.messageId ?? randomUUID();
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: `relic-funded-${input.agreementId}`,
+    method: "message/send",
+    params: {
+      message: {
+        role: "user",
+        parts: [
+          {
+            kind: "data",
+            data: { skill: "notify_funded", job_id: input.jobId },
+          },
+        ],
+        messageId,
+      },
+    },
+  });
+  const response = await requester(invocation.toString(), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+    timeoutMs: 10_000,
+    maxRedirects: 0,
+    maxResponseBytes: 64 * 1024,
+  });
+  if (!response.ok || response.status !== 200)
+    throw new Error(
+      `Provider funded-job notification failed (${response.errorCode ?? response.status})`,
+    );
+  const parsed = fundedResponseSchema.parse(JSON.parse(response.body));
+  const data = parsed.result.parts.find((part) => part.kind === "data")?.data;
+  const result = z
+    .object({
+      status: z.enum(["accepted", "rejected", "retry"]).optional(),
+      job_id: z.union([z.string(), z.number()]).optional(),
+      error: z.string().optional(),
+    })
+    .passthrough()
+    .parse(data);
+  if (String(result.job_id ?? "") !== input.jobId)
+    throw new Error("Provider funded-job response does not match the job");
+  if (result.status === "rejected")
+    throw new Error(result.error ?? "Provider rejected the funded job");
+  return { status: result.status ?? "accepted", messageId };
 }

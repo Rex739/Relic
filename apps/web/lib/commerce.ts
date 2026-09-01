@@ -124,6 +124,12 @@ export const prepareCommerceValidation = (id: string) =>
     { method: "POST" },
   );
 
+export const notifyFundedProvider = (id: string) =>
+  request<{ status: string }>(
+    `/v1/commerce-agreements/${encodeURIComponent(id)}/notify-funded`,
+    { method: "POST" },
+  );
+
 export const createCommerceActivation = (
   id: string,
   executionRequestId: string,

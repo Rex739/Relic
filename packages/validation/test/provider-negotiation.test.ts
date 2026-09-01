@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   negotiateOfferBoundService,
+  notifyFundedService,
   type ProviderRequester,
 } from "../src/index.js";
 
@@ -151,5 +152,54 @@ describe("offer-bound provider negotiation", () => {
         { requester: vi.fn() },
       ),
     ).rejects.toThrow("not supported");
+  });
+
+  it("notifies a public provider only after a concrete funded job ID", async () => {
+    const requesterMock = vi
+      .fn<ProviderRequester>()
+      .mockResolvedValueOnce({
+        endpoint: input.endpoint,
+        ok: true,
+        status: 200,
+        latencyMs: 1,
+        redirectCount: 0,
+        headers: {},
+        body: JSON.stringify({
+          url: "https://agent.example/invoke",
+          skills: [{ id: "notify_funded" }],
+        }),
+        errorCode: null,
+      })
+      .mockResolvedValueOnce({
+        endpoint: "https://agent.example/invoke",
+        ok: true,
+        status: 200,
+        latencyMs: 1,
+        redirectCount: 0,
+        headers: {},
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            parts: [
+              { kind: "data", data: { status: "accepted", job_id: "42" } },
+            ],
+          },
+        }),
+        errorCode: null,
+      });
+    await expect(
+      notifyFundedService(
+        {
+          endpoint: input.endpoint,
+          interfaceProtocol: "a2a",
+          agreementId: input.agreementId,
+          jobId: "42",
+        },
+        { requester: requesterMock, messageId: "message-funded" },
+      ),
+    ).resolves.toMatchObject({ status: "accepted" });
+    expect(JSON.parse(String(requesterMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      params: { message: { parts: [{ data: { skill: "notify_funded", job_id: "42" } }] } },
+    });
   });
 });
