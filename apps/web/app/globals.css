@@ -1051,6 +1051,11 @@ summary:focus-visible {
   align-items: flex-start;
   gap: 20px;
 }
+.profile-page .profile-identity .agent-avatar.large {
+  width: 176px;
+  height: 176px;
+  border-radius: 20px;
+}
 .profile-badges {
   display: flex;
   gap: 7px;
@@ -1061,7 +1066,7 @@ summary:focus-visible {
   font-size: clamp(42px, 5vw, 64px);
   margin: 17px 0 12px;
 }
-.profile-header .profile-identity p {
+.profile-header .profile-description p {
   color: var(--muted);
   line-height: 1.65;
   max-width: 760px;
@@ -3485,7 +3490,7 @@ summary:focus-visible {
   font-size: clamp(30px, 4vw, 46px);
   line-height: 1.05;
 }
-.profile-identity > div:last-child > p {
+.profile-identity > div:last-child > .profile-description p {
   max-width: 760px;
   font-size: 14px;
 }
@@ -4176,11 +4181,8 @@ summary:focus-visible {
   line-height: 1.35;
 }
 .profile-metrics {
-  margin-bottom: 14px;
+  margin: 18px 0 0;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
 }
 .profile-metrics .track-record-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -4203,6 +4205,25 @@ summary:focus-visible {
 }
 .on-chain-data-trigger:hover {
   color: var(--accent);
+}
+.description-dialog-trigger {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+.description-dialog-trigger:hover {
+  color: var(--accent);
+}
+.description-dialog-content {
+  width: min(620px, calc(100vw - 32px));
+}
+.description-dialog-content [data-slot="dialog-description"] {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
 }
 .on-chain-data-dialog-content {
   width: min(700px, calc(100vw - 32px));
@@ -4257,7 +4278,15 @@ summary:focus-visible {
   font-size: 11px;
 }
 .profile-page .empty-review-state {
+  display: grid;
+  min-height: 122px;
+  place-items: center;
   padding: 12px;
+  color: var(--muted);
+}
+.marketplace-reviews-empty {
+  min-width: 0;
+  padding: 18px 0;
 }
 .profile-secondary-grid {
   display: grid;
@@ -4335,6 +4364,11 @@ summary:focus-visible {
   }
   .profile-metrics .track-record-grid > div:last-child {
     grid-column: 1 / -1;
+  }
+  .profile-page .profile-identity .agent-avatar.large {
+    width: 112px;
+    height: 112px;
+    border-radius: 16px;
   }
   .on-chain-data-list {
     grid-template-columns: 1fr;

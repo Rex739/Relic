@@ -13,6 +13,7 @@ import {
 } from "../../../lib/marketplace";
 import { activeOffers } from "../../../lib/commerce";
 import { AgentAvatar } from "../../_components/agent-avatar";
+import { AgentDescription } from "../../_components/agent-description-dialog";
 import { OnChainDataDialog } from "../../_components/on-chain-data-dialog";
 import { VerificationDialog } from "../../_components/verification-dialog";
 import { VerificationTier } from "../../_components/verification-tier";
@@ -91,13 +92,81 @@ export default async function AgentIntelligencePage({
               )}
             </div>
             <h1>{agent.name}</h1>
-            <p>{agent.description}</p>
+            <AgentDescription
+              agentName={agent.name}
+              description={agent.description}
+            />
             <div className="tag-row">
               <span>{labelForCategory(agent.category)}</span>
               {agent.protocols.slice(0, 5).map((protocol) => (
                 <span key={protocol}>{productCapabilityLabel(protocol)}</span>
               ))}
             </div>
+            <section className="profile-metrics" aria-label="Agent metrics">
+              <dl className="track-record-grid">
+                <div>
+                  <dt>Completion rate</dt>
+                  <dd>
+                    {agent.completionRatePercent === null
+                      ? "No job history yet"
+                      : `${agent.completionRatePercent}% Completion · ${agent.completedCommerceJobCount} of ${agent.eligibleAcceptedJobCount} jobs`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Completed jobs</dt>
+                  <dd>
+                    {agent.completedCommerceJobCount > 0
+                      ? agent.completedCommerceJobCount
+                      : "No completed commerce jobs yet"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Reviews</dt>
+                  <dd>
+                    {agent.reviewCount > 0
+                      ? agent.reviewCount
+                      : "No verified reviews yet"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Verified service checks</dt>
+                  <dd>
+                    {agent.verifiedInvocationCount > 0
+                      ? agent.verifiedInvocationCount
+                      : "No verified invocations yet"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>On-chain data</dt>
+                  <dd>
+                    <OnChainDataDialog
+                      data={{
+                        externalAgentId: agent.externalAgentId,
+                        chainId: agent.chainId,
+                        registryAddress: agent.registryAddress,
+                        ownerAddress: agent.ownerAddress,
+                        registrationBlock: agent.registrationBlock,
+                        metadataUri: agent.metadataUri,
+                        serviceEndpoints: agent.services.map(
+                          (service) => service.endpoint,
+                        ),
+                        offerTerms: offers.map((offer) => ({
+                          version: offer.version.version,
+                          termsHash: offer.version.termsHash,
+                        })),
+                        evidence: agent.evidence.map((item) => ({
+                          fieldPath: item.fieldPath,
+                          source: item.source,
+                          observedAt: new Date(
+                            item.observedAt,
+                          ).toLocaleString(),
+                        })),
+                      }}
+                    />
+                  </dd>
+                </div>
+              </dl>
+            </section>
           </div>
         </div>
       </header>
@@ -167,73 +236,16 @@ export default async function AgentIntelligencePage({
             </div>
           </section>
 
-          <section className="profile-metrics" aria-label="Agent metrics">
-            <dl className="track-record-grid">
-              <div>
-                <dt>Completion rate</dt>
-                <dd>
-                  {agent.completionRatePercent === null
-                    ? "No job history yet"
-                    : `${agent.completionRatePercent}% Completion · ${agent.completedCommerceJobCount} of ${agent.eligibleAcceptedJobCount} jobs`}
-                </dd>
-              </div>
-              <div>
-                <dt>Completed jobs</dt>
-                <dd>
-                  {agent.completedCommerceJobCount > 0
-                    ? agent.completedCommerceJobCount
-                    : "No completed commerce jobs yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>Reviews</dt>
-                <dd>
-                  {agent.reviewCount > 0
-                    ? agent.reviewCount
-                    : "No verified reviews yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>Verified service checks</dt>
-                <dd>
-                  {agent.verifiedInvocationCount > 0
-                    ? agent.verifiedInvocationCount
-                    : "No verified invocations yet"}
-                </dd>
-              </div>
-              <div>
-                <dt>On-chain data</dt>
-                <dd>
-                  <OnChainDataDialog
-                    data={{
-                      externalAgentId: agent.externalAgentId,
-                      chainId: agent.chainId,
-                      registryAddress: agent.registryAddress,
-                      ownerAddress: agent.ownerAddress,
-                      registrationBlock: agent.registrationBlock,
-                      metadataUri: agent.metadataUri,
-                      serviceEndpoints: agent.services.map(
-                        (service) => service.endpoint,
-                      ),
-                      offerTerms: offers.map((offer) => ({
-                        version: offer.version.version,
-                        termsHash: offer.version.termsHash,
-                      })),
-                      evidence: agent.evidence.map((item) => ({
-                        fieldPath: item.fieldPath,
-                        source: item.source,
-                        observedAt: new Date(item.observedAt).toLocaleString(),
-                      })),
-                    }}
-                  />
-                </dd>
-              </div>
-            </dl>
-          </section>
           <div className="profile-secondary-grid">
-            <section className="profile-section marketplace-reviews">
+            <section
+              className={
+                agent.reviews.length > 0
+                  ? "profile-section marketplace-reviews"
+                  : "marketplace-reviews-empty"
+              }
+            >
               <div className="section-heading compact-heading">
-                <h2>Verified reviews</h2>
+                <h2>Reviews</h2>
                 {agent.reviewCount > 0 ? (
                   <span>
                     {agent.reviewCount}{" "}
@@ -245,7 +257,7 @@ export default async function AgentIntelligencePage({
               </div>
               {agent.reviews.length === 0 ? (
                 <div className="empty-review-state">
-                  <b>No verified reviews yet</b>
+                  <b>No reviews yet</b>
                 </div>
               ) : (
                 <div className="review-list">
