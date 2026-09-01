@@ -28,29 +28,32 @@ decimals use `parseBaseUnits`; excessive precision, exponential notation,
 negatives, unsupported decimals, and unsafe conversions fail closed. Policy
 limit checks use exact decimal comparison and addition, never floating point.
 
-## Offers and hiring
+## Listings and hiring
 
-An offer is eligible only when its ERC-8004 owner matches the authenticated
-operator and the service is current, available, Actionable, and recently
-verified. A change creates a new immutable version and pauses an active offer
-until explicit activation. Existing agreements retain their historical offer
-version.
+An offer is a buyer-facing listing preview, not a provider credential or the
+source of payment authority. It is eligible only when its ERC-8004 owner
+matches the authenticated operator and the service is current, available,
+Actionable, and recently verified. A change creates a new immutable version
+and pauses an active offer until explicit activation. Existing agreements
+retain their historical offer version.
 
-The separated hiring flow is:
+The production hiring flow follows BNB Agent Studio's standard commerce
+contract:
 
-1. review an active verified offer;
-2. create and activate a mandate;
-3. create a draft agreement;
-4. accept the exact immutable terms hash;
-5. sign EIP-712 commerce authorization;
-6. request an execution and receive a policy decision;
-7. sign a domain-separated exact execution approval when required;
-8. prepare a `USER_COMMERCE` activation and durable ERC-8183 operation;
-9. sign any required blockchain transaction in the user's wallet;
-10. reconcile receipt, finality, delivery, evaluation, and settlement/refund.
+1. discover an active, verified listing and review its indicative terms;
+2. create a buyer-owned relationship and accept the listing terms;
+3. request a fresh signed `negotiate` quote from the provider's BNB Studio
+   service;
+4. use the buyer wallet to create the ERC-8183 job, set its budget, and fund
+   escrow;
+5. send `notify_funded` to the provider's public A2A interface;
+6. let the provider verify the onchain job, perform the work, and submit its
+   deliverable; then reconcile delivery, evaluation, settlement, or refund.
 
-Terms acceptance never implies transaction authority. Policy `ALLOW` never
-implies that a signer exists.
+Relic never receives a provider's AWS, OAuth, AgentCore, or runtime secret.
+The signed quote and funded onchain job are the provider's authority to serve
+the buyer. Terms acceptance never implies transaction authority, and Relic
+never submits a buyer transaction.
 
 ## Wallet authentication and authorization
 

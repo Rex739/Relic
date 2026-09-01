@@ -93,7 +93,6 @@ import {
 import express from "express";
 import { buildAgentCard } from "./agentCard.js";
 import { SellerAgentExecutor } from "./executor.js";
-import { relicConnectMiddleware } from "./relicConnect.js";
 import { requestLimitContext } from "./requestLimits.js";
 import type { RunWork } from "./sellerCore.js";
 import { renderYieldReport, scanVenusYields } from "./yieldReader.js";
@@ -478,13 +477,6 @@ async function main(): Promise<void> {
   app.get("/readiness", (_req, res) => {
     res.json({ status: "READY" });
   });
-
-  // When Relic Connect is configured, public discovery remains lightweight
-  // while every invocation requires a short-lived marketplace token. This is
-  // intentionally inside the runtime so buyers never receive seller OAuth
-  // credentials. Local Studio development is unchanged until the deployment
-  // injects the public verification key and enables REQUIRED mode.
-  app.use(relicConnectMiddleware());
 
   if (seller.state !== "disabled") {
     app.all(

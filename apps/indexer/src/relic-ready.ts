@@ -16,9 +16,6 @@ const relicReadyDocumentSchema = z.object({
     endpoint: z.url(),
     protocol: z.string().trim().min(1),
     availability: z.literal("available"),
-    authorization: z.object({
-      type: z.literal("relic-job-authorization-v1"),
-    }),
   }),
   issuedAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),

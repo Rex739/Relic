@@ -197,18 +197,18 @@ export default async function CommerceAgreementPage({
       {status === "AUTHORIZED" && validationAgreement ? (
         <section className="agreement-next-step" aria-labelledby="next-step">
           <div>
-            <span className="overline">Validation authority confirmed</span>
-            <h2 id="next-step">Prepare the verified service setup</h2>
+            <span className="overline">Quote authorization confirmed</span>
+            <h2 id="next-step">Get the provider&apos;s signed quote</h2>
             <p>
-              Relic will contact the offer's verified service, validate its
-              signed price, and prepare the exact payment steps. This action
-              does not submit a transaction or move funds.
+              Relic will ask the provider&apos;s public BNB Studio interface for a
+              fresh signed quote, then prepare the buyer-owned ERC-8183 task
+              steps. This does not submit a transaction or move funds.
             </p>
           </div>
           <form action={prepareCommerceValidationAction}>
             <input type="hidden" name="agreementId" value={id} />
             <button type="submit" className="primary-action">
-              Prepare secure setup <span aria-hidden="true">→</span>
+              Get signed quote <span aria-hidden="true">→</span>
             </button>
           </form>
         </section>
@@ -218,11 +218,11 @@ export default async function CommerceAgreementPage({
       activeValidationOperation !== undefined ? (
         <section className="agreement-next-step" aria-labelledby="next-step">
           <div>
-            <span className="overline">Manual wallet setup</span>
-            <h2 id="next-step">Confirm the next required step</h2>
+            <span className="overline">Fund the BNB task</span>
+            <h2 id="next-step">Confirm the next wallet step</h2>
             <p>
-              Relic prepares one exact operation at a time. Your wallet must
-              approve every transaction; Relic never submits one automatically.
+              Relic prepares one exact ERC-8183 step at a time. Your wallet
+              approves every transaction; Relic never submits one automatically.
             </p>
           </div>
           <WalletCommerceOperation
@@ -265,12 +265,13 @@ export default async function CommerceAgreementPage({
         <section className="agreement-next-step" aria-labelledby="next-step">
           <div>
             <span className="overline">Escrow funding confirmed</span>
-            <h2 id="next-step">Delivery preparation is paused safely</h2>
+            <h2 id="next-step">The provider can now verify the task</h2>
             <p>
-              The paid setup is complete. Relic will not invoke a provider that
-              can submit a delivery transaction outside the durable wallet
-              operation system. No settlement or reputation outcome is created
-              while this safety boundary remains unresolved.
+              The BNB task is funded. The production hand-off is
+              <code>notify_funded</code>: the provider checks the funded
+              onchain job before running. This listing is not marked hireable
+              until that provider hand-off is available through its public A2A
+              interface.
             </p>
           </div>
         </section>

@@ -58,12 +58,12 @@ export function WalletSession({
   const accountMenuRef = useRef<HTMLDetailsElement>(null);
   const connectRequested = useRef(
     typeof window !== "undefined" &&
-      window.sessionStorage.getItem("relic_connect_requested") === "1",
+      window.sessionStorage.getItem("wallet_connect_requested") === "1",
   );
   const connectMethod = useRef<"google" | "wallet" | null>(
     typeof window === "undefined"
       ? null
-      : (window.sessionStorage.getItem("relic_connect_method") as
+      : (window.sessionStorage.getItem("wallet_connect_method") as
           "google" | "wallet" | null),
   );
 
@@ -132,8 +132,8 @@ export function WalletSession({
   const clearConnectionRequest = () => {
     connectRequested.current = false;
     connectMethod.current = null;
-    window.sessionStorage.removeItem("relic_connect_requested");
-    window.sessionStorage.removeItem("relic_connect_method");
+    window.sessionStorage.removeItem("wallet_connect_requested");
+    window.sessionStorage.removeItem("wallet_connect_method");
   };
 
   const activeWalletDetails = async () => {
@@ -298,8 +298,8 @@ export function WalletSession({
     }
     connectRequested.current = true;
     connectMethod.current = method;
-    window.sessionStorage.setItem("relic_connect_requested", "1");
-    window.sessionStorage.setItem("relic_connect_method", method);
+    window.sessionStorage.setItem("wallet_connect_requested", "1");
+    window.sessionStorage.setItem("wallet_connect_method", method);
     setBusy(true);
     setError(null);
     setConnectOpen(false);

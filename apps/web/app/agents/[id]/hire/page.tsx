@@ -451,30 +451,28 @@ export default async function HireAgentPage({
       ) : (
         <section className="profile-section hire-current-step">
           <span className="overline">Step 4 · Start</span>
-          <h2>Complete the four wallet confirmations</h2>
+          <h2>Fund your BNB task</h2>
           <ol className="setup-sequence">
-            <li>1/4 Create the service relationship</li>
-            <li>2/4 Apply the service rules</li>
+            <li>1/4 Confirm the provider&apos;s signed quote</li>
+            <li>2/4 Create your BNB task</li>
             <li>
-              3/4 Confirm the{" "}
-              {isFreePrice(offer.version.price) ? "free" : "spending"} limit
+              3/4 Set and fund the {isFreePrice(offer.version.price) ? "free" : "spending"} budget
             </li>
-            <li>4/4 Start the agent</li>
+            <li>4/4 Notify the agent that funding is confirmed</li>
           </ol>
           <p>
-            Relic prepares each operation after the previous receipt is safely
-            observed. You manually confirm all four in your wallet on one guided
-            setup screen.
+            You confirm every wallet transaction. After escrow funding is
+            final, the provider verifies the onchain job before it starts work.
           </p>
           <Link
             className="primary-button"
             href={`/my-agents/mandates/${selectedMandate.mandate.id}`}
           >
-            Continue to start agent
+            Continue to fund task
           </Link>
           <details className="technical-details">
-            <summary>Technical setup names</summary>
-            <p>CREATE_JOB → REGISTER_JOB → SET_BUDGET → FUND</p>
+            <summary>Technical details</summary>
+            <p>Signed quote → ERC-8183 job → fund escrow → notify_funded</p>
           </details>
         </section>
       )}

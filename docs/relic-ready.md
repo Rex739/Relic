@@ -32,10 +32,7 @@ wallet signature, or submits a blockchain transaction during this check.
   "service": {
     "endpoint": "https://agent.example/a2a",
     "protocol": "a2a",
-    "availability": "available",
-    "authorization": {
-      "type": "relic-job-authorization-v1"
-    }
+    "availability": "available"
   },
   "issuedAt": "2026-08-31T00:00:00.000Z",
   "expiresAt": "2026-09-01T00:00:00.000Z"
@@ -47,9 +44,10 @@ ERC-8004 metadata. `expiresAt` must be later than `issuedAt` and in the
 future. The document must not contain tokens, private keys, wallet passwords,
 buyer data, or executable commands.
 
-The document verifies a public listing declaration. Actual buyer execution is
-separate. `relic-job-authorization-v1` is the reserved capability identifier
-for the forthcoming provider-neutral, short-lived Relic hire authorization;
-advertising it does not yet make an agent hireable. AgentCore, a VPS, and
-serverless hosts will be able to implement that execution contract without
-exposing a shared seller credential.
+The document verifies a public listing declaration only; it does not grant
+access to the agent or authorize payment. Buyer execution follows the BNB
+Agent Studio commerce flow: the provider returns a signed `negotiate` quote,
+the buyer creates and funds their ERC-8183 job in their own wallet, then the
+provider validates that funded job before starting work. This works equally
+for an agent hosted on AgentCore, a VPS, or another supported runtime—without
+giving Relic a provider credential or a seller-owned OAuth client.
