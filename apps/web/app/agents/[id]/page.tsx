@@ -290,32 +290,43 @@ export default async function AgentIntelligencePage({
             </section>
             {agent.outcomes.length > 0 ? (
               <section className="profile-secondary-panel">
-                <h2>Activity</h2>
+                <span className="overline">Activity</span>
+                <h2>Recent activity</h2>
                 <div className="outcome-list">
                   {agent.outcomes.map((outcome, index) => (
                     <article key={`${outcome.observedAt}-${index}`}>
-                      <div>
+                      <div className="outcome-title-row">
                         <b>{marketplaceOutcomeLabel(outcome)}</b>
-                        <p>{marketplaceOutcomeDescription(outcome)}</p>
-                      </div>
-                      <div className="outcome-meta">
-                        <span>
-                          {outcome.responseStatus ??
-                            (outcome.invocationSuccessful
-                              ? "Service responded"
-                              : "No service response")}
+                        <span className="outcome-cost">
+                          Cost {outcome.observedCost}
                         </span>
-                        <span>Cost {outcome.observedCost}</span>
-                        <time dateTime={outcome.observedAt}>
-                          {new Intl.DateTimeFormat("en", {
+                        <span
+                          className={
+                            outcome.commerceSuccessful ||
+                            outcome.invocationSuccessful
+                              ? "outcome-status is-success"
+                              : "outcome-status"
+                          }
+                        >
+                          {outcome.settlementState.replaceAll("_", " ")}
+                        </span>
+                        <time
+                          dateTime={outcome.observedAt}
+                          title={new Intl.DateTimeFormat("en", {
                             day: "numeric",
                             month: "short",
                             year: "numeric",
                             hour: "numeric",
                             minute: "2-digit",
                           }).format(new Date(outcome.observedAt))}
+                        >
+                          {relativeTime(outcome.observedAt)}
                         </time>
                       </div>
+                      <p>
+                        {marketplaceOutcomeDescription(outcome)} Service
+                        response: {outcome.responseStatus ?? "not recorded"}.
+                      </p>
                     </article>
                   ))}
                 </div>

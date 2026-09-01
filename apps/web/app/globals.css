@@ -4297,7 +4297,7 @@ summary:focus-visible {
   min-width: 0;
 }
 .profile-secondary-panel > h2 {
-  margin: 0 0 12px;
+  margin: 5px 0 12px;
   font-size: 20px;
 }
 .profile-secondary-grid .profile-section {
@@ -4342,36 +4342,55 @@ summary:focus-visible {
   line-height: 1.5;
 }
 .outcome-list {
-  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
 }
 .outcome-list article {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 0;
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
-.outcome-list article > div:first-child {
+.outcome-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
 }
 .outcome-list article b {
   color: var(--ink);
   font-size: 13px;
 }
+.outcome-cost {
+  color: var(--muted);
+  font-size: 12px;
+}
+.outcome-status {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--raised);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.outcome-status.is-success {
+  color: #a6d99b;
+  background: #162519;
+}
+.outcome-title-row time {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .outcome-list article p {
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
-}
-.outcome-meta {
-  display: grid;
-  justify-items: end;
-  gap: 4px;
-  color: var(--faint);
-  font-size: 11px;
-  text-align: right;
-  white-space: nowrap;
 }
 .mobile-listing-register {
   display: none;
@@ -4445,11 +4464,12 @@ summary:focus-visible {
     display: grid;
     gap: 10px;
   }
-  .outcome-meta {
-    justify-items: start;
-    grid-template-columns: repeat(3, max-content);
-    text-align: left;
-    white-space: normal;
+  .outcome-title-row {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .outcome-title-row time {
+    margin-left: 0;
   }
   .profile-summary-block,
   .profile-summary-block:first-child,
