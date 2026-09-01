@@ -193,7 +193,7 @@ export function SellerOwnershipClaim() {
         <h2>{submission?.name ?? `Agent #${submission?.externalAgentId}`}</h2>
         <p>
           Your agent has been added. Taking you to My listings while Relic
-          checks its public A2A commerce interface in the background.
+          checks its registered service in the background.
         </p>
       </section>
     );
@@ -225,9 +225,8 @@ export function SellerOwnershipClaim() {
         <h2>Import an ERC-8004 agent</h2>
         <p>
           Find its registered identity, then prove control of the current
-          owner. To publish, the agent must expose a public A2A card with
-          <code>negotiate</code> and <code>notify_funded</code>. This owner
-          check is a signature only—Relic will not request a transaction.
+          owner. This owner check is a signature only—Relic will not request a
+          transaction or access to the agent's hosting account.
         </p>
       </div>
 

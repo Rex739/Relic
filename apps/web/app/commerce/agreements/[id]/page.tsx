@@ -13,7 +13,6 @@ import { WalletCommerceOperation } from "../../../_components/wallet-commerce-op
 import {
   acceptTermsAction,
   cancelAgreementAction,
-  notifyFundedProviderAction,
   prepareCommerceValidationAction,
   revokeAuthorizationAction,
 } from "../../../commerce-actions";
@@ -268,18 +267,12 @@ export default async function CommerceAgreementPage({
             <span className="overline">Escrow funding confirmed</span>
             <h2 id="next-step">The provider can now verify the task</h2>
             <p>
-              The BNB task is funded. The production hand-off is
-              <code>notify_funded</code>: the provider checks the funded
-              onchain job before running. Relic never sends a provider
-              credential with this request.
+              The BNB task is funded. The provider&apos;s ERC-8183 service
+              observes the onchain job, verifies it, and begins work under its
+              own execution flow. Relic does not call a provider-specific
+              delivery endpoint.
             </p>
           </div>
-          <form action={notifyFundedProviderAction}>
-            <input type="hidden" name="agreementId" value={id} />
-            <button type="submit" className="primary-action">
-              Request delivery <span aria-hidden="true">→</span>
-            </button>
-          </form>
         </section>
       ) : null}
       <section className="profile-section execution-commerce">

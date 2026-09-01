@@ -24,7 +24,6 @@ import type {
 } from "@relic/database";
 import {
   negotiateOfferBoundService,
-  notifyFundedService,
 } from "@relic/validation";
 import {
   createPublicClient,
@@ -943,34 +942,6 @@ export class CommerceApplicationService {
       },
     });
     return this.store.findAgreement(agreementId, principal.principalId);
-  }
-
-  /** Tell a public BNB Studio provider that its buyer-funded job is ready. */
-  public async notifyFundedProvider(
-    principal: WalletSessionPrincipal,
-    agreementId: string,
-  ) {
-    const context = await this.store.fundedCommerceNotificationContext({
-      agreementId,
-      principalId: principal.principalId,
-    });
-    if (
-      context === null ||
-      context.agreement.status !== "ACTIVE" ||
-      context.agreement.chainId !== principal.chainId ||
-      context.service.availability !== "available" ||
-      context.service.endpoint === null ||
-      context.activation.externalJobId === null
-    )
-      throw new Error(
-        "A finalized buyer-funded BNB task is required before notifying the provider",
-      );
-    return notifyFundedService({
-      endpoint: context.service.endpoint,
-      interfaceProtocol: context.service.interfaceProtocol,
-      agreementId,
-      jobId: context.activation.externalJobId,
-    });
   }
 
   public async preparedWalletTransaction(

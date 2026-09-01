@@ -72,12 +72,12 @@ describe("protocol-aware service inspection", () => {
     });
   });
 
-  it("accepts a public A2A card with standard commerce skills without invoking a task", async () => {
+  it("accepts a public A2A card without invoking a task", async () => {
     const request = vi.fn().mockResolvedValue(
       response({
         body: JSON.stringify({
           name: "Seller",
-          skills: [{ id: "negotiate" }, { id: "notify_funded" }],
+          skills: [{ id: "agent-work" }],
         }),
       }),
     );
@@ -92,15 +92,15 @@ describe("protocol-aware service inspection", () => {
     expect(result.toLevel).toBe("SCHEMA_UNDERSTOOD");
   });
 
-  it("requires both standard BNB commerce skills on public A2A cards", async () => {
+  it("does not require Relic-specific skills on public A2A cards", async () => {
     const request = vi.fn().mockResolvedValue(
       response({ body: JSON.stringify({ name: "Seller", skills: [] }) }),
     );
     await expect(
       inspectMarketplaceService({ ...service, interfaceProtocol: "a2a" }, request),
     ).resolves.toMatchObject({
-      result: "failed",
-      error: { code: "missing_public_commerce_skills" },
+      result: "passed",
+      toLevel: "SCHEMA_UNDERSTOOD",
     });
   });
 

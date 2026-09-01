@@ -1686,50 +1686,6 @@ export class DrizzleCommerceStore {
     return row ?? null;
   }
 
-  /**
-   * The only context permitted to notify a seller: a buyer-owned activation
-   * whose ERC-8183 funding operation has already finalized. No runtime
-   * credential is returned or stored here.
-   */
-  public async fundedCommerceNotificationContext(input: {
-    agreementId: string;
-    principalId: string;
-  }) {
-    const [row] = await this.database
-      .select({
-        agreement: commerceAgreements,
-        service: marketplaceServices,
-        activation: activations,
-        funding: commerceOperations,
-      })
-      .from(commerceAgreements)
-      .innerJoin(
-        marketplaceServices,
-        eq(marketplaceServices.id, commerceAgreements.serviceId),
-      )
-      .innerJoin(
-        activations,
-        eq(activations.commerceAgreementId, commerceAgreements.id),
-      )
-      .innerJoin(
-        commerceOperations,
-        and(
-          eq(commerceOperations.activationId, activations.id),
-          eq(commerceOperations.operationType, "FUND"),
-          eq(commerceOperations.state, "FINALIZED"),
-        ),
-      )
-      .where(
-        and(
-          eq(commerceAgreements.id, input.agreementId),
-          eq(commerceAgreements.principalId, input.principalId),
-          eq(activations.purpose, "VERIFICATION"),
-        ),
-      )
-      .limit(1);
-    return row ?? null;
-  }
-
   public async prepareCommerceValidationActivation(input: {
     agreementId: string;
     principalId: string;

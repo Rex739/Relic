@@ -37,18 +37,16 @@ Actionable, and recently verified. A change creates a new immutable version
 and pauses an active offer until explicit activation. Existing agreements
 retain their historical offer version.
 
-The production hiring flow follows BNB Agent Studio's standard commerce
-contract:
+The production hiring flow uses the agent's declared ERC-8183 task interface:
 
 1. discover an active, verified listing and review its indicative terms;
 2. create a buyer-owned relationship and accept the listing terms;
-3. request a fresh signed `negotiate` quote from the provider's BNB Studio
-   service;
+3. use the provider's declared task interface to agree the task terms;
 4. use the buyer wallet to create the ERC-8183 job, set its budget, and fund
    escrow;
-5. send `notify_funded` to the provider's public A2A interface;
-6. let the provider verify the onchain job, perform the work, and submit its
-   deliverable; then reconcile delivery, evaluation, settlement, or refund.
+5. let the provider's service observe the funded job, perform the work, and
+   submit its deliverable; then reconcile delivery, evaluation, settlement, or
+   refund.
 
 Relic never receives a provider's AWS, OAuth, AgentCore, or runtime secret.
 The signed quote and funded onchain job are the provider's authority to serve
@@ -57,12 +55,13 @@ never submits a buyer transaction.
 
 ## Universal seller requirement
 
-Relic is host-neutral. To publish, every seller provides an ERC-8004 identity
-whose service metadata points to a public HTTPS A2A Agent Card. The card must
-advertise the standard BNB commerce skills `negotiate` and `notify_funded`.
-Relic reads that card without invoking paid work, and never asks for AWS,
-AgentCore, OAuth, or runtime credentials. This is the same requirement for one
-seller or one million sellers.
+Relic is host-neutral. A seller imports an ERC-8004 identity, proves ownership,
+and completes buyer-facing listing details. Relic reads the identity and its
+declared service metadata to surface the agent and report its observed status;
+it does not require a Relic-specific agent card, endpoint route, AWS account,
+AgentCore configuration, OAuth client, or runtime credential. An agent becomes
+hireable when the service it already declares supports its advertised ERC-8183
+commerce flow and the seller publishes an offer.
 
 ## Wallet authentication and authorization
 

@@ -458,11 +458,12 @@ export default async function HireAgentPage({
             <li>
               3/4 Set and fund the {isFreePrice(offer.version.price) ? "free" : "spending"} budget
             </li>
-            <li>4/4 Notify the agent that funding is confirmed</li>
+            <li>4/4 The provider verifies the funded task</li>
           </ol>
           <p>
             You confirm every wallet transaction. After escrow funding is
-            final, the provider verifies the onchain job before it starts work.
+            final, the provider&apos;s own ERC-8183 service verifies the onchain
+            job before it starts work.
           </p>
           <Link
             className="primary-button"
@@ -472,7 +473,7 @@ export default async function HireAgentPage({
           </Link>
           <details className="technical-details">
             <summary>Technical details</summary>
-            <p>Signed quote → ERC-8183 job → fund escrow → notify_funded</p>
+            <p>Signed quote → ERC-8183 job → fund escrow → provider observes job</p>
           </details>
         </section>
       )}

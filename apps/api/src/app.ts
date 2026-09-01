@@ -75,7 +75,7 @@ function pendingSellerReadiness(
     serviceId: null,
     name: `Agent #${authorization.externalAgentId}`,
     description:
-      "Ownership is verified. Relic is preparing its catalog profile and checking the public A2A commerce interface.",
+      "Ownership is verified. Relic is preparing this agent's catalog profile and service checks.",
     imageUrl: null,
     category: "seller-onboarding",
     chainId: authorization.chainId,
@@ -92,31 +92,31 @@ function pendingSellerReadiness(
       },
       service: {
         state: "blocked",
-        label: "Public service check pending",
+        label: "Catalog and service setup pending",
         explanation:
-          "Relic is importing the advertised endpoint and will check its public A2A card.",
-        nextAction: "Checking public A2A interface",
+          "Relic has not yet imported this agent's advertised service for marketplace checks.",
+        nextAction: "Waiting for catalog setup",
       },
       verification: {
         state: "blocked",
-        label: "Commerce interface verification pending",
+        label: "Service verification pending",
         explanation:
-          "The public agent card must advertise negotiate and notify_funded before this agent can be listed.",
-        nextAction: "Checking public A2A interface",
+          "Relic can verify the service after catalog and endpoint setup are complete.",
+        nextAction: "Waiting for catalog setup",
       },
       commerce: {
         state: "blocked",
         label: "Commerce validation pending",
         explanation:
-          "Buyer-funded ERC-8183 tasks are available after the public A2A interface passes verification and an offer is published.",
-        nextAction: "Complete public A2A verification",
+          "Commerce validation begins only after the agent has a verified service and marketplace offer.",
+        nextAction: "Waiting for catalog setup",
       },
       offer: {
         state: "blocked",
         label: "Marketplace offer unavailable",
         explanation:
-          "You can publish price and terms after Relic verifies the public A2A commerce interface.",
-        nextAction: "Complete public A2A verification",
+          "You can publish price and terms after Relic has completed catalog and service setup.",
+        nextAction: "Waiting for catalog setup",
       },
     },
     marketplaceStatus: "NOT_READY",
@@ -759,20 +759,6 @@ const prepareCommerceValidationRoute = createRoute({
     200: json(
       z.object({ data: z.any() }),
       "Validation payment sequence prepared",
-    ),
-  },
-});
-const notifyFundedProviderRoute = createRoute({
-  method: "post",
-  path: "/v1/commerce-agreements/{id}/notify-funded",
-  request: {
-    params: agreementParams,
-    headers: z.object({ authorization: z.string() }),
-  },
-  responses: {
-    200: json(
-      z.object({ data: z.any() }),
-      "Provider notified about a finalized buyer-funded job",
     ),
   },
 });
@@ -1901,19 +1887,6 @@ export function createApp(
     return context.json(
       {
         data: await requireCommerce().prepareCommerceValidation(
-          await walletPrincipal(context),
-          id,
-        ),
-      },
-      200,
-    );
-  });
-
-  app.openapi(notifyFundedProviderRoute, async (context) => {
-    const { id } = agreementParams.parse(context.req.param());
-    return context.json(
-      {
-        data: await requireCommerce().notifyFundedProvider(
           await walletPrincipal(context),
           id,
         ),

@@ -126,18 +126,6 @@ function understoodSchema(
   return Object.keys(parsed).length > 0;
 }
 
-function hasPublicCommerceSkills(parsed: Record<string, unknown> | null) {
-  if (parsed === null || !Array.isArray(parsed.skills)) return false;
-  const skills = new Set(
-    parsed.skills.flatMap((skill) =>
-      skill !== null && typeof skill === "object" && "id" in skill
-        ? [String((skill as { id: unknown }).id)]
-        : [],
-    ),
-  );
-  return skills.has("negotiate") && skills.has("notify_funded");
-}
-
 export async function inspectMarketplaceService(
   service: InspectableService,
   request?: SafeRequester,
@@ -229,25 +217,6 @@ export async function inspectMarketplaceService(
       availability: availability(response),
       evidence,
       error: { code: response.errorCode ?? "request_failed" },
-    };
-
-  if (protocol === "a2a" && !hasPublicCommerceSkills(parsed))
-    return {
-      fromLevel: service.verificationLevel,
-      toLevel: service.verificationLevel,
-      result: "failed",
-      protocol,
-      requestMethod: method,
-      httpStatus: response.status,
-      latencyMs: response.latencyMs,
-      availability: availability(response),
-      evidence: {
-        ...evidence,
-        requiredSkills: ["negotiate", "notify_funded"],
-        boundary:
-          "public A2A agent card inspection; no provider credential, payment, or task invocation",
-      },
-      error: { code: "missing_public_commerce_skills" },
     };
 
   let toLevel: ServiceVerificationLevel = "ENDPOINT_OBSERVED";

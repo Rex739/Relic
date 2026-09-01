@@ -7,7 +7,6 @@ import {
   cancelAgreement,
   createCommerceActivation,
   hireOffer,
-  notifyFundedProvider,
   prepareCommerceValidation,
   revokeAgreementAuthorization,
 } from "../lib/commerce";
@@ -62,12 +61,6 @@ export async function revokeAuthorizationAction(formData: FormData) {
 export async function prepareCommerceValidationAction(formData: FormData) {
   const agreementId = field(formData, "agreementId");
   await prepareCommerceValidation(agreementId);
-  redirect(`/commerce/agreements/${agreementId}`);
-}
-
-export async function notifyFundedProviderAction(formData: FormData) {
-  const agreementId = field(formData, "agreementId");
-  await notifyFundedProvider(agreementId);
   redirect(`/commerce/agreements/${agreementId}`);
 }
 
