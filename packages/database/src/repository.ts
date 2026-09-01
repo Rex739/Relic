@@ -87,6 +87,12 @@ function executedRows<T>(result: unknown): T[] {
   throw new TypeError("Database execution did not return rows");
 }
 
+const verificationErrorMessage = (value: unknown): string | null => {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("message" in value) || typeof value.message !== "string") return null;
+  return value.message === "[object Object]" ? null : value.message;
+};
+
 export class DrizzleAgentRepository implements AgentReadRepository {
   public constructor(
     private readonly database: RelicDatabase,
@@ -388,6 +394,9 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       active_offer: boolean;
       verified_price_base_units: string | null;
       verified_currency: string | null;
+      latest_verification_result: "passed" | "failed" | "blocked" | null;
+      latest_verification_observed_at: Date | string | null;
+      latest_verification_error: unknown;
     }>(
       await this.database.execute(sql`
         select
@@ -430,6 +439,9 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           ms.last_verified_at,
           verified_quote.price verified_price_base_units,
           verified_quote.currency verified_currency,
+          latest_verification.result latest_verification_result,
+          latest_verification.observed_at latest_verification_observed_at,
+          latest_verification.error latest_verification_error,
           (
             lc.status = 'ACTIONABLE'
             and exists (
@@ -470,6 +482,13 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             candidate_service.id
           limit 1
         ) ms on true
+        left join lateral (
+          select result, observed_at, error
+          from service_verification_observations
+          where service_id = ms.id
+          order by observed_at desc, id desc
+          limit 1
+        ) latest_verification on true
         left join lateral (
           select
             verification.evidence ->> 'price' price,
@@ -529,6 +548,19 @@ export class DrizzleAgentRepository implements AgentReadRepository {
         activeOffer: row.active_offer,
         publicEligible: publicCandidates.has(`${row.agent_id}:${row.category}`),
         verifiedPrice,
+        latestVerification:
+          row.latest_verification_result === null ||
+          row.latest_verification_observed_at === null
+            ? null
+            : {
+                result: row.latest_verification_result,
+                observedAt: new Date(
+                  row.latest_verification_observed_at,
+                ).toISOString(),
+                errorMessage: verificationErrorMessage(
+                  row.latest_verification_error,
+                ),
+              },
       };
       return sellerReadinessProjection(facts);
     });

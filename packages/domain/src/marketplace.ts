@@ -273,6 +273,11 @@ export interface SellerAgentReadiness {
   externalAgentId: string;
   testDeployment: boolean;
   verifiedPrice: TokenAmount | null;
+  latestVerification?: {
+    result: "passed" | "failed" | "blocked";
+    observedAt: string;
+    errorMessage: string | null;
+  } | null;
   requirements: {
     identity: SellerReadinessRequirement;
     service: SellerReadinessRequirement;
@@ -305,6 +310,11 @@ export interface SellerReadinessFacts {
   activeOffer: boolean;
   publicEligible: boolean;
   verifiedPrice: TokenAmount | null;
+  latestVerification?: {
+    result: "passed" | "failed" | "blocked";
+    observedAt: string;
+    errorMessage: string | null;
+  } | null;
 }
 
 export function sellerReadinessProjection(
@@ -354,12 +364,19 @@ export function sellerReadinessProjection(
     : {
         state: "attention",
         label:
-          facts.lastVerifiedAt === null
-            ? "Relic has not checked the service yet"
-            : "Fresh verification required",
+          facts.latestVerification?.result === "failed"
+            ? "Latest verification failed"
+            : facts.latestVerification?.result === "blocked"
+              ? "Latest verification was blocked"
+              : facts.lastVerifiedAt === null
+                ? "Relic has not checked the service yet"
+                : "Verification is stale",
         explanation:
-          "Relic needs a recent successful check of this service before it can appear to buyers.",
-        nextAction: "Waiting for a fresh Relic check",
+          facts.latestVerification?.errorMessage ??
+          (facts.lastVerifiedAt === null
+            ? "Relic has not recorded a verification attempt for this service yet."
+            : `The last successful verification was ${facts.lastVerifiedAt}. Relic needs a newer successful check before this service can appear to buyers.`),
+        nextAction: "Waiting for a successful Relic check",
       };
   const commerce: SellerReadinessRequirement = facts.commerceValidated
     ? {
@@ -408,6 +425,7 @@ export function sellerReadinessProjection(
     externalAgentId: facts.externalAgentId,
     testDeployment,
     verifiedPrice: facts.verifiedPrice,
+    latestVerification: facts.latestVerification ?? null,
     requirements: { identity, service, verification, commerce, offer },
     marketplaceStatus:
       facts.publicEligible && !testDeployment ? "PUBLIC" : "NOT_READY",
