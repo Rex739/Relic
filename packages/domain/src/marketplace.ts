@@ -356,10 +356,10 @@ export function sellerReadinessProjection(
         label:
           facts.lastVerifiedAt === null
             ? "Relic has not checked the service yet"
-            : "Verification expired — refresh required",
+            : "Fresh verification required",
         explanation:
-          "Relic checks this agent automatically before it can appear to buyers.",
-        nextAction: "Waiting for Relic’s check",
+          "Relic needs a recent successful check of this service before it can appear to buyers.",
+        nextAction: "Waiting for a fresh Relic check",
       };
   const commerce: SellerReadinessRequirement = facts.commerceValidated
     ? {
