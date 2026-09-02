@@ -23,7 +23,10 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' https://challenges.cloudflare.com",
+              // Next.js App Router streams each Suspense boundary with inline
+              // handoff scripts. Without this, browsers retain the loading
+              // boundary even after the server has sent the page payload.
+              "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https:",
               "font-src 'self'",
