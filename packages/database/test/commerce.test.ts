@@ -207,6 +207,23 @@ describe("production commerce persistence", () => {
     ).rejects.toThrow(/current offer already exists/i);
   });
 
+  it("lists active offers through the seller authorization guard", async () => {
+    const offer = await store.createOffer({
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+      request: request(),
+    });
+    await store.activateOffer({
+      offerId: offer!.id,
+      operatorPrincipalId: operator,
+      operatorAddress: owner,
+    });
+
+    await expect(store.activeOffersForAgent(agentId)).resolves.toMatchObject([
+      { id: offer!.id, status: "ACTIVE" },
+    ]);
+  });
+
   it("creates generic paid validation handoffs from the active offer snapshot", async () => {
     const offer = await store.createOffer({
       operatorPrincipalId: operator,
