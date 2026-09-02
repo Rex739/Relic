@@ -14,7 +14,19 @@ import {
   legacyActivationStatusForLifecycle,
   type ActivationLifecycleState,
 } from "@relic/domain";
-import { and, asc, desc, eq, gt, inArray, isNull, notExists, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNull,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
@@ -613,19 +625,21 @@ export class DrizzleCommerceStore {
                   ),
                 ),
             ),
-            this.database
-              .select({ id: sellerAgentAuthorizations.id })
-              .from(sellerAgentAuthorizations)
-              .where(
-                and(
-                  eq(sellerAgentAuthorizations.agentId, agentOffers.agentId),
-                  eq(
-                    sellerAgentAuthorizations.principalId,
-                    agentOffers.operatorPrincipalId,
+            exists(
+              this.database
+                .select({ id: sellerAgentAuthorizations.id })
+                .from(sellerAgentAuthorizations)
+                .where(
+                  and(
+                    eq(sellerAgentAuthorizations.agentId, agentOffers.agentId),
+                    eq(
+                      sellerAgentAuthorizations.principalId,
+                      agentOffers.operatorPrincipalId,
+                    ),
+                    isNull(sellerAgentAuthorizations.revokedAt),
                   ),
-                  isNull(sellerAgentAuthorizations.revokedAt),
                 ),
-              ),
+            ),
           ),
         ),
       )
