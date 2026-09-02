@@ -71,4 +71,4 @@ CMD ["pnpm", "indexer:sync"]
 # finality; the API alone never performs that background work.
 FROM runtime-base AS commerce-worker
 
-CMD ["node", "--import", "tsx", "apps/indexer/src/commerce-operation-service.ts"]
+CMD ["pnpm", "--filter", "@relic/indexer", "exec", "tsx", "src/commerce-operation-service.ts"]
