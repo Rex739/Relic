@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  ChevronDown,
+  MessageCircleOff,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 
 import { commercePriceLabel } from "../../../lib/commerce-display";
 import {
@@ -16,7 +22,6 @@ import { activeOffers } from "../../../lib/commerce";
 import { AgentAvatar } from "../../_components/agent-avatar";
 import { AgentDescription } from "../../_components/agent-description-dialog";
 import { OnChainDataDialog } from "../../_components/on-chain-data-dialog";
-import { VerificationDialog } from "../../_components/verification-dialog";
 import { VerificationTier } from "../../_components/verification-tier";
 
 export const dynamic = "force-dynamic";
@@ -207,8 +212,8 @@ export default async function AgentIntelligencePage({
                 </div>
               ) : (
                 <p>
-                  No operator restrictions are published. Review permissions
-                  before hiring.
+                  No operator restrictions are published. Check the listed
+                  restrictions before hiring.
                 </p>
               )}
             </div>
@@ -239,7 +244,7 @@ export default async function AgentIntelligencePage({
 
           <div className="profile-secondary-grid">
             <section className="profile-secondary-panel">
-              <h2>Reviews</h2>
+              <span className="overline">Reviews</span>
               <div
                 className={
                   agent.reviews.length > 0
@@ -259,29 +264,46 @@ export default async function AgentIntelligencePage({
                 ) : null}
                 {agent.reviews.length === 0 ? (
                   <div className="empty-review-state">
-                    <b>No reviews yet</b>
+                    <MessageCircleOff aria-hidden="true" size={24} />
+                    <div>
+                      <b>No reviews yet</b>
+                    </div>
                   </div>
                 ) : (
                   <div className="review-list">
                     {agent.reviews.map((review) => (
                       <article key={review.id}>
-                        <div>
-                          <b>{review.sentiment === "GOOD" ? "Good" : "Bad"}</b>
-                          <time>{relativeTime(review.createdAt)}</time>
-                        </div>
-                        {review.tags.length > 0 ? (
-                          <div className="tag-row">
-                            {review.tags.map((tag) => (
-                              <span key={tag}>
-                                {productCapabilityLabel(tag)}
-                              </span>
-                            ))}
+                        <span className="review-avatar" aria-hidden="true">
+                          {review.reviewerRole === "BUYER" ? "B" : "A"}
+                        </span>
+                        <div className="review-content">
+                          <div className="review-meta">
+                            <b>
+                              {review.reviewerRole === "BUYER"
+                                ? "Marketplace buyer"
+                                : "Marketplace agent"}
+                            </b>
+                            <time>{relativeTime(review.createdAt)}</time>
                           </div>
-                        ) : null}
-                        {review.message === null ? null : (
-                          <p>{review.message}</p>
-                        )}
-                        <small>Verified hire</small>
+                          {review.tags.length > 0 ? (
+                            <div className="review-tags">
+                              {review.tags.map((tag) => (
+                                <span key={tag}>
+                                  {review.sentiment === "GOOD" ? (
+                                    <ThumbsUp aria-hidden="true" size={13} />
+                                  ) : (
+                                    <ThumbsDown aria-hidden="true" size={13} />
+                                  )}
+                                  {productCapabilityLabel(tag)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {review.message === null ? null : (
+                            <p>{review.message}</p>
+                          )}
+                          <small>Verified marketplace job</small>
+                        </div>
                       </article>
                     ))}
                   </div>
@@ -291,11 +313,13 @@ export default async function AgentIntelligencePage({
             {agent.outcomes.length > 0 ? (
               <section className="profile-secondary-panel">
                 <span className="overline">Activity</span>
-                <h2>Recent activity</h2>
                 <div className="outcome-list">
                   {agent.outcomes.map((outcome, index) => (
-                    <article key={`${outcome.observedAt}-${index}`}>
-                      <div className="outcome-title-row">
+                    <details
+                      className="activity-record"
+                      key={`${outcome.observedAt}-${index}`}
+                    >
+                      <summary>
                         <b>{marketplaceOutcomeLabel(outcome)}</b>
                         <span className="outcome-cost">
                           Cost {outcome.observedCost}
@@ -322,12 +346,19 @@ export default async function AgentIntelligencePage({
                         >
                           {relativeTime(outcome.observedAt)}
                         </time>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="activity-chevron"
+                          size={16}
+                        />
+                      </summary>
+                      <div className="activity-record-details">
+                        <p>
+                          {marketplaceOutcomeDescription(outcome)} Service
+                          response: {outcome.responseStatus ?? "not recorded"}.
+                        </p>
                       </div>
-                      <p>
-                        {marketplaceOutcomeDescription(outcome)} Service
-                        response: {outcome.responseStatus ?? "not recorded"}.
-                      </p>
-                    </article>
+                    </details>
                   ))}
                 </div>
               </section>
@@ -395,23 +426,19 @@ export default async function AgentIntelligencePage({
                 <b>{isReadOnly ? "Read-only" : "Set during hire"}</b>
               </div>
             </div>
-            <VerificationDialog
-              checks={agent.checks}
-              lastChecked={relativeTime(agent.checks.lastCheckedAt)}
-            />
             <p>Last active {relativeTime(agent.lastVerifiedAt)}.</p>
-            <p className="funds-access-summary">
-              {isReadOnly
-                ? "This service cannot move your funds."
-                : "You review any funds access before authorizing it."}
-            </p>
+            {isReadOnly ? (
+              <p className="funds-access-summary">
+                This service cannot move your funds.
+              </p>
+            ) : null}
             {agent.hireable ? (
               <div className="action-boundary actionable-boundary">
                 <Link
                   href={`/agents/${agent.id}/hire`}
                   className="activate-link"
                 >
-                  Hire agent <small>Review permissions</small>
+                  Hire agent
                 </Link>
                 <Link
                   href={`/compare?ids=${agent.id}`}

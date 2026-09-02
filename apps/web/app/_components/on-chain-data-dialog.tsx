@@ -2,7 +2,6 @@
 
 import { ExternalLink } from "lucide-react";
 
-import { Button } from "../../components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -42,9 +41,9 @@ export function OnChainDataDialog({ data }: { data: TechnicalData }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button className="on-chain-data-trigger" variant="outline">
+        <button className="on-chain-data-trigger" type="button">
           View all <ExternalLink aria-hidden="true" size={14} />
-        </Button>
+        </button>
       </DialogTrigger>
       <DialogContent className="on-chain-data-dialog-content">
         <DialogHeader>
