@@ -214,7 +214,9 @@ will not substitute the seller wallet.
 
 ## Mainnet boundary
 
-Mainnet requires explicit wallet-auth domain/URI, commerce authorizer,
+Mainnet requires explicit wallet-auth domain/URI and a stable EIP-712 domain
+address (the selected ERC-8183 policy address is used to domain-separate Relic
+buyer approvals; it is not an additional authorizer contract),
 ERC-8183 commerce/evaluator deployments, token allowlists and decimals,
 confirmation policy, RPC/explorer evidence, monitoring, and a strong remote
 signer/custody or smart-account design. The lightweight testnet deployment

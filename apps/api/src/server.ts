@@ -86,8 +86,8 @@ const walletAuth =
         environment.RELIC_WALLET_AUTH_DOMAIN ?? "localhost",
         environment.RELIC_WALLET_AUTH_URI ?? "http://localhost:3000",
       );
-const commerceAuthorizerAddress =
-  environment.RELIC_COMMERCE_AUTHORIZER_ADDRESS ??
+const commerceEip712DomainAddress =
+  environment.RELIC_COMMERCE_EIP712_DOMAIN_ADDRESS ??
   (environment.NODE_ENV === "production"
     ? undefined
     : environment.ERC8183_POLICY_ADDRESS);
@@ -96,19 +96,19 @@ if (
   environment.NODE_ENV === "production" &&
   (environment.RELIC_WALLET_AUTH_DOMAIN === undefined ||
     environment.RELIC_WALLET_AUTH_URI === undefined ||
-    commerceAuthorizerAddress === undefined ||
+    commerceEip712DomainAddress === undefined ||
     environment.RELIC_ERC8183_COMMERCE_ADDRESS === undefined ||
     environment.RELIC_ERC8183_EVALUATOR_ADDRESS === undefined)
 )
   throw new Error(
-    "Production commerce requires wallet-auth, authorizer, ERC-8183 commerce, and evaluator configuration",
+    "Production commerce requires wallet-auth, an EIP-712 domain address, ERC-8183 commerce, and evaluator configuration",
   );
 const commerce =
-  connection === null || commerceAuthorizerAddress === undefined
+  connection === null || commerceEip712DomainAddress === undefined
     ? undefined
     : new CommerceApplicationService(
         new DrizzleCommerceStore(connection.db),
-        commerceAuthorizerAddress as `0x${string}`,
+        commerceEip712DomainAddress as `0x${string}`,
         () => new Date(),
         environment.RELIC_ERC8183_COMMERCE_ADDRESS === undefined ||
           environment.RELIC_ERC8183_EVALUATOR_ADDRESS === undefined

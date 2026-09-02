@@ -103,7 +103,7 @@ permission.
 | `RELIC_WALLET_AUTH_DOMAIN` | Required | Not needed | `userelic.app` |
 | `RELIC_WALLET_AUTH_URI` | Required | Not needed | `https://userelic.app` |
 | `RELIC_ADMIN_PRINCIPAL_IDS` | Required for admin verification | Not needed | Comma-separated privileged principals |
-| `RELIC_COMMERCE_AUTHORIZER_ADDRESS` | Required for commerce | Required | Selected BSC Testnet contract |
+| `RELIC_COMMERCE_EIP712_DOMAIN_ADDRESS` | Required for commerce | Required | Set to the selected ERC-8183 policy address; used only to domain-separate Relic EIP-712 buyer approvals |
 | `RELIC_ERC8183_COMMERCE_ADDRESS` | Required for commerce | Required | Selected BSC Testnet contract |
 | `RELIC_ERC8183_EVALUATOR_ADDRESS` | Required for commerce | Required | Selected BSC Testnet contract |
 | `ERC8183_POLICY_ADDRESS` | If applicable | If applicable | Selected BSC Testnet policy contract |

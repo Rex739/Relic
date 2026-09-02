@@ -51,7 +51,10 @@ const serverEnvironmentSchema = z.object({
   // Comma-separated Privy principal UUIDs allowed to use Relic's internal
   // operational tools. Keep this only in server-side environment variables.
   RELIC_ADMIN_PRINCIPAL_IDS: z.string().trim().min(1).optional(),
-  RELIC_COMMERCE_AUTHORIZER_ADDRESS: z
+  // Stable on-chain address used as the EIP-712 verifying-contract field for
+  // Relic's buyer commerce approvals. It domain-separates Relic signatures; it
+  // is not a separate marketplace authorizer contract.
+  RELIC_COMMERCE_EIP712_DOMAIN_ADDRESS: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/)
     .optional(),
