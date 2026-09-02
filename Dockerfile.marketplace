@@ -1,0 +1,74 @@
+# The marketplace is distinct from the root Dockerfile, which builds only the
+# health-factor reference-agent runtime. ECS selects one target below for each
+# marketplace process.
+FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94 AS base
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+RUN corepack enable && corepack prepare pnpm@11.16.0 --activate
+
+WORKDIR /workspace
+
+FROM base AS dependencies
+
+COPY . ./
+
+RUN pnpm install --frozen-lockfile
+
+FROM dependencies AS build
+
+# Next.js inlines NEXT_PUBLIC_* variables into browser bundles. Supply these
+# non-secret values in the image build, never as runtime secrets.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_PRIVY_APP_ID
+ARG NEXT_PUBLIC_PRIVY_CLIENT_ID
+
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_PRIVY_APP_ID=$NEXT_PUBLIC_PRIVY_APP_ID
+ENV NEXT_PUBLIC_PRIVY_CLIENT_ID=$NEXT_PUBLIC_PRIVY_CLIENT_ID
+
+RUN pnpm --filter @relic/web build
+RUN pnpm --filter @relic/api build
+RUN pnpm --filter @relic/indexer build
+
+FROM base AS runtime-base
+
+ENV NODE_ENV=production
+
+COPY --from=build --chown=node:node /workspace /workspace
+
+USER node
+
+FROM runtime-base AS web
+
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["pnpm", "--filter", "@relic/web", "start"]
+
+FROM runtime-base AS api
+
+ENV API_PORT=8787
+
+EXPOSE 8787
+
+CMD ["pnpm", "--filter", "@relic/api", "start"]
+
+# Run exactly once per release, before API/web rollout. Drizzle migrations are
+# additive and the command exits after applying them.
+FROM runtime-base AS migrate
+
+CMD ["pnpm", "db:migrate"]
+
+# Run on a short recurring schedule to keep ERC-8004 discovery current.
+FROM runtime-base AS indexer-sync
+
+CMD ["pnpm", "indexer:sync"]
+
+# This is deliberately a long-running process. It reconciles ERC-8183 receipt
+# finality; the API alone never performs that background work.
+FROM runtime-base AS commerce-worker
+
+CMD ["node", "--import", "tsx", "apps/indexer/src/commerce-operation-service.ts"]
