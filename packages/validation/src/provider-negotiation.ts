@@ -46,6 +46,13 @@ const responseSchema = z.object({
     ),
   }),
 });
+const erc8183StatusSchema = z.object({
+  agent_address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  commerce_address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  chain_id: z.number().int().positive(),
+  capability: z.string().min(1),
+  read_only: z.boolean(),
+});
 
 export type ProviderRequester = (
   endpoint: string,
@@ -71,11 +78,87 @@ export async function negotiateOfferBoundService(
   input: OfferNegotiationInput,
   options: { requester?: ProviderRequester; messageId?: string } = {},
 ) {
-  if (input.interfaceProtocol.toLowerCase() !== "a2a")
+  const protocol = input.interfaceProtocol.toLowerCase();
+  if (protocol !== "a2a" && protocol !== "erc8183")
     throw new Error(
       `Service interface ${input.interfaceProtocol} is not supported for commerce validation`,
     );
   const requester = options.requester ?? safeHttpRequest;
+  const task = {
+    task_description: `Execute capability ${input.capability} under the exact Relic marketplace offer bound to agreement ${input.agreementId}.`,
+    terms: {
+      deliverables: input.terms,
+      quality_standards:
+        input.limitations.length === 0
+          ? "Return the advertised deliverable with reproducible evidence."
+          : `Respect these advertised limitations: ${input.limitations.join("; ")}`,
+      price: input.amountBaseUnits,
+      currency: input.paymentTokenAddress,
+      relic_offer: {
+        offer_id: input.offerId,
+        offer_version_id: input.offerVersionId,
+        agreement_id: input.agreementId,
+        terms_hash: input.termsHash,
+        chain_id: input.chainId,
+      },
+    },
+  };
+  if (protocol === "erc8183") {
+    const base = new URL(input.endpoint);
+    const normalizedPath = base.pathname.replace(/\/+$/u, "");
+    base.pathname = normalizedPath.endsWith("/erc8183")
+      ? normalizedPath
+      : `${normalizedPath}/erc8183`;
+    const statusUrl = new URL(base);
+    statusUrl.pathname = `${base.pathname}/status`;
+    const statusResponse = await requester(statusUrl.toString(), {
+      method: "GET",
+      timeoutMs: 5_000,
+      maxRedirects: 0,
+      maxResponseBytes: 64 * 1024,
+    });
+    if (!statusResponse.ok || statusResponse.status !== 200)
+      throw new Error(
+        `ERC-8183 provider status failed (${statusResponse.errorCode ?? statusResponse.status})`,
+      );
+    const status = erc8183StatusSchema.parse(JSON.parse(statusResponse.body));
+    if (status.chain_id !== input.chainId)
+      throw new Error("ERC-8183 provider network does not match the offer");
+    const negotiateUrl = new URL(base);
+    negotiateUrl.pathname = `${base.pathname}/negotiate`;
+    const response = await requester(negotiateUrl.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(task),
+      timeoutMs: 10_000,
+      maxRedirects: 0,
+      maxResponseBytes: 64 * 1024,
+    });
+    if (!response.ok || response.status !== 200)
+      throw new Error(
+        `ERC-8183 provider negotiation failed (${response.errorCode ?? response.status})`,
+      );
+    const quote = signedQuoteSchema.parse(JSON.parse(response.body));
+    if (quote.chain_id !== input.chainId)
+      throw new Error("Provider quote chain does not match the offer");
+    if (quote.response.terms.price !== input.amountBaseUnits)
+      throw new Error("Provider quote price does not match the offer");
+    if (
+      quote.response.terms.currency.toLowerCase() !==
+      input.paymentTokenAddress.toLowerCase()
+    )
+      throw new Error("Provider quote currency does not match the offer");
+    if (quote.response.quote_expires_at <= quote.response.negotiated_at)
+      throw new Error("Provider quote expiry is invalid");
+    return {
+      quote,
+      task,
+      taskId: `erc8183-${input.agreementId}`,
+      contextId: `erc8183-${input.offerId}`,
+      messageId: options.messageId ?? randomUUID(),
+      responseSha256: createHash("sha256").update(response.body).digest("hex"),
+    };
+  }
   const cardResponse = await requester(input.endpoint, {
     method: "GET",
     timeoutMs: 5_000,
@@ -98,25 +181,6 @@ export async function negotiateOfferBoundService(
     throw new Error("Provider invocation URL must be same-host HTTPS");
 
   const messageId = options.messageId ?? randomUUID();
-  const task = {
-    task_description: `Execute capability ${input.capability} under the exact Relic marketplace offer bound to agreement ${input.agreementId}.`,
-    terms: {
-      deliverables: input.terms,
-      quality_standards:
-        input.limitations.length === 0
-          ? "Return the advertised deliverable with reproducible evidence."
-          : `Respect these advertised limitations: ${input.limitations.join("; ")}`,
-      price: input.amountBaseUnits,
-      currency: input.paymentTokenAddress,
-      relic_offer: {
-        offer_id: input.offerId,
-        offer_version_id: input.offerVersionId,
-        agreement_id: input.agreementId,
-        terms_hash: input.termsHash,
-        chain_id: input.chainId,
-      },
-    },
-  };
   const body = JSON.stringify({
     jsonrpc: "2.0",
     id: `relic-commerce-${input.agreementId}`,

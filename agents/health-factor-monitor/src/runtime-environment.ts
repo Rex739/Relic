@@ -4,6 +4,7 @@ export interface ReferenceRuntimeEnvironment {
   fundedPollInterval: number;
   keystoreDirectory: string;
   port: number;
+  servicePrice: string;
   signedQuoteTtlSeconds: number;
   walletAddress: `0x${string}`;
   walletPassword: string;
@@ -41,8 +42,9 @@ export function parseReferenceRuntimeEnvironment(
     );
   if (environment.NETWORK !== "bsc-testnet")
     throw new Error("The reference runtime is locked to NETWORK=bsc-testnet");
-  if (environment.ERC8183_SERVICE_PRICE !== "0")
-    throw new Error("ERC8183_SERVICE_PRICE must be exactly 0");
+  const servicePrice = required(environment, "ERC8183_SERVICE_PRICE");
+  if (!/^\d+$/u.test(servicePrice))
+    throw new Error("ERC8183_SERVICE_PRICE must be a non-negative base-unit amount");
 
   const databaseUrl = required(environment, "DATABASE_URL");
   if (!databaseUrl.startsWith("postgresql://"))
@@ -69,6 +71,7 @@ export function parseReferenceRuntimeEnvironment(
     ),
     keystoreDirectory: required(environment, "WALLET_KEYSTORE_DIR"),
     port: positiveInteger(environment.PORT ?? "8003", "PORT", 65_535),
+    servicePrice,
     signedQuoteTtlSeconds: positiveInteger(
       environment.ERC8183_SIGNED_QUOTE_TTL_SECONDS ?? "900",
       "ERC8183_SIGNED_QUOTE_TTL_SECONDS",

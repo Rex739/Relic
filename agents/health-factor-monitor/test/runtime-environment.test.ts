@@ -27,6 +27,15 @@ describe("reference runtime environment", () => {
     });
   });
 
+  it("accepts a configured ERC-8183 base-unit service price", () => {
+    expect(
+      parseReferenceRuntimeEnvironment({
+        ...validEnvironment(),
+        ERC8183_SERVICE_PRICE: "10000000000000000",
+      }),
+    ).toMatchObject({ servicePrice: "10000000000000000" });
+  });
+
   it("fails closed above the SDK's signed-quote maximum", () => {
     expect(() =>
       parseReferenceRuntimeEnvironment({

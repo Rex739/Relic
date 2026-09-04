@@ -80,7 +80,7 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
       walletAddress,
       walletsDir: environment.keystoreDirectory,
       storage,
-      servicePrice: "0",
+      servicePrice: environment.servicePrice,
       agentUrl: environment.agentUrl,
     });
     if (config.walletProvider === null)
@@ -95,11 +95,11 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
       walletProvider: config.walletProvider,
       network: config.effectiveNetwork,
       storageProvider: storage,
-      servicePrice: 0n,
+      servicePrice: BigInt(environment.servicePrice),
       agentUrl: config.agentUrl,
     });
     const negotiation = await sdk.NegotiationHandler.fromErc8183Client(client, {
-      servicePrice: "0",
+      servicePrice: environment.servicePrice,
       walletProvider: config.walletProvider,
       quoteTtlSeconds: environment.signedQuoteTtlSeconds,
     });
@@ -136,7 +136,7 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
             commerce_address: config.effectiveCommerceAddress,
             router_address: config.effectiveRouterAddress,
             policy_address: config.effectivePolicyAddress,
-            service_price: "0",
+            service_price: environment.servicePrice,
             currency: paymentToken,
             chain_id: 97,
             capability: "health-factor-monitoring",
@@ -206,7 +206,7 @@ export async function startReferenceService(telemetry: StartupMemoryTelemetry) {
       })}`,
     );
     console.info(
-      `[reference-runtime] listening on 0.0.0.0:${environment.port}; agents=health-factor-monitor; zero-price; BSC testnet`,
+      `[reference-runtime] listening on 0.0.0.0:${environment.port}; agents=health-factor-monitor; price=${environment.servicePrice}; BSC testnet`,
     );
     setTimeout(() => telemetry.capture("steady-state:5s"), 5_000).unref();
     setTimeout(() => telemetry.capture("steady-state:30s"), 30_000).unref();
