@@ -1,6 +1,7 @@
 "use client";
 
-import { Wallet } from "lucide-react";
+import { Check, Copy, Wallet } from "lucide-react";
+import { useState } from "react";
 
 import { AccountSidebar } from "../_components/account-sidebar";
 import { useRelicWallet } from "../_components/relic-wallet-provider";
@@ -8,6 +9,14 @@ import { WalletSession } from "../_components/wallet-session";
 
 export default function AccountPage() {
   const wallet = useRelicWallet();
+  const [copied, setCopied] = useState(false);
+
+  const copyWalletAddress = async () => {
+    if (wallet.address === null) return;
+    await navigator.clipboard.writeText(wallet.address);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1_800);
+  };
 
   return (
     <main className="page-shell account-page">
@@ -24,11 +33,24 @@ export default function AccountPage() {
               <div className="account-card-icon">
                 <Wallet size={22} />
               </div>
-              <div>
+              <div className="account-wallet-details">
                 <span>CONNECTED WALLET</span>
-                <h2>
-                  {wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}
-                </h2>
+                <div className="account-wallet-address-row">
+                  <code>{wallet.address}</code>
+                  <button
+                    type="button"
+                    className="account-wallet-copy"
+                    onClick={() => void copyWalletAddress()}
+                    aria-label="Copy wallet address"
+                    title={copied ? "Copied" : "Copy wallet address"}
+                  >
+                    {copied ? (
+                      <Check aria-hidden="true" size={16} strokeWidth={2} />
+                    ) : (
+                      <Copy aria-hidden="true" size={16} strokeWidth={2} />
+                    )}
+                  </button>
+                </div>
                 <p>
                   {wallet.profile?.isGoogleUser
                     ? "Signed in with Google · embedded wallet on BSC Testnet"

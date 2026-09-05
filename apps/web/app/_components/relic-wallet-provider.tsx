@@ -6,6 +6,7 @@ import {
   useCreateWallet,
   useIdentityToken,
   useLinkWithOAuth,
+  useLogin,
   useLoginWithOAuth,
   usePrivy,
   useWallets,
@@ -25,6 +26,19 @@ import { bscTestnet } from "viem/chains";
 
 import type { EthereumProvider } from "./wallet-provider";
 
+// Privy's fallback for BSC Testnet is Viem's BNB seed endpoint. That endpoint
+// rejects browser-origin JSON-RPC requests, which prevents embedded wallets
+// from simulating balances and approvals. Keep the standard chain metadata,
+// but give every Relic checkout a CORS-enabled public RPC.
+const relicBscTestnet = {
+  ...bscTestnet,
+  rpcUrls: {
+    ...bscTestnet.rpcUrls,
+    default: { http: ["https://bsc-testnet.publicnode.com"] },
+    public: { http: ["https://bsc-testnet.publicnode.com"] },
+  },
+};
+
 type RelicWalletRuntime = {
   configured: boolean;
   ready: boolean;
@@ -41,6 +55,7 @@ type RelicWalletRuntime = {
   loginError: string | null;
   identityToken: string | null;
   login: () => void;
+  loginWithEmail: () => void;
   loginWithGoogle: () => void;
   logout: () => Promise<void>;
   getProvider: () => Promise<EthereumProvider>;
@@ -56,6 +71,7 @@ const unavailableRuntime: RelicWalletRuntime = {
   loginError: null,
   identityToken: null,
   login: () => undefined,
+  loginWithEmail: () => undefined,
   loginWithGoogle: () => undefined,
   logout: () => Promise.resolve(),
   getProvider: () =>
@@ -117,11 +133,12 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const { identityToken } = useIdentityToken();
   const { createWallet } = useCreateWallet();
   const { initOAuth } = useLoginWithOAuth();
+  const { login: openPrivyLogin } = useLogin();
   const { initOAuth: initGoogleLink } = useLinkWithOAuth();
   const { ready: walletsReady, wallets } = useWallets();
   const [loginPending, setLoginPending] = useState(false);
   const [pendingLoginMethod, setPendingLoginMethod] = useState<
-    "google" | "wallet" | null
+    "google" | "email" | "wallet" | null
   >(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [selectedWalletAddress, setSelectedWalletAddress] = useState<
@@ -131,6 +148,16 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
       ? undefined
       : (window.sessionStorage.getItem("relic_active_wallet") ?? undefined),
   );
+  const [selectedWalletSource, setSelectedWalletSource] = useState<
+    "embedded" | "external" | undefined
+  >(() =>
+    typeof window === "undefined"
+      ? undefined
+      : (window.sessionStorage.getItem("relic_active_wallet_source") as
+          | "embedded"
+          | "external"
+          | null) ?? undefined,
+  );
   const [walletAwaitingAuthentication, setWalletAwaitingAuthentication] =
     useState<string | null>(null);
   const embeddedWalletCreationStarted = useRef(false);
@@ -138,7 +165,9 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     onSuccess: ({ wallet }) => {
       const address = wallet.address;
       window.sessionStorage.setItem("relic_active_wallet", address);
+      window.sessionStorage.setItem("relic_active_wallet_source", "external");
       setSelectedWalletAddress(address);
+      setSelectedWalletSource("external");
       setWalletAwaitingAuthentication(address);
     },
     onError: (error) => {
@@ -150,7 +179,8 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const activeWallet = selectWallet(
     wallets,
     selectedWalletAddress ?? user?.wallet?.address,
-    user?.google !== undefined,
+    (user?.google !== undefined || user?.email !== undefined) &&
+      selectedWalletSource !== "external",
   );
 
   useEffect(() => {
@@ -161,7 +191,7 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     );
     if (
       !authenticated ||
-      user?.google === undefined ||
+      (user?.google === undefined && user?.email === undefined) ||
       !walletsReady ||
       hasEmbeddedWallet ||
       embeddedWalletCreationStarted.current
@@ -176,11 +206,12 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
           : "Relic could not create your embedded wallet",
       );
     });
-  }, [authenticated, createWallet, user?.google, wallets, walletsReady]);
+  }, [authenticated, createWallet, user?.email, user?.google, wallets, walletsReady]);
 
   useEffect(() => {
     if (!loginPending || !authenticated || activeWallet === null) return;
     if (pendingLoginMethod === "google" && user?.google === undefined) return;
+    if (pendingLoginMethod === "email" && user?.email === undefined) return;
     setLoginPending(false);
     setPendingLoginMethod(null);
   }, [
@@ -234,6 +265,10 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     setLoginError(null);
     setLoginPending(true);
     setPendingLoginMethod("google");
+    window.sessionStorage.removeItem("relic_active_wallet");
+    window.sessionStorage.removeItem("relic_active_wallet_source");
+    setSelectedWalletAddress(undefined);
+    setSelectedWalletSource("embedded");
     const startGoogleFlow = authenticated
       ? initGoogleLink({ provider: "google" })
       : initOAuth({ provider: "google" });
@@ -248,12 +283,33 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     });
   }, [authenticated, initGoogleLink, initOAuth]);
 
+  const beginEmailLogin = useCallback(() => {
+    setLoginError(null);
+    setLoginPending(true);
+    setPendingLoginMethod("email");
+    window.sessionStorage.removeItem("relic_active_wallet");
+    window.sessionStorage.removeItem("relic_active_wallet_source");
+    setSelectedWalletAddress(undefined);
+    setSelectedWalletSource("embedded");
+    void Promise.resolve(openPrivyLogin({ loginMethods: ["email"] })).catch(
+      (error: unknown) => {
+        setLoginPending(false);
+        setPendingLoginMethod(null);
+        setLoginError(
+          error instanceof Error ? error.message : "Could not start email sign-in",
+        );
+      },
+    );
+  }, [openPrivyLogin]);
+
   const disconnect = useCallback(async () => {
     setLoginPending(false);
     setPendingLoginMethod(null);
     setLoginError(null);
     window.sessionStorage.removeItem("relic_active_wallet");
+    window.sessionStorage.removeItem("relic_active_wallet_source");
     setSelectedWalletAddress(undefined);
+    setSelectedWalletSource(undefined);
     setWalletAwaitingAuthentication(null);
     await logout();
   }, [logout]);
@@ -286,6 +342,7 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
       loginError,
       identityToken,
       login: beginLogin,
+      loginWithEmail: beginEmailLogin,
       loginWithGoogle: beginGoogleLogin,
       logout: disconnect,
       getProvider,
@@ -294,6 +351,7 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
       activeWallet,
       authenticated,
       beginLogin,
+      beginEmailLogin,
       disconnect,
       getProvider,
       beginGoogleLogin,
@@ -330,9 +388,9 @@ export function RelicWalletProvider({ children }: { children: ReactNode }) {
         ? {}
         : { clientId: process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID })}
       config={{
-        loginMethods: ["google", "wallet"],
-        defaultChain: bscTestnet,
-        supportedChains: [bscTestnet],
+        loginMethods: ["google", "email", "wallet"],
+        defaultChain: relicBscTestnet,
+        supportedChains: [relicBscTestnet],
         embeddedWallets: {
           ethereum: { createOnLogin: "off" },
         },

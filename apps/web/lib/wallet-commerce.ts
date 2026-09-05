@@ -21,6 +21,16 @@ export const walletSubmissionError = (error: unknown) => {
     (error as { code?: unknown }).code === 4001
   )
     return "You cancelled the wallet request. Nothing was submitted.";
+  if (
+    error instanceof Error &&
+    error.message === "An unexpected error occurred"
+  )
+    return "Relic could not prepare this confirmation. No funds moved. Try again.";
+  if (
+    error instanceof Error &&
+    error.message.includes("operation is not eligible for refresh")
+  )
+    return "Relic is preparing the next secure confirmation. No funds moved yet.";
   return error instanceof Error
     ? error.message
     : "The wallet action could not be completed.";

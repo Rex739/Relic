@@ -14,7 +14,9 @@ import {
   agreementAuthorizationTypedData,
   commerceAuthorizationSchema,
   commerceAuthorizationTypedData,
+  erc8183PaymentTokens,
   executionApprovalTypedData,
+  formatBaseUnits,
   isMarketplaceReviewTag,
   MandateValidationError,
 } from "@relic/domain";
@@ -85,6 +87,27 @@ const paymentTokenAbi = [
     outputs: [{ name: "", type: "address" }],
   },
 ] as const;
+
+const displayServicePrice = (agreement: {
+  amountBaseUnits?: string;
+  paymentTokenDecimals?: number;
+  chainId: number;
+}) => {
+  // A free offer has no token amount to format. In particular, older/free
+  // agreements need not carry a payment-token decimal precision.
+  if (agreement.amountBaseUnits === undefined) return "Price unavailable";
+  if (BigInt(agreement.amountBaseUnits) === 0n) return "Free";
+  if (agreement.paymentTokenDecimals === undefined)
+    return "Price unavailable";
+  const token = erc8183PaymentTokens[
+    agreement.chainId as keyof typeof erc8183PaymentTokens
+  ];
+  const amount = formatBaseUnits(
+    agreement.amountBaseUnits,
+    agreement.paymentTokenDecimals,
+  );
+  return token === undefined ? amount : `${amount} ${token.symbol}`;
+};
 
 const commerceJobAbi = [
   {
@@ -186,15 +209,17 @@ export const commerceValidationJobExpiry = (input: {
 }) => {
   if (input.disputeWindowSeconds <= 0n)
     throw new Error("ERC-8183 validation policy is not ready");
-  const expiresAt =
-    input.nowSeconds +
-    input.disputeWindowSeconds +
-    COMMERCE_VALIDATION_JOB_LIFETIME_SECONDS;
-  if (expiresAt > input.relationshipExpiresAtSeconds)
+  const earliestSafeJobExpiry =
+    input.nowSeconds + input.disputeWindowSeconds;
+  if (input.relationshipExpiresAtSeconds <= earliestSafeJobExpiry)
     throw new Error(
       "Validation relationship expires before the policy-safe job window",
     );
-  return expiresAt;
+  const requestedJobExpiry =
+    earliestSafeJobExpiry + COMMERCE_VALIDATION_JOB_LIFETIME_SECONDS;
+  return requestedJobExpiry < input.relationshipExpiresAtSeconds
+    ? requestedJobExpiry
+    : input.relationshipExpiresAtSeconds;
 };
 const USER_COMMERCE_QUOTE_HEADROOM_BY_OPERATION = {
   REGISTER_JOB: 8 * 60,
@@ -742,29 +767,51 @@ export class CommerceApplicationService {
       this.erc8183.policyAddress === undefined
     )
       throw new Error("ERC-8183 validation infrastructure is unavailable");
-    const current = await this.store.findAgreement(
+    let current = await this.store.findAgreement(
       agreementId,
       principal.principalId,
     );
     if (
       current?.status === "ACTIVE" &&
       current.operations.some(
-        (operation) =>
-          (operation.evidence as Record<string, unknown>).commerceValidation ===
-          true,
+        (operation) => {
+          const evidence = operation.evidence as Record<string, unknown>;
+          // A legacy CREATE_JOB can look pending, but cannot be reused: it has
+          // no provider-negotiated quote and would otherwise revive the old
+          // zero-price setup path.
+          return (
+            evidence.commerceValidation === true &&
+            evidence.quote !== null &&
+            typeof evidence.quote === "object" &&
+            operation.state === "AWAITING_SIGNATURE" &&
+            ["APPROVE_TOKEN", "CREATE_JOB"].includes(operation.operationType)
+          );
+        },
       )
     )
       return current;
+    if (current?.status === "ACTIVE") {
+      await this.store.supersedeUnsignedLegacyActivationForValidation({
+        agreementId,
+        principalId: principal.principalId,
+      });
+      current = await this.store.findAgreement(
+        agreementId,
+        principal.principalId,
+      );
+    }
     const context = await this.store.commerceValidationContext({
       agreementId,
       principalId: principal.principalId,
     });
+    const relationshipExpiresAt =
+      context?.agreement.expiresAt ?? context?.mandateVersion.expiresAt ?? null;
     if (
       context === null ||
       context.agreement.status !== "AUTHORIZED" ||
       context.agreement.chainId !== principal.chainId ||
-      context.agreement.expiresAt === null ||
-      context.agreement.expiresAt <= this.now() ||
+      relationshipExpiresAt === null ||
+      relationshipExpiresAt <= this.now() ||
       context.offer.status !== "ACTIVE" ||
       context.offer.currentVersion !== context.version.version ||
       context.service.availability !== "available" ||
@@ -823,18 +870,16 @@ export class CommerceApplicationService {
         "Offer payment token does not match the commerce contract",
       );
     const requiredGasBalance = activationSetupRequiredGasBalance(gasPrice);
-    if (
-      connectedChainId !== 97 ||
-      disputeWindow <= 0n ||
-      !policyAllowed ||
-      policyCode === undefined ||
-      policyCode === "0x" ||
-      buyerBalance < requiredGasBalance ||
-      buyerTokenBalance < amount
-    )
-      throw new Error(
-        "Paid validation setup is not ready: verify chain, policy, buyer testnet gas, and exact token balance",
-      );
+    const readinessIssues = [
+      ...(connectedChainId !== 97
+        ? ["wallet is not connected to BSC Testnet"]
+        : []),
+      ...(disputeWindow <= 0n || !policyAllowed || policyCode === undefined || policyCode === "0x"
+        ? ["this service's checkout policy is not ready"]
+        : []),
+    ];
+    if (readinessIssues.length > 0)
+      throw new Error(`Checkout is not ready: ${readinessIssues.join("; ")}.`);
     const negotiated = await negotiateOfferBoundService({
       endpoint: context.service.endpoint,
       interfaceProtocol: context.service.interfaceProtocol,
@@ -878,7 +923,7 @@ export class CommerceApplicationService {
       nowSeconds: BigInt(nowSeconds),
       disputeWindowSeconds: disputeWindow,
       relationshipExpiresAtSeconds: BigInt(
-        Math.floor(context.agreement.expiresAt.getTime() / 1_000),
+        Math.floor(relationshipExpiresAt.getTime() / 1_000),
       ),
     });
     const createData = encodeFunctionData({
@@ -904,6 +949,12 @@ export class CommerceApplicationService {
         marketplaceHistoryEligible: false,
         transactionPrepared: true,
         transactionSubmitted: false,
+        walletPreflight: {
+          nativeBalance: buyerBalance.toString(),
+          requiredGasReserve: requiredGasBalance.toString(),
+          paymentTokenBalance: buyerTokenBalance.toString(),
+          requiredPaymentTokenAmount: amount.toString(),
+        },
         contract: token,
         calldata: approvalData,
         preparedPayloadHash: keccak256(approvalData),
@@ -967,8 +1018,7 @@ export class CommerceApplicationService {
       ["APPROVE_TOKEN", "CREATE_JOB"].includes(operation.operationType) &&
       operation.state === "AWAITING_SIGNATURE" &&
       operation.transactionHash === null &&
-      operation.preparedPayloadHash !== null &&
-      operation.activationId !== null
+      operation.preparedPayloadHash !== null
     ) {
       if (principal.chainId !== 97 || this.erc8183?.rpcUrl === undefined)
         throw new Error("BSC Testnet validation preflight is unavailable");
@@ -1058,7 +1108,7 @@ export class CommerceApplicationService {
           action,
           description,
           network: "BSC Testnet",
-          servicePrice: `${agreement.amountBaseUnits} base units`,
+          servicePrice: displayServicePrice(agreement),
           fundsExpectedToMove: false,
         },
       };
@@ -1144,10 +1194,7 @@ export class CommerceApplicationService {
       operation.preparedPayloadHash.toLowerCase()
     )
       throw new Error("Prepared CREATE_JOB payload hash mismatch");
-    if (
-      !args.description.includes(actionHash) ||
-      !args.description.includes("0x2A1317EC5fb5557A4cAd0B97fd851630aD8EDA87")
-    )
+    if (!args.description.includes(actionHash))
       throw new Error("Prepared job is not bound to the authorized action");
     return {
       operationId: operation.id,
@@ -1323,17 +1370,12 @@ export class CommerceApplicationService {
       ).toISOString(),
       quoteMinimumRemainingSeconds: quoteWindow.requiredHeadroomSeconds,
       presentation: {
-        title: "Register job policy",
-        action: "Register policy",
+        title: "Complete service setup",
+        action: "Register service policy",
         description:
           "Bind the approved dispute and evaluation policy to the existing ERC-8183 job.",
         network: "BSC Testnet",
-        servicePrice: (() => {
-          const amount = String(
-            activation.budgetBaseUnits ?? agreement.amountBaseUnits ?? "0",
-          );
-          return BigInt(amount) === 0n ? "Free" : `${amount} base units`;
-        })(),
+        servicePrice: displayServicePrice(agreement),
         fundsExpectedToMove: false,
         jobId: jobId.toString(),
       },
@@ -1493,13 +1535,12 @@ export class CommerceApplicationService {
       ).toISOString(),
       quoteMinimumRemainingSeconds: quoteWindow.requiredHeadroomSeconds,
       presentation: {
-        title: "Set job budget",
-        action: "Set budget",
+        title: "Set service budget",
+        action: "Set service budget",
         description:
           "Set the exact offer-bound budget. This step does not transfer tokens.",
         network: "BSC Testnet",
-        servicePrice:
-          amount === 0n ? "Free / 0" : `${amount.toString()} base units`,
+        servicePrice: amount === 0n ? "Free" : displayServicePrice(agreement),
         fundsExpectedToMove: false,
         jobId: jobId.toString(),
         cost: "Gas only",
@@ -1659,8 +1700,8 @@ export class CommerceApplicationService {
       ).toISOString(),
       quoteMinimumRemainingSeconds: quoteWindow.requiredHeadroomSeconds,
       presentation: {
-        title: expectedBudget === 0n ? "Fund free job" : "Fund validation job",
-        action: "Fund job",
+        title: expectedBudget === 0n ? "Confirm free service" : "Pay for service",
+        action: expectedBudget === 0n ? "Confirm service" : "Pay service price",
         description:
           expectedBudget === 0n
             ? "Advance this free job to FUNDED with an explicit zero-value funding call. No tokens move."
@@ -1668,8 +1709,8 @@ export class CommerceApplicationService {
         network: "BSC Testnet",
         servicePrice:
           expectedBudget === 0n
-            ? "Free / 0"
-            : `${expectedBudget.toString()} base units`,
+            ? "Free"
+            : displayServicePrice(agreement),
         fundsExpectedToMove: expectedBudget > 0n,
         jobId: jobId.toString(),
         cost: expectedBudget === 0n ? "Gas only" : "Offer price plus gas",
@@ -1689,17 +1730,17 @@ export class CommerceApplicationService {
     const existingOperation = existingAgreement?.operations.find(
       ({ id }) => id === operationId,
     );
+    const existingEvidence = existingOperation?.evidence as
+      | Record<string, unknown>
+      | undefined;
+    // Quote-bound checkout operations use the current payment sequence. They
+    // must not fall through to the retired zero-price CREATE_JOB refresh path.
     if (
-      existingOperation !== undefined &&
-      (existingOperation.evidence as Record<string, unknown>)
-        .commerceValidation === true &&
-      ["APPROVE_TOKEN", "CREATE_JOB"].includes(existingOperation.operationType)
+      existingEvidence?.commerceValidation === true &&
+      (existingOperation?.operationType === "APPROVE_TOKEN" ||
+        existingOperation?.operationType === "CREATE_JOB")
     )
-      return this.preparedWalletTransaction(
-        principal,
-        agreementId,
-        operationId,
-      );
+      return this.preparedWalletTransaction(principal, agreementId, operationId);
     if (existingOperation?.operationType === "REGISTER_JOB")
       return this.preparedRegisterJobWalletTransaction(
         principal,

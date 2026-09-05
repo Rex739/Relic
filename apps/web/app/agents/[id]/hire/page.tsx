@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import {
   activeOffers,
@@ -11,7 +11,6 @@ import {
 import {
   commercePriceLabel,
   isFreePrice,
-  paymentRequirementLabel,
 } from "../../../../lib/commerce-display";
 import { walletAuthenticationRequired } from "../../../../lib/auth-state";
 import { listMyAgents } from "../../../../lib/mandates";
@@ -25,9 +24,11 @@ import {
   selectRelationshipAgreement,
 } from "../../../../lib/relationship-status";
 import { CommerceAuthorization } from "../../../_components/commerce-authorization";
+import { RemoveSavedHireSetup } from "../../../_components/remove-saved-hire-setup";
 import { WalletSession } from "../../../_components/wallet-session";
 import { acceptTermsAction, hireOfferAction } from "../../../commerce-actions";
 import { createActivateMandateForHire } from "../../../mandate-actions";
+import { serviceWorkflowFor } from "../../../../lib/service-workflow";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Hire agent" };
@@ -51,16 +52,31 @@ export default async function HireAgentPage({
     mandate?: string;
     agreement?: string;
     new?: string;
+    autoAuthorize?: string;
   }>;
 }) {
   const { id } = await params;
   const search = await searchParams;
+  const sessionToken = (await cookies()).get("relic_session")?.value;
+  if (walletAuthenticationRequired(sessionToken)) {
+    const hireParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(search)) {
+      if (typeof value === "string") hireParams.set(key, value);
+    }
+    const hirePath = `/agents/${encodeURIComponent(id)}/hire${
+      hireParams.size > 0 ? `?${hireParams.toString()}` : ""
+    }`;
+    redirect(
+      `/agents/${encodeURIComponent(id)}?connect=1&next=${encodeURIComponent(hirePath)}`,
+    );
+  }
   const [agentResponse, offers] = await Promise.all([
     marketplaceAgent(id),
     activeOffers(id),
   ]);
   if (agentResponse.data === null) notFound();
   const agent = agentResponse.data;
+  const workflow = serviceWorkflowFor(agent.category);
   const offer = offers.find((item) => item.id === search.offer) ?? offers[0];
   if (agent.tier !== "Actionable" || offer === undefined)
     return (
@@ -76,30 +92,25 @@ export default async function HireAgentPage({
       </main>
     );
 
-  const hasWalletSession = !walletAuthenticationRequired(
-    (await cookies()).get("relic_session")?.value,
-  );
   let mandates: Awaited<ReturnType<typeof listMyAgents>> = [];
   let commerceAgreements: CommerceAgreementView[] = [];
   let commerceAgreement: CommerceAgreementView | null = null;
-  let authRequired = !hasWalletSession;
-  if (hasWalletSession) {
-    try {
-      const [ownedMandates, ownedAgreements] = await Promise.all([
-        listMyAgents(),
-        agreements(),
-      ]);
-      mandates = ownedMandates.filter(
-        ({ mandate }) =>
-          mandate.agentId === id &&
-          ["ACTIVE", "PAUSED"].includes(mandate.status),
-      );
-      commerceAgreements = ownedAgreements.filter(
-        (item): item is CommerceAgreementView => item !== null,
-      );
-    } catch {
-      authRequired = true;
-    }
+  let authRequired = false;
+  try {
+    const [ownedMandates, ownedAgreements] = await Promise.all([
+      listMyAgents(),
+      agreements(),
+    ]);
+    mandates = ownedMandates.filter(
+      ({ mandate }) =>
+        mandate.agentId === id &&
+        ["ACTIVE", "PAUSED"].includes(mandate.status),
+    );
+    commerceAgreements = ownedAgreements.filter(
+      (item): item is CommerceAgreementView => item !== null,
+    );
+  } catch {
+    authRequired = true;
   }
   const startNew = search.new === "1";
   const hireSelection = resolveHireSelection(mandates, {
@@ -155,54 +166,35 @@ export default async function HireAgentPage({
             agreementStatus === "AUTHORIZATION_REQUIRED"
           ? 3
           : 4;
+  const compactProgressStep = currentStep >= 4 ? 3 : currentStep === 3 ? 2 : 1;
+
+  // Checkout now belongs to the service-card dialog. Keep old bookmarks and
+  // stale links from resurrecting the previous multi-page hiring wizard.
+  if (!authRequired) {
+    if (selectedMandate !== undefined)
+      redirect(`/account/my-hires/mandates/${selectedMandate.mandate.id}`);
+    redirect(`/agents/${id}`);
+  }
 
   return (
     <main className="page-shell hire-page">
-      <header className="operations-header">
-        <span className="overline">Hire agent</span>
-        <h1>Put {agent.name} to work</h1>
-        <p>
-          Configure one read-only relationship, authorize it, then complete the
-          required wallet confirmations inside one guided journey.
-        </p>
-        <ol className="hire-progress" aria-label="Hiring progress">
-          {["Configure", "Permissions", "Authorize", "Start", "Running"].map(
-            (label, index) => (
-              <li className={progressClass(currentStep, index + 1)} key={label}>
-                {index + 1} {label}
-              </li>
-            ),
-          )}
-        </ol>
-      </header>
-
-      <section className="hire-service-summary profile-section">
-        <div>
-          <span className="overline">Selected service</span>
-          <h2>{productCapabilityLabel(offer.version.capability)}</h2>
-          <p>{offer.version.terms}</p>
-        </div>
-        <dl className="commerce-facts">
-          <div>
-            <dt>Price</dt>
-            <dd>{commercePriceLabel(offer.version.price)}</dd>
-          </div>
-          <div>
-            <dt>Payment</dt>
-            <dd>{paymentRequirementLabel(offer.version.price)}</dd>
-          </div>
-          <div>
-            <dt>Network</dt>
-            <dd>
-              {offer.version.chainId === 97 ? "BSC Testnet" : "BSC Mainnet"}
-            </dd>
-          </div>
-          <div>
-            <dt>Wallet setup</dt>
-            <dd>4 confirmations · gas only</dd>
-          </div>
-        </dl>
-      </section>
+      <div className="hire-workspace">
+        <div className="hire-workspace-main">
+          <header className="operations-header">
+            <span className="overline">Hire agent</span>
+            <h1>Set up {agent.name}</h1>
+            <p>{workflow.taskDescription}</p>
+            <ol className="hire-progress" aria-label="Hiring progress">
+              {["Details", "Sign", "Start"].map((label, index) => (
+                <li
+                  className={progressClass(compactProgressStep, index + 1)}
+                  key={label}
+                >
+                  {index + 1} {label}
+                </li>
+              ))}
+            </ol>
+          </header>
 
       {authRequired ? (
         <section className="profile-section hire-current-step">
@@ -225,31 +217,33 @@ export default async function HireAgentPage({
         </section>
       ) : showResumeChoice ? (
         <section className="profile-section hire-current-step">
-          <span className="overline">Existing setup found</span>
-          <h2>You already started hiring this agent.</h2>
+          <span className="overline">Existing order found</span>
+          <h2>You already have an order with this agent.</h2>
           <p>
-            Continue a saved relationship, or intentionally create a separate
-            one with its own permissions and monitored account.
+            Open an existing order, or intentionally create a separate one
+            with its own permissions and service request.
           </p>
           <div className="existing-setup-list">
             {existingRelationships.map((relationship) => {
-              const href =
-                relationship.status === "Setting up"
-                  ? `/agents/${id}/hire?offer=${encodeURIComponent(offer.id)}&mandate=${encodeURIComponent(relationship.mandate.id)}${relationship.agreement === null ? "" : `&agreement=${encodeURIComponent(relationship.agreement.id)}`}`
-                  : `/my-agents/mandates/${relationship.mandate.id}`;
+              const href = `/account/my-hires/mandates/${relationship.mandate.id}`;
               return (
                 <article key={relationship.mandate.id}>
                   <div>
                     <strong>{relationship.status}</strong>
                     <p>{relationship.mandate.version.objective}</p>
                   </div>
-                  <Link className="primary-button" href={href}>
-                    {relationship.status === "Setting up"
-                      ? "Continue setup"
-                      : relationship.status === "Running"
-                        ? "View running agent"
-                        : "View relationship"}
-                  </Link>
+                  <div className="existing-setup-actions">
+                    <Link className="primary-button" href={href}>
+                      {relationship.status === "Running"
+                          ? "View running agent"
+                          : "View order"}
+                    </Link>
+                    <RemoveSavedHireSetup
+                      agentId={agent.id}
+                      mandateId={relationship.mandate.id}
+                      offerId={offer.id}
+                    />
+                  </div>
                 </article>
               );
             })}
@@ -265,9 +259,7 @@ export default async function HireAgentPage({
             available because this agent still has an active verified offer.
           </small>
         </section>
-      ) : selectedRelationshipStatus !== null &&
-        selectedRelationshipStatus !== "Setting up" &&
-        selectedMandate !== undefined ? (
+      ) : selectedRelationshipStatus !== null && selectedMandate !== undefined ? (
         <section className="profile-section hire-current-step">
           <span className="overline">
             {selectedRelationshipStatus === "Running"
@@ -277,16 +269,16 @@ export default async function HireAgentPage({
           <h2>
             {selectedRelationshipStatus === "Running"
               ? "This agent is already running."
-              : "This saved relationship does not need setup."}
+              : "This saved order is already in progress."}
           </h2>
           <p>
-            Review its current state in My Agents. Relic will not send an
-            existing relationship back through permissions, authorization, or
+            Review its current state in My orders. Relic will not send an
+            existing order back through permissions, authorization, or
             wallet setup.
           </p>
           <Link
             className="primary-button"
-            href={`/my-agents/mandates/${selectedMandate.mandate.id}`}
+            href={`/account/my-hires/mandates/${selectedMandate.mandate.id}`}
           >
             View relationship
           </Link>
@@ -299,6 +291,12 @@ export default async function HireAgentPage({
           <input type="hidden" name="agentId" value={agent.id} />
           <input type="hidden" name="offerId" value={offer.id} />
           <input type="hidden" name="chainId" value={agent.chainId} />
+          <input type="hidden" name="category" value={agent.category} />
+          <input
+            type="hidden"
+            name="objective"
+            value={`Run ${workflow.taskLabel} for my requested inputs.`}
+          />
           {capabilities.map((capability) => (
             <input
               type="hidden"
@@ -308,70 +306,54 @@ export default async function HireAgentPage({
             />
           ))}
           <section>
-            <span className="overline">Step 1 · Configure</span>
-            <h2>Choose what to monitor</h2>
-            <label>
-              Public account
-              <input
-                name="monitoredAccount"
-                required
-                pattern="0x[0-9a-fA-F]{40}"
-                placeholder="0x…"
-              />
-            </label>
-            <label>
-              Objective
-              <textarea
-                name="objective"
-                minLength={12}
-                maxLength={1000}
-                rows={3}
-                defaultValue="Monitor my Venus lending position and alert me when health factor falls below 1.30."
-                required
-              />
-            </label>
-            <div className="constraint-grid">
-              <label>
-                Alert below health factor
-                <input name="threshold" defaultValue="1.30" required />
-              </label>
-              <label>
-                Duration
-                <select name="durationDays" defaultValue="7">
-                  <option value="1">24 hours</option>
-                  <option value="7">7 days</option>
-                  <option value="30">30 days</option>
-                </select>
-              </label>
+            <span className="overline">Service request</span>
+            <h2>{workflow.taskLabel}</h2>
+            <p className="service-request-intro">Provide only the details this service needs. You will review and sign the final BNB checkout next.</p>
+            <div className="service-requirement-fields">
+              {workflow.requirements.map((field) => (
+                <label key={field.name}>
+                  {field.label}
+                  <input
+                    name={field.name}
+                    type={field.type ?? "text"}
+                    {...(field.name === "publicAccount" && field.required
+                      ? { pattern: "0x[0-9a-fA-F]{40}" }
+                      : {})}
+                    {...(field.required ? { required: true } : {})}
+                    defaultValue={
+                      field.name === "threshold"
+                        ? "1.30"
+                        : field.name === "durationDays"
+                          ? "14"
+                          : undefined
+                    }
+                    placeholder={field.placeholder}
+                  />
+                  <small>{field.helper}</small>
+                </label>
+              ))}
             </div>
-          </section>
-          <section>
-            <span className="overline">Step 2 · Permissions</span>
-            <h2>Read-only authority</h2>
-            <div className="hire-permissions">
-              <div>
-                <b>The agent may</b>
-                {capabilities.map((capability) => (
-                  <span key={capability}>
-                    ✓ {productCapabilityLabel(capability)}
-                  </span>
+            <div className="service-deliverables" aria-label="Expected deliverables">
+              <span>You'll receive</span>
+              <ul>
+                {workflow.deliverables.map((deliverable) => (
+                  <li key={deliverable}>{deliverable}</li>
                 ))}
-              </div>
-              <div>
-                <b>The agent may not</b>
-                <span>× Transfer tokens</span>
-                <span>× Borrow, repay, swap, or approve contracts</span>
-                <span>× Submit transactions</span>
-              </div>
+              </ul>
             </div>
-            <p>
-              Cost: {commercePriceLabel(offer.version.price)} · Network: BSC
-              Testnet · Approval mode: observe only.
-            </p>
           </section>
-          <section>
-            <span className="overline">Step 3 · Authorize</span>
-            <h2>Approve this permission set</h2>
+          <section className="hire-confirmation-step">
+            <span className="overline">Review & confirm</span>
+            <h2>Ready to create this task?</h2>
+            <p className="hire-permission-summary">{workflow.permissionSummary}</p>
+            <details className="hire-permission-details">
+              <summary>See the allowed actions</summary>
+              <ul>
+                {capabilities.map((capability) => (
+                  <li key={capability}>{productCapabilityLabel(capability)}</li>
+                ))}
+              </ul>
+            </details>
             <label className="terms-confirm">
               <input
                 type="checkbox"
@@ -379,12 +361,16 @@ export default async function HireAgentPage({
                 value="approved"
                 required
               />{" "}
-              I approve this exact read-only mandate and its expiry.
+              I approve this read-only permission and its expiry.
             </label>
-            <button type="submit">Save permissions and continue</button>
+            <button className="hire-primary-cta" type="submit">
+              {isFreePrice(offer.version.price)
+                ? "Confirm & start"
+                : "Confirm & continue"}
+            </button>
             <small>
-              This creates and activates the mandate. It does not submit a
-              blockchain transaction or move funds.
+              Next, you will sign the service agreement. If payment is needed,
+              your wallet will show the BNB checkout before anything is funded.
             </small>
           </section>
         </form>
@@ -404,7 +390,9 @@ export default async function HireAgentPage({
               value={selectedMandate.mandate.id}
             />
             <input type="hidden" name="continuation" value={continuation} />
-            <button type="submit">Create agreement and review terms</button>
+            <button className="hire-primary-cta" type="submit">
+              Review terms
+            </button>
           </form>
         </section>
       ) : agreementStatus === "DRAFT" ? (
@@ -432,7 +420,9 @@ export default async function HireAgentPage({
               <input type="checkbox" required /> I accept this exact terms
               snapshot and hash.
             </label>
-            <button type="submit">Accept terms</button>
+            <button className="hire-primary-cta" type="submit">
+              Accept terms
+            </button>
           </form>
         </section>
       ) : agreementStatus === "AUTHORIZATION_REQUIRED" ? (
@@ -445,10 +435,11 @@ export default async function HireAgentPage({
           </p>
           <CommerceAuthorization
             agreementId={commerceAgreement.id}
-            continuationHref={`${continuation}&agreement=${encodeURIComponent(commerceAgreement.id)}`}
+            continuationHref={`/account/my-hires/mandates/${selectedMandate.mandate.id}?start=1`}
+            autoStart={search.autoAuthorize === "1"}
           />
         </section>
-      ) : (
+          ) : (
         <section className="profile-section hire-current-step">
           <span className="overline">Step 4 · Start</span>
           <h2>Fund your BNB task</h2>
@@ -467,7 +458,7 @@ export default async function HireAgentPage({
           </p>
           <Link
             className="primary-button"
-            href={`/my-agents/mandates/${selectedMandate.mandate.id}`}
+            href={`/account/my-hires/mandates/${selectedMandate.mandate.id}`}
           >
             Continue to fund task
           </Link>
@@ -476,7 +467,29 @@ export default async function HireAgentPage({
             <p>Signed quote → ERC-8183 job → fund escrow → provider observes job</p>
           </details>
         </section>
-      )}
+          )}
+        </div>
+
+        <aside className="hire-service-rail">
+          <section className="hire-service-summary profile-section">
+            <span className="overline">Selected service</span>
+            <h2>{productCapabilityLabel(offer.version.capability)}</h2>
+            <p>{offer.version.terms}</p>
+            <dl className="commerce-facts">
+              <div>
+                <dt>Price</dt>
+                <dd>{commercePriceLabel(offer.version.price)}</dd>
+              </div>
+              <div>
+                <dt>Network</dt>
+                <dd>
+                  {offer.version.chainId === 97 ? "BSC Testnet" : "BSC Mainnet"}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </main>
   );
 }

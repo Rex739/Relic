@@ -1148,7 +1148,16 @@ export function createApp(
       {
         error: {
           code: "internal_error",
-          message: "An unexpected error occurred",
+          // Keep production errors deliberately generic, but surface a useful
+          // safe error message while developing checkout flows. Without this,
+          // an invalid testnet preflight leaves the buyer with no way to know
+          // whether a wallet request was actually created.
+          message:
+            process.env.NODE_ENV === "production"
+              ? "An unexpected error occurred"
+              : error instanceof Error
+                ? error.message
+                : "An unexpected error occurred",
         },
       },
       500,

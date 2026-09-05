@@ -18,18 +18,20 @@ import {
   relationshipStatus,
   selectRelationshipAgreement,
 } from "../../../lib/relationship-status";
-import {
-  requestForbiddenTransfer,
-  requestHealthObservation,
-} from "../../execution-actions";
+import { requestHealthObservation } from "../../execution-actions";
 import { transitionMandateAction } from "../../mandate-actions";
-import { prepareCommerceActivationAction } from "../../commerce-actions";
+import {
+  prepareCommerceActivationAction,
+} from "../../commerce-actions";
 import { CommerceAuthorization } from "../../_components/commerce-authorization";
+import { CommerceStatusRefresh } from "../../_components/commerce-status-refresh";
+import { InitialHealthObservation } from "../../_components/initial-health-observation";
 import { WalletCommerceOperation } from "../../_components/wallet-commerce-operation";
 import { MarketplaceReviewPrompt } from "../../_components/marketplace-review-prompt";
+import { serviceWorkflowFor } from "../../../lib/service-workflow";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Active agent" };
+export const metadata: Metadata = { title: "Order" };
 const ACTIVATION_SETUP_AUTHORIZATION_HEADROOM_MS = 12 * 60_000;
 
 const sentenceCase = (value: string) => {
@@ -196,16 +198,44 @@ const executionPresentation = (execution: ExecutionRecord) => {
   };
 };
 
+const requestedValues = (
+  category: string,
+  constraints: Record<string, unknown>,
+  objective: string,
+) => {
+  const workflow = serviceWorkflowFor(category);
+  const values: Record<string, unknown> = {
+    publicAccount: constraints.monitoredAccount,
+    threshold: constraints.alertHealthFactorBelow,
+    asset: constraints.requestedAsset,
+    target: constraints.target,
+    objective,
+  };
+  return workflow.requirements
+    .map((field) => ({ label: field.label, value: values[field.name] }))
+    .filter(
+      (item): item is { label: string; value: string | number } =>
+        typeof item.value === "string" || typeof item.value === "number",
+    );
+};
+
 export default async function ExecutionRoomPage({
   params,
   searchParams,
 }: {
   params: Promise<{ activationId: string }>;
-  searchParams: Promise<{ exactAuthorizationId?: string }>;
+  searchParams: Promise<{
+    exactAuthorizationId?: string;
+    start?: string;
+    checkoutError?: string;
+  }>;
 }) {
   const { activationId } = await params;
-  const { exactAuthorizationId: requestedRecoveryAuthorizationId } =
-    await searchParams;
+  const {
+    exactAuthorizationId: requestedRecoveryAuthorizationId,
+    start: startInitialCheck,
+    checkoutError,
+  } = await searchParams;
   let mandate;
   let executions;
   try {
@@ -220,6 +250,12 @@ export default async function ExecutionRoomPage({
     (await cookies()).get("relic_session")?.value !== undefined;
   const agentResponse = await marketplaceAgent(mandate.agentId);
   const agentName = agentResponse.data?.name ?? "Active agent";
+  const workflow = serviceWorkflowFor(agentResponse.data?.category ?? "");
+  const request = requestedValues(
+    agentResponse.data?.category ?? "",
+    mandate.version.riskConstraints,
+    mandate.version.objective,
+  );
   let commerceAgreement: CommerceAgreementView | null = null;
   if (walletAuthenticated) {
     try {
@@ -254,36 +290,49 @@ export default async function ExecutionRoomPage({
     /^0x[0-9a-fA-F]{40}$/.test(latestObservedAccount)
       ? latestObservedAccount
       : undefined;
-  const awaitingActionOperation = commerceAgreement?.operations
-    .toReversed()
-    .find(
+  const isAwaitingCheckoutAction = (
+    operation: NonNullable<typeof commerceAgreement>["operations"][number],
+  ) =>
+    (operation.state === "AWAITING_SIGNATURE" ||
+      operation.state === "SUBMITTED" ||
+      operation.state === "PENDING" ||
+      operation.state === "CONFIRMED") &&
+    typeof operation.executionRequestId === "string" &&
+    (operation.operationType === "CREATE_JOB" ||
+      operation.operationType === "REGISTER_JOB" ||
+      operation.operationType === "SET_BUDGET" ||
+      operation.operationType === "FUND");
+  const awaitingOperations = commerceAgreement?.operations.toReversed();
+  // An offer-bound preparation supersedes any retired legacy checkout action.
+  const awaitingActionOperation =
+    awaitingOperations?.find((operation) => {
+      const evidence = operation.evidence as Record<string, unknown>;
+      return (
+        isAwaitingCheckoutAction(operation) &&
+        evidence.commerceValidation === true &&
+        evidence.quote !== null &&
+        typeof evidence.quote === "object"
+      );
+    }) ??
+    awaitingOperations?.find(
       (operation) =>
-        (operation.state === "AWAITING_SIGNATURE" ||
-          operation.state === "SUBMITTED" ||
-          operation.state === "PENDING" ||
-          operation.state === "CONFIRMED") &&
-        typeof operation.executionRequestId === "string" &&
-        (operation.operationType === "CREATE_JOB" ||
-          operation.operationType === "REGISTER_JOB" ||
-          operation.operationType === "SET_BUDGET" ||
-          operation.operationType === "FUND"),
+        isAwaitingCheckoutAction(operation),
     );
   const commerceExecution = executions.find(
     (execution) => execution.id === awaitingActionOperation?.executionRequestId,
   );
   const awaitingOperationEvidence = awaitingActionOperation?.evidence as
     Record<string, unknown> | undefined;
-  const operationQuoteExpiresAt = awaitingOperationEvidence?.quoteExpiresAt;
-  const operationNegotiatedAt = awaitingOperationEvidence?.negotiatedAt;
-  const initialQuoteExpiresAt =
-    typeof operationQuoteExpiresAt === "number"
-      ? new Date(operationQuoteExpiresAt * 1_000).toISOString()
-      : undefined;
-  const initialQuoteNegotiatedAt =
-    typeof operationNegotiatedAt === "number"
-      ? new Date(operationNegotiatedAt * 1_000).toISOString()
-      : undefined;
   const awaitingOperationType = awaitingActionOperation?.operationType;
+  const unsignedLegacyCheckout =
+    commerceAgreement?.status === "ACTIVE" &&
+    commerceAgreement.operations.some(
+      (operation) =>
+        (operation.evidence as Record<string, unknown>).commerceValidation !==
+          true &&
+        operation.transactionHash === null &&
+        ["CREATED", "AWAITING_SIGNATURE"].includes(String(operation.state)),
+    );
   const operationAuthorizationId =
     awaitingOperationEvidence?.exactActionAuthorizationId;
   const operationAuthorizationExpiry =
@@ -321,24 +370,21 @@ export default async function ExecutionRoomPage({
       requestedRecoveryAuthorizationId === persistedRecoveryAuthorization.id)
       ? persistedRecoveryAuthorization.id
       : undefined;
-  const movementBaseUnits = (movement: Record<string, unknown>) => {
-    const value = movement.amountBaseUnits;
-    if (typeof value !== "string" || !/^\d+$/.test(value))
-      throw new Error("Commerce movement is missing an exact base-unit amount");
-    return BigInt(value);
-  };
-  const movementTotal = (types: string[]) =>
-    commerceAgreement?.movements
-      .filter((movement) => types.includes(String(movement.movementType)))
-      .reduce((total, movement) => total + movementBaseUnits(movement), 0n) ??
-    0n;
   const setupComplete = relationshipSetupComplete(commerceAgreement);
-  const latestPresentation =
-    latest === null ? null : executionPresentation(latest);
+  // A pre-payment policy observation is used to validate the request and bind
+  // checkout authorization. It is not a paid service delivery.
+  const visibleServiceUpdates = setupComplete ? executions : [];
   const relationshipState = relationshipStatus({
     mandate,
     agreement: commerceAgreement,
+    hasUpdate: latest !== null,
   });
+  const checkoutAwaitingFinality =
+    commerceAgreement?.operations.some((operation) =>
+      ["SUBMITTED", "PENDING", "CONFIRMED", "REORGED"].includes(
+        String(operation.state),
+      ),
+    ) ?? false;
   const reviewableActivationId = commerceAgreement?.operations
     .toReversed()
     .find(
@@ -348,21 +394,22 @@ export default async function ExecutionRoomPage({
     )?.activationId;
   return (
     <main className="page-shell execution-room">
+      <CommerceStatusRefresh active={checkoutAwaitingFinality} />
       <nav className="breadcrumbs">
-        <Link href="/my-agents">My Agents</Link>
+        <Link href="/account/my-hires">My orders</Link>
         <span>/</span>
-        <span>Active agent</span>
+        <span>Order</span>
       </nav>
       <header className="execution-room-header">
         <div>
-          <span className="overline">{relationshipState}</span>
-          <h1>{agentName}</h1>
-          <p>{mandate.version.objective}</p>
+          <span className="overline">Order · {relationshipState}</span>
+          <h1>{workflow.taskLabel}</h1>
+          <p>Provided by {agentName}</p>
         </div>
         <aside
           className={`execution-state ${mandate.attentionReason ? "attention" : ""}`}
         >
-          <span>Current status</span>
+            <span>Order status</span>
           <strong>{relationshipState.toUpperCase()}</strong>
           <small>
             BNB Chain Testnet ·{" "}
@@ -371,52 +418,39 @@ export default async function ExecutionRoomPage({
         </aside>
       </header>
 
-      {relationshipState === "Running" ? (
-        <section className="running-overview" aria-label="Agent overview">
+      <section className="running-overview order-overview" aria-label="Order overview">
           <div>
-            <span className="overline">Overview</span>
-            <h2>Your agent is running</h2>
-            <p>{mandate.version.objective}</p>
+            <span className="overline">Your order</span>
+            <h2>{relationshipState === "Running" ? "Your service is running" : relationshipState}</h2>
+            <p>{workflow.taskDescription}</p>
           </div>
           <dl>
             <div>
-              <dt>Doing now</dt>
-              <dd>Read-only Venus monitoring</dd>
-            </div>
-            <div>
-              <dt>Latest result</dt>
-              <dd>
-                {latestPresentation?.result ?? "Waiting for first observation"}
-              </dd>
-            </div>
-            <div>
-              <dt>Permissions</dt>
-              <dd>{mandate.version.approvalMode.replaceAll("_", " ")}</dd>
-            </div>
-            <div>
               <dt>Service price</dt>
-              <dd>
-                {commerceAgreement === null
-                  ? "Unavailable"
-                  : commercePriceLabel(commerceAgreement.pricingSnapshot)}
-              </dd>
+              <dd>{commerceAgreement === null ? "Unavailable" : isFreePrice(commerceAgreement.pricingSnapshot) ? "Free service" : commercePriceLabel(commerceAgreement.pricingSnapshot)}</dd>
+            </div>
+            <div>
+              <dt>Payment status</dt>
+              <dd>{setupComplete ? "Paid" : "Not charged yet"}</dd>
             </div>
           </dl>
         </section>
-      ) : null}
 
-      {setupComplete && relationshipState !== "Running" ? (
-        <section className="running-overview" aria-label="Relationship status">
-          <div>
-            <span className="overline">Relationship status</span>
-            <h2>{relationshipState}</h2>
-            <p>
-              Setup is complete. Review the current status and available
-              controls below.
-            </p>
-          </div>
-        </section>
-      ) : null}
+      <details className="order-contract order-contract-detail">
+        <summary>View request and deliverables</summary>
+        <div className="order-contract-body">
+          <section>
+            <span>Requested</span>
+            {request.length === 0 ? <p>{mandate.version.objective}</p> : (
+              <dl>{request.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
+            )}
+          </section>
+          <section>
+            <span>You&apos;ll receive</span>
+            <ul>{workflow.deliverables.map((item) => <li key={item}>{item}</li>)}</ul>
+          </section>
+        </div>
+      </details>
 
       {relationshipState === "Completed" &&
       walletAuthenticated &&
@@ -430,105 +464,56 @@ export default async function ExecutionRoomPage({
       {commerceAgreement === null || setupComplete ? null : (
         <section className="execution-commerce-context">
           <div>
-            <span className="overline">Service setup</span>
+            <span className="overline">Order progress</span>
             <h2>
               {commerceAgreement.status === "ACTIVE"
                 ? "Ready to run"
                 : sentenceCase(commerceAgreement.status)}
             </h2>
             <p>
-              Relic keeps permissions and wallet confirmations separate so the
-              agent cannot exceed the limits you approved.
+              {checkoutError !== undefined
+                ? checkoutError
+                : relationshipState === "Awaiting first update"
+                ? "Your provider is preparing the first update. No action is needed from you."
+                : relationshipState === "Completing payment"
+                  ? "Your next checkout confirmation will appear here when it is required."
+                  : "Relic will show a secure confirmation here only when your action is required."}
             </p>
+            {startInitialCheck === "1" &&
+            latest === null &&
+            agentResponse.data?.category === "health-factor-monitoring" ? (
+              <InitialHealthObservation mandateId={mandate.id} />
+            ) : null}
           </div>
-          <dl className="commerce-facts">
-            <div>
-              <dt>Service price</dt>
-              <dd>{commercePriceLabel(commerceAgreement.pricingSnapshot)}</dd>
-            </div>
-            <div>
-              <dt>Permissions</dt>
-              <dd>
-                {commerceAgreement.authorizationArtifactId === null
-                  ? "Confirmation required"
-                  : "Confirmed"}
-              </dd>
-            </div>
-            <div>
-              <dt>Funded</dt>
-              <dd>
-                {isFreePrice(commerceAgreement.pricingSnapshot)
-                  ? "None"
-                  : commercePriceLabel({
-                      ...commerceAgreement.pricingSnapshot,
-                      amountBaseUnits: movementTotal([
-                        "FUNDING",
-                        "ESCROW_LOCK",
-                      ]).toString(),
-                    })}
-              </dd>
-            </div>
-            <div>
-              <dt>Settled</dt>
-              <dd>
-                {isFreePrice(commerceAgreement.pricingSnapshot)
-                  ? "None"
-                  : commercePriceLabel({
-                      ...commerceAgreement.pricingSnapshot,
-                      amountBaseUnits: movementTotal([
-                        "PAYMENT",
-                        "ESCROW_RELEASE",
-                      ]).toString(),
-                    })}
-              </dd>
-            </div>
-            <div>
-              <dt>Refunded</dt>
-              <dd>
-                {isFreePrice(commerceAgreement.pricingSnapshot)
-                  ? "None"
-                  : commercePriceLabel({
-                      ...commerceAgreement.pricingSnapshot,
-                      amountBaseUnits: movementTotal(["REFUND"]).toString(),
-                    })}
-              </dd>
-            </div>
-            <div>
-              <dt>Setup progress</dt>
-              <dd>
-                {commerceAgreement.operations.length} recorded ·{" "}
-                {
-                  commerceAgreement.operations.filter(
-                    (operation) => operation.state === "AWAITING_SIGNATURE",
-                  ).length
-                }{" "}
-                awaiting confirmation
-              </dd>
-            </div>
-          </dl>
-          <Link href={`/commerce/agreements/${commerceAgreement.id}`}>
-            View technical setup details →
-          </Link>
           {commerceExecution?.status === "SUCCEEDED" &&
           awaitingOperationType === "CREATE_JOB" ? (
             <div className="authorization-action">
-              <strong>Confirm this run</strong>
+              <strong>Confirm service request</strong>
               <p>
-                Confirm the exact target and permissions for this run. This
-                signature does not move funds.
+                Relic has checked your request. Confirm it in your wallet to
+                continue; no funds move at this point.
               </p>
               {latestExactAuthorizationId === undefined ? (
                 <CommerceAuthorization
                   agreementId={commerceAgreement.id}
-                  continuationHref={`/my-agents/mandates/${mandate.id}`}
+                  continuationHref={`/account/my-hires/mandates/${mandate.id}`}
                   actionHash={`0x${commerceExecution.action.normalizedHash.replace(/^0x/, "")}`}
                 />
               ) : (
-                <p>
-                  Exact-action signature verified and persisted as artifact{" "}
-                  <code>{latestExactAuthorizationId}</code>.
-                </p>
+                <p>Your request is confirmed. Preparing the wallet confirmation…</p>
               )}
+            </div>
+          ) : null}
+          {unsignedLegacyCheckout ? (
+            <div className="authorization-action">
+              <strong>Update secure checkout</strong>
+              <p>
+                This unsigned setup was created by an earlier checkout flow.
+                Restart it to use the current offer-bound payment sequence.
+              </p>
+              <form method="post" action={`/account/my-hires/mandates/${mandate.id}/restart`}>
+                <button type="submit">Restart secure checkout</button>
+              </form>
             </div>
           ) : null}
           {awaitingActionOperation !== undefined &&
@@ -538,23 +523,10 @@ export default async function ExecutionRoomPage({
             (awaitingOperationType === "CREATE_JOB" &&
               latestExactAuthorizationId !== undefined)) ? (
             <div className="authorization-action">
-              <strong>
-                {awaitingOperationType === "REGISTER_JOB"
-                  ? "Continue secure setup"
-                  : awaitingOperationType === "SET_BUDGET"
-                    ? "Confirm the free service limit"
-                    : awaitingOperationType === "FUND"
-                      ? "Start the free service"
-                      : "Start agent setup"}
-              </strong>
+              <strong>Confirm in wallet</strong>
               <p>
-                {awaitingOperationType === "REGISTER_JOB"
-                  ? "Apply the approved safety policy. No service funds move; BSC Testnet gas only."
-                  : awaitingOperationType === "SET_BUDGET"
-                    ? "Confirm the service remains free. No tokens move; BSC Testnet gas only."
-                    : awaitingOperationType === "FUND"
-                      ? "Finish setup and put the agent in its ready state. No service funds move; BSC Testnet gas only."
-                      : "Relic checks your permissions, the live service, and the selected network immediately before opening your wallet."}
+                Your wallet will show the exact service and payment details
+                before anything moves.
               </p>
               <WalletCommerceOperation
                 agreementId={commerceAgreement.id}
@@ -564,43 +536,43 @@ export default async function ExecutionRoomPage({
                   awaitingActionOperation.state as
                     "AWAITING_SIGNATURE" | "SUBMITTED" | "PENDING" | "CONFIRMED"
                 }
-                {...(initialQuoteExpiresAt === undefined
-                  ? {}
-                  : { initialQuoteExpiresAt })}
-                {...(initialQuoteNegotiatedAt === undefined
-                  ? {}
-                  : { initialQuoteNegotiatedAt })}
+              />
+            </div>
+          ) : null}
+          {commerceAgreement.status === "AUTHORIZATION_REQUIRED" &&
+          latest?.status === "SUCCEEDED" ? (
+            <div className="authorization-action">
+              <strong>Confirm service request</strong>
+              <p>
+                Your request has been checked. Approve this exact read-only
+                action to continue to the service payment confirmation.
+              </p>
+              <CommerceAuthorization
+                agreementId={commerceAgreement.id}
+                continuationHref={`/account/my-hires/mandates/${mandate.id}`}
+                actionHash={`0x${latest.action.normalizedHash.replace(/^0x/, "")}`}
               />
             </div>
           ) : null}
           {commerceAgreement.status === "AUTHORIZED" &&
           commerceAgreement.authorizationArtifactId !== null &&
-          commerceAgreement.operations.length === 0 &&
+          commerceAgreement.operations.every(
+            (operation) => operation.state === "CANCELLED",
+          ) &&
           latest?.status === "SUCCEEDED" ? (
-            <form action={prepareCommerceActivationAction}>
-              <input
-                type="hidden"
-                name="agreementId"
-                value={commerceAgreement.id}
+            recoveryAuthorizationId === undefined ? (
+              <CommerceAuthorization
+                agreementId={commerceAgreement.id}
+                continuationHref={`/account/my-hires/mandates/${mandate.id}`}
+                actionHash={`0x${latest.action.normalizedHash.replace(/^0x/, "")}`}
               />
-              <input
-                type="hidden"
-                name="executionRequestId"
-                value={latest.id}
-              />
-              <input
-                type="hidden"
-                name="authorizationId"
-                value={commerceAgreement.authorizationArtifactId}
-              />
-              <button type="submit">
-                Prepare setup session <span>→</span>
-              </button>
-              <small>
-                Creates durable offchain preparation only. It does not request a
-                wallet transaction or write to BSC Testnet.
-              </small>
-            </form>
+            ) : (
+              <form method="post" action={`/account/my-hires/mandates/${mandate.id}/restart`}>
+                <button type="submit">
+                  Continue checkout <span>→</span>
+                </button>
+              </form>
+            )
           ) : null}
           {commerceAgreement.status === "ACTIVE" &&
           awaitingActionOperation === undefined &&
@@ -631,7 +603,7 @@ export default async function ExecutionRoomPage({
                       <input
                         type="hidden"
                         name="account"
-                        value={recoveryObservedAccount}
+                        defaultValue={recoveryObservedAccount}
                       />
                       <button type="submit">
                         Run fresh observation <span>→</span>
@@ -647,7 +619,7 @@ export default async function ExecutionRoomPage({
               ) : recoveryAuthorizationId === undefined ? (
                 <CommerceAuthorization
                   agreementId={commerceAgreement.id}
-                  continuationHref={`/my-agents/mandates/${mandate.id}`}
+                  continuationHref={`/account/my-hires/mandates/${mandate.id}`}
                   actionHash={`0x${latest.action.normalizedHash.replace(/^0x/, "")}`}
                 />
               ) : (
@@ -655,19 +627,23 @@ export default async function ExecutionRoomPage({
                   <input
                     type="hidden"
                     name="agreementId"
-                    value={commerceAgreement.id}
+                    defaultValue={commerceAgreement.id}
                   />
                   <input
                     type="hidden"
                     name="executionRequestId"
-                    value={latest.id}
+                    defaultValue={latest.id}
                   />
                   <input
                     type="hidden"
                     name="authorizationId"
-                    value={recoveryAuthorizationId}
+                    defaultValue={recoveryAuthorizationId}
                   />
-                  <input type="hidden" name="mandateId" value={mandate.id} />
+                  <input
+                    type="hidden"
+                    name="mandateId"
+                    defaultValue={mandate.id}
+                  />
                   <button type="submit">
                     Prepare activation setup session <span>→</span>
                   </button>
@@ -687,18 +663,19 @@ export default async function ExecutionRoomPage({
 
       <section className="execution-console-grid">
         <div className="execution-feed">
-          <span className="overline">Activity</span>
-          <h2>Latest results</h2>
-          {executions.length === 0 ? (
+          <span className="overline">Service updates</span>
+          <h2>Updates</h2>
+          {visibleServiceUpdates.length === 0 ? (
             <div className="empty-relationships">
-              <h3>No execution requested yet.</h3>
+              <h3>{setupComplete ? "No update yet." : "Your service has not started yet."}</h3>
               <p>
-                Start a bounded read-only observation. No wallet or transaction
-                is involved.
+                {setupComplete
+                  ? "Your agent's first update will appear here when it is available."
+                  : "Complete checkout to start the service. The request validation above does not count as a paid delivery."}
               </p>
             </div>
           ) : (
-            executions.map((execution) => {
+            visibleServiceUpdates.slice(0, 1).map((execution) => {
               const presentation = executionPresentation(execution);
               return (
                 <article className="execution-event" key={execution.id}>
@@ -723,76 +700,13 @@ export default async function ExecutionRoomPage({
                         <strong>{presentation.result}</strong>
                         <p>{presentation.context}</p>
                       </div>
-                      <dl>
+                      <dl className="execution-result-facts">
                         <div>
-                          <dt>Risk / status</dt>
+                          <dt>Risk</dt>
                           <dd>{presentation.risk}</dd>
-                        </div>
-                        <div>
-                          <dt>Action performed</dt>
-                          <dd>{presentation.action}</dd>
-                        </div>
-                        <div>
-                          <dt>Funds moved</dt>
-                          <dd>{presentation.funds}</dd>
-                        </div>
-                        <div>
-                          <dt>Why Relic decided this</dt>
-                          <dd>{presentation.why}</dd>
                         </div>
                       </dl>
                     </section>
-                    <details className="execution-technical">
-                      <summary>Technical evidence</summary>
-                      <dl>
-                        <div>
-                          <dt>Execution ID</dt>
-                          <dd>{execution.id}</dd>
-                        </div>
-                        <div>
-                          <dt>Mandate ID</dt>
-                          <dd>{execution.mandateId}</dd>
-                        </div>
-                        <div>
-                          <dt>Principal ID</dt>
-                          <dd>{execution.principalId}</dd>
-                        </div>
-                        <div>
-                          <dt>Action hash</dt>
-                          <dd>{execution.action.normalizedHash}</dd>
-                        </div>
-                        <div>
-                          <dt>Network</dt>
-                          <dd>Chain {execution.chainId}</dd>
-                        </div>
-                        <div>
-                          <dt>Protocol</dt>
-                          <dd>{execution.action.protocol ?? "None"}</dd>
-                        </div>
-                        <div>
-                          <dt>Cost</dt>
-                          <dd>{execution.receipt?.cost ?? "Not incurred"}</dd>
-                        </div>
-                      </dl>
-                      <div className="raw-evidence-block">
-                        <b>Exact policy reasons</b>
-                        <pre>{JSON.stringify(execution.reasons, null, 2)}</pre>
-                      </div>
-                      <div className="raw-evidence-block">
-                        <b>Canonical action</b>
-                        <pre>{JSON.stringify(execution.action, null, 2)}</pre>
-                      </div>
-                      <div className="raw-evidence-block">
-                        <b>Raw request</b>
-                        <pre>
-                          {JSON.stringify(execution.rawRequest, null, 2)}
-                        </pre>
-                      </div>
-                      <div className="raw-evidence-block">
-                        <b>Complete persisted receipt</b>
-                        <pre>{JSON.stringify(execution.receipt, null, 2)}</pre>
-                      </div>
-                    </details>
                   </div>
                 </article>
               );
@@ -801,71 +715,15 @@ export default async function ExecutionRoomPage({
         </div>
 
         <aside className="execution-sidebar">
-          <section>
-            <span className="overline">Permissions</span>
-            <h2>{mandate.version.approvalMode.replaceAll("_", " ")}</h2>
-            <p>
-              Read-only monitoring. No asset, spending, wallet, or transaction
-              authority.
-            </p>
-            <dl>
-              <div>
-                <dt>Version</dt>
-                <dd>{mandate.currentVersion}</dd>
-              </div>
-              <div>
-                <dt>Expires</dt>
-                <dd>{new Date(mandate.version.expiresAt).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt>Last execution</dt>
-                <dd>{latest ? relativeTime(latest.updatedAt) : "None"}</dd>
-              </div>
-              <div>
-                <dt>Latest result</dt>
-                <dd>
-                  {latest === null
-                    ? "None"
-                    : executionPresentation(latest).result}
-                </dd>
-              </div>
-            </dl>
-          </section>
-          <section id="request-observation">
-            <span className="overline">Request observation</span>
-            <form
-              action={requestHealthObservation.bind(null, mandate.id)}
-              className="execution-request-form"
-            >
-              <label>
-                Public address to observe
-                <input
-                  name="account"
-                  required
-                  pattern="0x[0-9a-fA-F]{40}"
-                  placeholder="0x…"
-                />
-              </label>
-              <button
-                className="primary-action"
-                disabled={mandate.status !== "ACTIVE"}
-              >
-                Run policy-controlled check <span>→</span>
-              </button>
-            </form>
-            <small>
-              Direct read-only BSC Testnet evidence. No signing and no
-              blockchain write.
-            </small>
-          </section>
-          <section className="execution-controls">
-            <span className="overline">Controls</span>
-            <Link href={`/mandates/${mandate.id}`}>Manage permissions</Link>
+          <details className="order-settings">
+            <summary>Manage order</summary>
+            <p>{workflow.permissionSummary}</p>
+            <div className="execution-controls">
             {mandate.status === "ACTIVE" ? (
               <form
                 action={transitionMandateAction.bind(null, mandate.id, "pause")}
               >
-                <button>Pause</button>
+                <button>Pause task</button>
               </form>
             ) : null}
             {mandate.status === "PAUSED" ? (
@@ -876,7 +734,7 @@ export default async function ExecutionRoomPage({
                   "resume",
                 )}
               >
-                <button>Resume</button>
+                <button>Resume task</button>
               </form>
             ) : null}
             {!(["REVOKED", "EXPIRED"] as string[]).includes(mandate.status) ? (
@@ -887,35 +745,10 @@ export default async function ExecutionRoomPage({
                   "revoke",
                 )}
               >
-                <button className="danger-link">Revoke</button>
+                <button className="danger-link">Cancel task</button>
               </form>
             ) : null}
-          </section>
-          <details className="technical-details safety-test">
-            <summary>Advanced safety test</summary>
-            <h2>Test a forbidden action</h2>
-            <p>
-              Ask Relic to evaluate a token transfer. This observe-only mandate
-              must deny it before wallet signing, job preparation, or execution.
-            </p>
-            <form
-              action={requestForbiddenTransfer.bind(null, mandate.id)}
-              className="execution-request-form"
-            >
-              <label>
-                Public destination used in the policy request
-                <input
-                  name="destination"
-                  required
-                  pattern="0x[0-9a-fA-F]{40}"
-                  placeholder="0x…"
-                />
-              </label>
-              <button disabled={mandate.status !== "ACTIVE"}>
-                Verify transfer is denied
-              </button>
-            </form>
-            <small>No transaction is constructed or submitted.</small>
+            </div>
           </details>
         </aside>
       </section>

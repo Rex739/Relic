@@ -19,11 +19,11 @@ const items = [
       pathname.startsWith("/account/mylistings") || pathname.startsWith("/operator"),
   },
   {
-    href: "/my-agents",
-    label: "My hires",
+    href: "/account/my-hires",
+    label: "My orders",
     icon: Landmark,
     match: (pathname: string) =>
-      ["/my-agents", "/mandates", "/commerce"].some((path) =>
+      ["/account/my-hires", "/my-agents", "/mandates", "/commerce"].some((path) =>
         pathname.startsWith(path),
       ),
   },

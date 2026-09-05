@@ -9,7 +9,9 @@ import {
   editMandate,
   getMandate,
   transitionMandate,
+  activationProfile,
 } from "../lib/mandates";
+import { acceptTerms, hireOffer } from "../lib/commerce";
 
 const capabilities = [
   "monitor_positions",
@@ -30,27 +32,40 @@ const fieldString = (formData: FormData, name: string, fallback = "") => {
   return typeof value === "string" ? value : fallback;
 };
 
-function healthFactorConfiguration(formData: FormData): CreateMandateRequest {
-  const durationDays = Number(formData.get("durationDays") ?? 7);
+async function serviceConfiguration(formData: FormData): Promise<CreateMandateRequest> {
+  const durationDays = Number(formData.get("durationDays") ?? 14);
   const threshold = fieldString(formData, "threshold", "1.30");
   const now = new Date();
-  const enabledCapabilities = capabilities.filter(
-    (capability) => formData.get(capability) === "on",
-  );
-  const monitoredAccount = fieldString(formData, "monitoredAccount");
+  const agentId = fieldString(formData, "agentId");
+  const category = fieldString(formData, "category");
+  const profile = await activationProfile(agentId);
+  const enabledCapabilities =
+    profile.profile.capabilitySet.length > 0
+      ? profile.profile.capabilitySet
+      : capabilities.filter((capability) => formData.get(capability) === "on");
+  const monitoredAccount = fieldString(formData, "publicAccount");
   if (
     monitoredAccount.length > 0 &&
     !/^0x[0-9a-fA-F]{40}$/.test(monitoredAccount)
   )
     throw new Error("monitoredAccount must be a valid EVM address");
   return {
-    agentId: fieldString(formData, "agentId"),
-    chainId: Number(formData.get("chainId")) as 56 | 97,
-    objective: fieldString(formData, "objective"),
+    agentId,
+    chainId: profile.profile.chainId,
+    objective: fieldString(
+      formData,
+      "objective",
+      category === "health-factor-monitoring"
+        ? "Monitor my public lending position and alert me when attention is needed."
+        : `Run the requested ${category.replaceAll("-", " ")} service.`,
+    ),
     allowedCapabilities: enabledCapabilities,
     deniedCapabilities: denied,
+    // A service input such as "USDT" is not proof that an agent is verified
+    // for that asset. Keep it as task context until the offer publishes a
+    // supported-asset schema.
     allowedAssets: [],
-    allowedProtocols: ["Venus"],
+    allowedProtocols: profile.profile.supportedProtocols,
     allowedContracts: [],
     perActionLimit: null,
     aggregateLimit: null,
@@ -59,9 +74,19 @@ function healthFactorConfiguration(formData: FormData): CreateMandateRequest {
     expiresAt: new Date(
       now.getTime() + durationDays * 86_400_000,
     ).toISOString(),
-    approvalMode: "OBSERVE_ONLY",
+    approvalMode: profile.profile.approvalModes.includes("OBSERVE_ONLY")
+      ? "OBSERVE_ONLY"
+      : profile.profile.approvalModes[0]!,
     riskConstraints: {
-      alertHealthFactorBelow: threshold,
+      ...(category === "health-factor-monitoring"
+        ? { alertHealthFactorBelow: threshold }
+        : {}),
+      ...(fieldString(formData, "target") === ""
+        ? {}
+        : { target: fieldString(formData, "target") }),
+      ...(fieldString(formData, "asset") === ""
+        ? {}
+        : { requestedAsset: fieldString(formData, "asset") }),
       ...(monitoredAccount.length === 0 ? {} : { monitoredAccount }),
     },
     stopConditions: [
@@ -73,21 +98,64 @@ function healthFactorConfiguration(formData: FormData): CreateMandateRequest {
 }
 
 export async function createAndReviewMandate(formData: FormData) {
-  const draft = await createMandate(healthFactorConfiguration(formData));
+  const draft = await createMandate(await serviceConfiguration(formData));
   await transitionMandate(draft.id, "review");
   redirect(`/mandates/${draft.id}?preflight=passed`);
 }
 
-export async function createActivateMandateForHire(formData: FormData) {
+export type StartedHireCheckout = {
+  mandateId: string;
+  agreementId: string;
+};
+
+/**
+ * Starts the checkout without navigating away from the service card. The
+ * browser still has to collect the buyer's EIP-712 signature afterwards, but
+ * that happens in the checkout dialog rather than in the retired hire wizard.
+ */
+export async function startHireCheckout(
+  formData: FormData,
+): Promise<StartedHireCheckout> {
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
-  const draft = await createMandate(healthFactorConfiguration(formData));
+  const draft = await createMandate(await serviceConfiguration(formData));
   await transitionMandate(draft.id, "review");
   await transitionMandate(draft.id, "activate");
+  const offerId = fieldString(formData, "offerId");
+  // Create the required Relic agreement in the same checkout submission. The
+  // buyer still signs the EIP-712 authorization in their wallet on the next
+  // screen; it cannot safely be performed by the server.
+  const createdAgreement = await hireOffer(offerId, draft.id);
+  const agreementId = typeof createdAgreement.id === "string" ? createdAgreement.id : "";
+  if (!agreementId) throw new Error("Agreement creation returned no identifier");
+  const agreementTermsHash =
+    typeof createdAgreement.termsHash === "string" ? createdAgreement.termsHash : "";
+  if (!agreementTermsHash) throw new Error("Agreement creation returned no terms hash");
+  await acceptTerms(agreementId, agreementTermsHash);
+  return { mandateId: draft.id, agreementId };
+}
+
+export async function createActivateMandateForHire(formData: FormData) {
+  const started = await startHireCheckout(formData);
   const agentId = fieldString(formData, "agentId");
   const offerId = fieldString(formData, "offerId");
   redirect(
-    `/agents/${encodeURIComponent(agentId)}/hire?offer=${encodeURIComponent(offerId)}&mandate=${encodeURIComponent(draft.id)}`,
+    `/agents/${encodeURIComponent(agentId)}/hire?offer=${encodeURIComponent(offerId)}&mandate=${encodeURIComponent(started.mandateId)}&agreement=${encodeURIComponent(started.agreementId)}&autoAuthorize=1`,
+  );
+}
+
+export async function removeSavedHireSetup(formData: FormData) {
+  const mandateId = fieldString(formData, "mandateId");
+  const agentId = fieldString(formData, "agentId");
+  const offerId = fieldString(formData, "offerId");
+  if (!mandateId || !agentId || !offerId)
+    throw new Error("Saved setup details are required");
+  await transitionMandate(mandateId, "revoke");
+  revalidatePath("/account/my-hires");
+  revalidatePath(`/account/my-hires/mandates/${mandateId}`);
+  revalidatePath(`/agents/${agentId}/hire`);
+  redirect(
+    `/agents/${encodeURIComponent(agentId)}/hire?offer=${encodeURIComponent(offerId)}`,
   );
 }
 
@@ -96,7 +164,7 @@ export async function activateMandateAction(id: string, formData: FormData) {
     throw new Error("Explicit mandate approval is required");
   await transitionMandate(id, "activate");
   revalidatePath(`/mandates/${id}`);
-  revalidatePath("/my-agents");
+  revalidatePath("/account/my-hires");
   redirect(`/mandates/${id}?activated=true`);
 }
 
@@ -106,12 +174,12 @@ export async function transitionMandateAction(
 ) {
   await transitionMandate(id, action);
   revalidatePath(`/mandates/${id}`);
-  revalidatePath("/my-agents");
+  revalidatePath("/account/my-hires");
 }
 
 export async function editMandateAction(id: string, formData: FormData) {
   const existing = await getMandate(id);
-  const next = healthFactorConfiguration(formData);
+  const next = await serviceConfiguration(formData);
   next.agentId = existing.agentId;
   next.chainId = existing.chainId;
   await editMandate(id, next);

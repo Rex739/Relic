@@ -88,10 +88,12 @@ export default async function OffersPage({
   let readiness: SellerAgentReadiness[] = [];
   let error: string | null = null;
   try {
-    [offers, history, readiness] = await Promise.all([
+    [offers, readiness, history] = await Promise.all([
       operatorOffers(),
-      operatorAgreements(),
       operatorReadiness(),
+      // The overview does not display agreement history. Avoid loading an
+      // unbounded, nested settlement record until a seller opens one listing.
+      externalAgentId === undefined ? Promise.resolve([]) : operatorAgreements(),
     ]);
   } catch (caught) {
     error =

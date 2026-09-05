@@ -31,7 +31,7 @@ describe("activation setup readiness", () => {
     );
   });
 
-  it("separates the policy-safe job deadline from the short handoff window", () => {
+  it("caps a job at the relationship deadline while preserving the dispute window", () => {
     const nowSeconds = 1_787_631_300n;
     const disputeWindowSeconds = 2n * 86_400n;
     expect(
@@ -41,10 +41,21 @@ describe("activation setup readiness", () => {
         relationshipExpiresAtSeconds: nowSeconds + 30n * 86_400n,
       }),
     ).toBe(nowSeconds + 9n * 86_400n);
+    expect(
+      commerceValidationJobExpiry({
+        nowSeconds,
+        disputeWindowSeconds: 15n * 60n,
+        relationshipExpiresAtSeconds: nowSeconds + 60n * 60n,
+      }),
+    ).toBe(nowSeconds + 60n * 60n);
+  });
+
+  it("rejects a relationship that ends before its policy dispute window", () => {
+    const nowSeconds = 1_787_631_300n;
     expect(() =>
       commerceValidationJobExpiry({
         nowSeconds,
-        disputeWindowSeconds,
+        disputeWindowSeconds: 2n * 86_400n,
         relationshipExpiresAtSeconds: nowSeconds + 60n * 60n,
       }),
     ).toThrow(/relationship expires before/i);
@@ -983,8 +994,8 @@ describe("wallet commerce operation preflight", () => {
       value: "0x0",
       preparedPayloadHash: keccak256(data),
       presentation: {
-        title: "Set job budget",
-        servicePrice: "Free / 0",
+        title: "Set service budget",
+        servicePrice: "Free",
         fundsExpectedToMove: false,
       },
     });
@@ -1149,8 +1160,8 @@ describe("wallet commerce operation preflight", () => {
       value: "0x0",
       preparedPayloadHash: keccak256(data),
       presentation: {
-        title: "Fund free job",
-        servicePrice: "Free / 0",
+        title: "Confirm free service",
+        servicePrice: "Free",
         fundsExpectedToMove: false,
       },
     });
@@ -1417,5 +1428,77 @@ describe("wallet commerce operation preflight", () => {
     await expect(
       service.preparedWalletTransaction(principal, agreement.id, operation.id),
     ).rejects.toThrow(/no longer current/i);
+  });
+
+  it("prepares an offer-bound CREATE_JOB without a legacy activation", async () => {
+    vi.stubGlobal("fetch", rpcFetch());
+    const expiredAt = String(Math.floor(now.getTime() / 1_000) + 3_600);
+    const createAbi = [
+      {
+        type: "function",
+        name: "createJob",
+        stateMutability: "nonpayable",
+        inputs: [
+          { name: "provider", type: "address" },
+          { name: "evaluator", type: "address" },
+          { name: "expiredAt", type: "uint256" },
+          { name: "description", type: "string" },
+          { name: "hook", type: "address" },
+        ],
+        outputs: [{ name: "jobId", type: "uint256" }],
+      },
+    ] as const;
+    const data = encodeFunctionData({
+      abi: createAbi,
+      functionName: "createJob",
+      args: [otherAccount.address, router, BigInt(expiredAt), "quoted job", router],
+    });
+    const operation = {
+      id: "01945b1e-7e80-7000-8000-000000000066",
+      operationType: "CREATE_JOB",
+      state: "AWAITING_SIGNATURE",
+      transactionHash: null,
+      activationId: null,
+      executionRequestId: null,
+      preparedPayloadHash: keccak256(data),
+      evidence: {
+        commerceValidation: true,
+        contract: commerce,
+        negotiatedAt: Math.floor(now.getTime() / 1_000),
+        quoteExpiresAt: Math.floor(now.getTime() / 1_000) + 900,
+        functionArguments: {
+          provider: otherAccount.address,
+          evaluator: router,
+          expiredAt,
+          description: "quoted job",
+          hook: router,
+        },
+      },
+    };
+    const agreement = {
+      id: "01945b1e-7e80-7000-8000-000000000067",
+      status: "ACTIVE",
+      principalId: principal.principalId,
+      operations: [operation],
+    };
+    const service = new CommerceApplicationService(
+      { async findAgreement() { return agreement; } } as never,
+      router,
+      () => now,
+      {
+        commerceAddress: commerce,
+        evaluatorAddress: router,
+        policyAddress: policy,
+        rpcUrl: "https://rpc.invalid",
+      },
+    );
+
+    await expect(
+      service.preparedWalletTransaction(principal, agreement.id, operation.id),
+    ).resolves.toMatchObject({
+      operationType: "CREATE_JOB",
+      data,
+      presentation: { fundsExpectedToMove: false },
+    });
   });
 });

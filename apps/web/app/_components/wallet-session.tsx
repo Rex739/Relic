@@ -2,7 +2,7 @@
 
 import { Landmark, LogOut, PackagePlus, UserRound, Wallet } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { readJsonResponse } from "../../lib/http-json";
@@ -49,6 +49,7 @@ export function WalletSession({
 }) {
   const wallet = useRelicWallet();
   const router = useRouter();
+  const pathname = usePathname();
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,12 +61,49 @@ export function WalletSession({
     typeof window !== "undefined" &&
       window.sessionStorage.getItem("wallet_connect_requested") === "1",
   );
-  const connectMethod = useRef<"google" | "wallet" | null>(
+  const connectMethod = useRef<"google" | "email" | "wallet" | null>(
     typeof window === "undefined"
       ? null
       : (window.sessionStorage.getItem("wallet_connect_method") as
-          "google" | "wallet" | null),
+          "google" | "email" | "wallet" | null),
   );
+
+  useEffect(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    if (parameters.get("connect") !== "1") return;
+    const next = parameters.get("next");
+    if (
+      next !== null &&
+      next.startsWith("/agents/") &&
+      next.includes("/hire")
+    )
+      window.sessionStorage.setItem("relic_post_connect_path", next);
+    parameters.delete("connect");
+    parameters.delete("next");
+    const query = parameters.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${pathname}${query === "" ? "" : `?${query}`}`,
+    );
+    setConnectOpen(true);
+  }, [pathname]);
+
+  useEffect(() => {
+    const openConnect = (event: Event) => {
+      const detail = (event as CustomEvent<{ returnTo?: unknown }>).detail;
+      const returnTo = detail?.returnTo;
+      if (
+        typeof returnTo === "string" &&
+        returnTo.startsWith("/agents/") &&
+        returnTo.includes("/hire")
+      )
+        window.sessionStorage.setItem("relic_post_connect_path", returnTo);
+      setConnectOpen(true);
+    };
+    window.addEventListener("relic:open-connect", openConnect);
+    return () => window.removeEventListener("relic:open-connect", openConnect);
+  }, []);
 
   useEffect(() => {
     if (!wallet.ready) return;
@@ -136,6 +174,16 @@ export function WalletSession({
     window.sessionStorage.removeItem("wallet_connect_method");
   };
 
+  const continueAfterAuthentication = () => {
+    const next = window.sessionStorage.getItem("relic_post_connect_path");
+    window.sessionStorage.removeItem("relic_post_connect_path");
+    if (next !== null) {
+      router.replace(next);
+      return;
+    }
+    router.refresh();
+  };
+
   const activeWalletDetails = async () => {
     const provider = await wallet.getProvider();
     const accounts = (await provider.request({ method: "eth_accounts" })) as
@@ -200,7 +248,7 @@ export function WalletSession({
         throw new Error(verified?.error ?? "Wallet signature was not accepted");
       setAddress(verified.walletAddress);
       setChainId(connectedChainId);
-      router.refresh();
+      continueAfterAuthentication();
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Wallet connection failed",
@@ -237,7 +285,7 @@ export function WalletSession({
         throw new Error(verified?.error ?? "Google sign-in was not accepted");
       setAddress(verified.walletAddress);
       setChainId(connectedChainId);
-      router.refresh();
+      continueAfterAuthentication();
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Google sign-in failed",
@@ -252,7 +300,10 @@ export function WalletSession({
     if (!connectRequested.current || !wallet.ready || !wallet.authenticated)
       return;
     if (wallet.address === null) return;
-    if (connectMethod.current === "google") {
+    if (
+      connectMethod.current === "google" ||
+      connectMethod.current === "email"
+    ) {
       if (wallet.identityToken === null) return;
       void authenticateGoogleSession();
       return;
@@ -289,7 +340,7 @@ export function WalletSession({
     };
   }, [accountMenuOpen]);
 
-  const connect = (method: "google" | "wallet") => {
+  const connect = (method: "google" | "email" | "wallet") => {
     if (!wallet.configured) {
       setError(
         "Sign-in is not configured. Set NEXT_PUBLIC_PRIVY_APP_ID first.",
@@ -311,6 +362,10 @@ export function WalletSession({
         if (wallet.profile?.isGoogleUser) void authenticateGoogleSession();
         else wallet.loginWithGoogle();
       } else void authenticateWalletSession();
+      return;
+    }
+    if (method === "email") {
+      wallet.loginWithEmail();
       return;
     }
     if (method === "google") {
@@ -375,6 +430,14 @@ export function WalletSession({
                     <GoogleIcon />
                   </span>
                   <strong>Continue with Google</strong>
+                </Button>
+                <Button
+                  className="connect-option"
+                  onClick={() => connect("email")}
+                  type="button"
+                  variant="outline"
+                >
+                  <strong>Continue with email</strong>
                 </Button>
                 <Button
                   className="connect-option"
@@ -463,11 +526,11 @@ export function WalletSession({
                   <small>Agents you offer</small>
                 </span>
               </Link>
-              <Link href="/my-agents" onClick={() => setAccountMenuOpen(false)}>
+              <Link href="/account/my-hires" onClick={() => setAccountMenuOpen(false)}>
                 <Landmark size={16} />
                 <span>
-                  My hires
-                  <small>Agents working for you</small>
+                  My orders
+                  <small>Tasks and deliveries</small>
                 </span>
               </Link>
               <button

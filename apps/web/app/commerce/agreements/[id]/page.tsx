@@ -57,7 +57,7 @@ export default async function CommerceAgreementPage({
   const executionRoomHref =
     mandateId === null || validationAgreement
       ? null
-      : `/my-agents/mandates/${mandateId}`;
+      : `/account/my-hires/mandates/${mandateId}`;
   const authorized = ["AUTHORIZED", "ACTIVE"].includes(status);
   const activeValidationOperation = validationAgreement
     ? [...operations].reverse().find((operation) => {
@@ -77,28 +77,12 @@ export default async function CommerceAgreementPage({
         );
       })
     : undefined;
-  const validationEvidence = activeValidationOperation?.evidence as
-    Record<string, unknown> | undefined;
   const validationFundingFinalized = validationAgreement
     ? operations.some(
         (operation) =>
           operation.operationType === "FUND" && operation.state === "FINALIZED",
       )
     : false;
-  const validationQuote = validationEvidence?.quote as
-    Record<string, unknown> | undefined;
-  const quoteExpiresAt =
-    typeof validationEvidence?.quoteExpiresAt === "number"
-      ? validationEvidence.quoteExpiresAt
-      : typeof validationQuote?.quoteExpiresAt === "number"
-        ? validationQuote.quoteExpiresAt
-        : undefined;
-  const quoteNegotiatedAt =
-    typeof validationEvidence?.negotiatedAt === "number"
-      ? validationEvidence.negotiatedAt
-      : typeof validationQuote?.negotiatedAt === "number"
-        ? validationQuote.negotiatedAt
-        : undefined;
   return (
     <main className="page-shell agreement-page">
       <header className="operations-header">
@@ -172,7 +156,7 @@ export default async function CommerceAgreementPage({
               continuationHref={
                 validationAgreement
                   ? `/commerce/agreements/${id}`
-                  : (executionRoomHref ?? "/my-agents")
+                  : (executionRoomHref ?? "/account/my-hires")
               }
             />
           ) : null}
@@ -240,21 +224,6 @@ export default async function CommerceAgreementPage({
               String(activeValidationOperation.state) as
                 "AWAITING_SIGNATURE" | "SUBMITTED" | "PENDING" | "CONFIRMED"
             }
-            {...(quoteExpiresAt === undefined
-              ? {}
-              : {
-                  initialQuoteExpiresAt: new Date(
-                    quoteExpiresAt * 1_000,
-                  ).toISOString(),
-                })}
-            {...(quoteNegotiatedAt === undefined
-              ? {}
-              : {
-                  initialQuoteNegotiatedAt: new Date(
-                    quoteNegotiatedAt * 1_000,
-                  ).toISOString(),
-                })}
-            paidValidation
           />
         </section>
       ) : null}
@@ -349,7 +318,7 @@ export default async function CommerceAgreementPage({
           signed CANCEL operation.
         </p>
       </section>
-      <Link href="/my-agents">Back to My Agents</Link>
+      <Link href="/account/my-hires">Back to My orders</Link>
     </main>
   );
 }

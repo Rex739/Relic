@@ -21,8 +21,11 @@ import {
 import { activeOffers } from "../../../lib/commerce";
 import { AgentAvatar } from "../../_components/agent-avatar";
 import { AgentDescription } from "../../_components/agent-description-dialog";
+import { QuickServiceCheckout } from "../../_components/quick-service-checkout";
 import { OnChainDataDialog } from "../../_components/on-chain-data-dialog";
+import { ServiceDescription } from "../../_components/service-description-dialog";
 import { VerificationTier } from "../../_components/verification-tier";
+import { serviceWorkflowFor } from "../../../lib/service-workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -242,6 +245,77 @@ export default async function AgentIntelligencePage({
             </div>
           </section>
 
+          {offers.length > 0 ? (
+            <section className="profile-section commerce-offers">
+              <div className="commerce-offers-heading">
+                <span className="overline">Services</span>
+              </div>
+              <div
+                className={`commerce-offer-list service-count-${Math.min(offers.length, 3)}`}
+              >
+                {offers.map((offer) => (
+                  <article key={offer.id} className="offer-card">
+                    <div className="offer-card-copy">
+                      <h3>{offer.version.capability}</h3>
+                      <ServiceDescription
+                        name={offer.version.capability}
+                        description={
+                          offer.version.limitationsSnapshot.join(" ") ||
+                          "No additional service details published."
+                        }
+                      />
+                      <div className="service-contract-preview">
+                        <div>
+                          <span>Requirements</span>
+                          <p>
+                            {serviceWorkflowFor(agent.category).requirements
+                              .filter((field) => field.required)
+                              .map((field) => field.label)
+                              .join(" · ") || "Task details"}
+                          </p>
+                        </div>
+                        <div>
+                          <span>Deliverables</span>
+                          <p>
+                            {serviceWorkflowFor(agent.category).deliverables
+                              .slice(0, 2)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="service-card-footer">
+                      <dl className="service-facts">
+                        <div>
+                          <dt>Price</dt>
+                          <dd>{commercePriceLabel(offer.version.price)}</dd>
+                        </div>
+                        <div>
+                          <dt>Network</dt>
+                          <dd>
+                            {offer.version.chainId === 97
+                              ? "BSC Testnet"
+                              : "BSC Mainnet"}
+                          </dd>
+                        </div>
+                      </dl>
+                      <QuickServiceCheckout
+                        agentId={agent.id}
+                        agentName={agent.name}
+                        agentCategory={agent.category}
+                        offerId={offer.id}
+                        chainId={offer.version.chainId}
+                        price={commercePriceLabel(offer.version.price)}
+                        network={offer.version.chainId === 97 ? "BSC Testnet" : "BNB Chain"}
+                        workflow={serviceWorkflowFor(agent.category)}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <div className="profile-secondary-grid">
             <section className="profile-secondary-panel">
               <span className="overline">Reviews</span>
@@ -364,47 +438,6 @@ export default async function AgentIntelligencePage({
               </section>
             ) : null}
           </div>
-          {offers.length > 0 ? (
-            <section className="profile-section commerce-offers">
-              <span className="overline">Services</span>
-              <h2>Choose what you want this agent to do</h2>
-              <p>
-                Current service offers published by the operator and checked by
-                Relic.
-              </p>
-              {offers.map((offer) => (
-                <article key={offer.id} className="offer-card">
-                  <div>
-                    <span>
-                      {offer.version.billingModel.replaceAll("_", " ")}
-                    </span>
-                    <h3>{offer.version.capability}</h3>
-                    <p>
-                      {offer.version.limitationsSnapshot.join(" · ") ||
-                        "No additional limitations published"}
-                    </p>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Price</dt>
-                      <dd>{commercePriceLabel(offer.version.price)}</dd>
-                    </div>
-                    <div>
-                      <dt>Network</dt>
-                      <dd>
-                        {offer.version.chainId === 97
-                          ? "BSC Testnet"
-                          : "BSC Mainnet"}
-                      </dd>
-                    </div>
-                  </dl>
-                  <Link href={`/agents/${agent.id}/hire?offer=${offer.id}`}>
-                    Hire this service →
-                  </Link>
-                </article>
-              ))}
-            </section>
-          ) : null}
         </div>
         <aside className="profile-status-rail">
           <div className="profile-action">
@@ -434,12 +467,18 @@ export default async function AgentIntelligencePage({
             ) : null}
             {agent.hireable ? (
               <div className="action-boundary actionable-boundary">
-                <Link
-                  href={`/agents/${agent.id}/hire`}
+                <QuickServiceCheckout
+                  agentId={agent.id}
+                  agentName={agent.name}
+                  agentCategory={agent.category}
+                  offerId={offers[0]?.id ?? ""}
+                  chainId={agent.chainId}
+                  price={marketplacePriceLabel(agent.activeOfferPrice)}
+                  network={agent.chainId === 97 ? "BSC Testnet" : "BNB Chain"}
+                  workflow={serviceWorkflowFor(agent.category)}
                   className="activate-link"
-                >
-                  Hire agent
-                </Link>
+                  label="Hire agent"
+                />
                 <Link
                   href={`/compare?ids=${agent.id}`}
                   className="profile-compare-link"

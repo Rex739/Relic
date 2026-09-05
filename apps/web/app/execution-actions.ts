@@ -4,17 +4,11 @@ import { randomUUID } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
 
-import { getMandate, requestExecution } from "../lib/mandates";
+import { getMandate, listExecutions, requestExecution } from "../lib/mandates";
 
-export async function requestHealthObservation(
-  mandateId: string,
-  formData: FormData,
-) {
+const createHealthObservation = async (mandateId: string, account: string) => {
   const mandate = await getMandate(mandateId);
-  const account = formData.get("account");
-  if (typeof account !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(account))
-    throw new Error("A valid public BSC observation address is required");
-  await requestExecution(mandateId, `health-observation:${randomUUID()}`, {
+  return requestExecution(mandateId, `health-observation:${randomUUID()}`, {
     mandateId,
     mandateVersion: mandate.currentVersion,
     agentId: mandate.agentId,
@@ -30,8 +24,35 @@ export async function requestHealthObservation(
     deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
     source: { kind: "execution_room_user_request" },
   });
-  revalidatePath(`/my-agents/${mandateId}`);
-  revalidatePath("/my-agents");
+};
+
+export async function requestHealthObservation(
+  mandateId: string,
+  formData: FormData,
+) {
+  const account = formData.get("account");
+  if (typeof account !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(account))
+    throw new Error("A valid public BSC observation address is required");
+  await createHealthObservation(mandateId, account);
+  revalidatePath(`/account/my-hires/${mandateId}`);
+  revalidatePath(`/account/my-hires/mandates/${mandateId}`);
+  revalidatePath("/account/my-hires");
+}
+
+export async function startInitialHealthObservation(mandateId: string) {
+  const mandate = await getMandate(mandateId);
+  const account = mandate.version.riskConstraints.monitoredAccount;
+  if (typeof account !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(account))
+    throw new Error("This order has no valid public account to monitor");
+
+  // Client transitions and retries can both invoke this action. A first check
+  // is an order bootstrap, never a recurring user command, so it is idempotent.
+  const existing = await listExecutions(mandateId);
+  const execution = existing[0] ?? (await createHealthObservation(mandateId, account));
+  revalidatePath(`/account/my-hires/${mandateId}`);
+  revalidatePath(`/account/my-hires/mandates/${mandateId}`);
+  revalidatePath("/account/my-hires");
+  return execution;
 }
 
 export async function requestForbiddenTransfer(
@@ -61,6 +82,7 @@ export async function requestForbiddenTransfer(
     deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
     source: { kind: "execution_room_forbidden_action_validation" },
   });
-  revalidatePath(`/my-agents/${mandateId}`);
-  revalidatePath("/my-agents");
+  revalidatePath(`/account/my-hires/${mandateId}`);
+  revalidatePath(`/account/my-hires/mandates/${mandateId}`);
+  revalidatePath("/account/my-hires");
 }

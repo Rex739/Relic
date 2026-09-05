@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { LoaderCircle } from "lucide-react";
 
 import { useRelicWallet } from "./relic-wallet-provider";
 import { switchWalletChain, walletTypedDataPayload } from "./wallet-provider";
@@ -9,19 +10,24 @@ export function CommerceAuthorization({
   agreementId,
   continuationHref,
   actionHash = null,
+  autoStart = false,
+  onAuthorized,
 }: {
   agreementId: string;
   continuationHref: string;
   actionHash?: string | null;
+  autoStart?: boolean;
+  onAuthorized?: (artifactId: string) => void | Promise<void>;
 }) {
   const wallet = useRelicWallet();
   const [stage, setStage] = useState<
     "idle" | "preparing" | "wallet" | "verifying"
   >("idle");
   const [error, setError] = useState<string | null>(null);
+  const autoStartAttempted = useRef(false);
   const busy = stage !== "idle";
 
-  const authorize = async () => {
+  const authorize = useCallback(async () => {
     if (!wallet.authenticated || wallet.address === null) {
       setError("Connect and authenticate a wallet through Privy first.");
       return;
@@ -90,7 +96,9 @@ export function CommerceAuthorization({
         throw new Error(
           verified.error ?? "Authorization signature was rejected",
         );
-      if (actionHash === null) {
+      if (onAuthorized !== undefined) {
+        await onAuthorized(verified.artifactId);
+      } else if (actionHash === null) {
         window.location.assign(continuationHref);
       } else {
         const destination = new URL(continuationHref, window.location.origin);
@@ -107,7 +115,20 @@ export function CommerceAuthorization({
     } finally {
       setStage("idle");
     }
-  };
+  }, [actionHash, agreementId, continuationHref, onAuthorized, wallet]);
+
+  useEffect(() => {
+    if (
+      !autoStart ||
+      autoStartAttempted.current ||
+      !wallet.ready ||
+      !wallet.authenticated ||
+      wallet.address === null
+    )
+      return;
+    autoStartAttempted.current = true;
+    void authorize();
+  }, [autoStart, authorize, wallet.address, wallet.authenticated, wallet.ready]);
 
   return (
     <div className="authorization-action">
@@ -117,6 +138,7 @@ export function CommerceAuthorization({
         disabled={busy}
         aria-busy={busy}
       >
+        {busy ? <LoaderCircle className="button-loader" aria-hidden="true" /> : null}
         {stage === "preparing"
           ? "Preparing secure request…"
           : stage === "wallet"

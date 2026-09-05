@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LoaderCircle } from "lucide-react";
 
 import {
   isTransactionHash,
   quoteHasSafeHeadroom,
-  quoteRemainingSeconds,
   walletOperationNeedsReconciliation,
   walletSubmissionError,
 } from "../../lib/wallet-commerce";
@@ -44,23 +44,35 @@ type PreparedWalletTransaction = {
 };
 
 type WalletTransaction = { nonce?: string };
+type NextOperation = {
+  operationId: string;
+  operationType: OperationType;
+  operationState: "AWAITING_SIGNATURE";
+};
+
+const hasRecordedTransaction = (message: string | null | undefined) =>
+  message?.toLowerCase().includes("transaction hash is already recorded") ??
+  false;
 
 export function WalletCommerceOperation({
   agreementId,
   operationId,
   operationType,
   operationState,
-  initialQuoteExpiresAt,
-  initialQuoteNegotiatedAt,
-  paidValidation = false,
+  autoStart = true,
+  onNextOperation,
+  onComplete,
 }: {
   agreementId: string;
   operationId: string;
   operationType: OperationType;
   operationState: OperationState;
-  initialQuoteExpiresAt?: string;
-  initialQuoteNegotiatedAt?: string;
-  paidValidation?: boolean;
+  /** Begin the next required wallet step as soon as checkout reaches it. */
+  autoStart?: boolean;
+  /** Called when on-chain finality makes the following checkout step ready. */
+  onNextOperation?: (operation: NextOperation) => void;
+  /** Called once the final checkout operation has reached durable finality. */
+  onComplete?: () => void;
 }) {
   const router = useRouter();
   const wallet = useRelicWallet();
@@ -72,7 +84,8 @@ export function WalletCommerceOperation({
   const [prepared, setPrepared] = useState<PreparedWalletTransaction | null>(
     null,
   );
-  const [now, setNow] = useState(() => Date.now());
+  const autoStartAttempted = useRef(false);
+  const completionNotified = useRef(false);
   useEffect(() => {
     setStage(
       walletOperationNeedsReconciliation(operationState)
@@ -82,46 +95,85 @@ export function WalletCommerceOperation({
     setError(null);
     setTransactionHash(null);
     setPrepared(null);
+    autoStartAttempted.current = false;
+    completionNotified.current = false;
   }, [operationId, operationState]);
-  useEffect(() => {
-    if (prepared === null && initialQuoteExpiresAt === undefined) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [initialQuoteExpiresAt, prepared]);
   useEffect(() => {
     if (stage !== "confirming") return;
     router.refresh();
     const timer = window.setInterval(() => router.refresh(), 2_500);
     return () => window.clearInterval(timer);
   }, [router, stage]);
+
+  useEffect(() => {
+    if (
+      stage !== "confirming" ||
+      (onNextOperation === undefined && onComplete === undefined)
+    )
+      return;
+    let cancelled = false;
+    const next = async () => {
+      try {
+        const response = await fetch(`/api/commerce/agreements/${agreementId}`, {
+          cache: "no-store",
+        });
+        const agreement = (await response.json()) as {
+          operations?: Array<Record<string, unknown>>;
+        };
+        if (!response.ok || cancelled || agreement.operations === undefined) return;
+        const nextOperation = agreement.operations
+          .toReversed()
+          .find(
+            (candidate) =>
+              candidate.id !== operationId &&
+              candidate.state === "AWAITING_SIGNATURE" &&
+              typeof candidate.id === "string" &&
+              ["APPROVE_TOKEN", "CREATE_JOB", "REGISTER_JOB", "SET_BUDGET", "FUND"].includes(
+                String(candidate.operationType),
+              ),
+          );
+        if (nextOperation !== undefined && !cancelled && onNextOperation !== undefined) {
+          onNextOperation({
+            operationId: String(nextOperation.id),
+            operationType: nextOperation.operationType as OperationType,
+            operationState: "AWAITING_SIGNATURE",
+          });
+          return;
+        }
+        const currentOperation = agreement.operations.find(
+          (candidate) => candidate.id === operationId,
+        );
+        if (
+          currentOperation?.state === "FINALIZED" &&
+          !cancelled &&
+          !completionNotified.current
+        ) {
+          completionNotified.current = true;
+          onComplete?.();
+        }
+      } catch {
+        // The normal refresh loop continues while the indexer reaches finality.
+      }
+    };
+    void next();
+    const timer = window.setInterval(() => void next(), 2_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [agreementId, onComplete, onNextOperation, operationId, stage]);
+
+  // A browser reload or a development hot update can resume the UI before it
+  // receives the POST response that recorded a wallet transaction. Treat the
+  // server's durable hash as authoritative and continue reconciliation rather
+  // than leaving the buyer on a duplicate-submission error.
+  useEffect(() => {
+    if (!hasRecordedTransaction(error)) return;
+    setError(null);
+    setStage("confirming");
+    router.refresh();
+  }, [error, router]);
   const busy = stage !== "idle";
-  const remaining = (value: string | undefined) =>
-    value === undefined ? null : quoteRemainingSeconds(value, now);
-  const displayRemaining = (seconds: number | null) =>
-    seconds === null
-      ? "Unavailable"
-      : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-  const quoteExpiresAt = prepared?.quoteExpiresAt ?? initialQuoteExpiresAt;
-  const quoteNegotiatedAt =
-    prepared?.quoteNegotiatedAt ?? initialQuoteNegotiatedAt;
-  const setupStep = paidValidation
-    ? operationType === "APPROVE_TOKEN"
-      ? 1
-      : operationType === "CREATE_JOB"
-        ? 2
-        : operationType === "REGISTER_JOB"
-          ? 3
-          : operationType === "SET_BUDGET"
-            ? 4
-            : 5
-    : operationType === "CREATE_JOB"
-      ? 1
-      : operationType === "REGISTER_JOB"
-        ? 2
-        : operationType === "SET_BUDGET"
-          ? 3
-          : 4;
-  const setupSteps = paidValidation ? 5 : 4;
 
   const submit = async () => {
     if (!wallet.authenticated || wallet.address === null) {
@@ -215,6 +267,11 @@ export function WalletCommerceOperation({
         }),
       });
       const result = (await recorded.json()) as { error?: string };
+      if (!recorded.ok && hasRecordedTransaction(result.error)) {
+        setStage("confirming");
+        router.refresh();
+        return;
+      }
       if (!recorded.ok)
         throw new Error(
           result.error ??
@@ -228,58 +285,48 @@ export function WalletCommerceOperation({
     }
   };
 
-  const label =
-    operationType === "APPROVE_TOKEN" ||
-    operationType === "REGISTER_JOB" ||
-    operationType === "SET_BUDGET" ||
-    operationType === "FUND"
-      ? "Confirm in wallet"
-      : "Start 15-minute setup session";
+  const label = "Confirm in wallet";
+
+  useEffect(() => {
+    if (
+      !autoStart ||
+      autoStartAttempted.current ||
+      operationState !== "AWAITING_SIGNATURE" ||
+      !wallet.ready ||
+      !wallet.authenticated ||
+      wallet.address === null ||
+      stage !== "idle"
+    )
+      return;
+    autoStartAttempted.current = true;
+    void submit();
+  }, [
+    autoStart,
+    operationId,
+    operationState,
+    stage,
+    submit,
+    wallet.address,
+    wallet.authenticated,
+    wallet.ready,
+  ]);
+
+  const amountLabel =
+    operationType === "APPROVE_TOKEN"
+      ? "Approval amount"
+      : operationType === "FUND"
+        ? "Payment amount"
+        : "Service amount";
 
   return (
     <div className="authorization-action wallet-commerce-operation">
-      <div
-        className="activation-setup-session"
-        aria-label="Activation setup session"
-      >
-        <div>
-          <strong>
-            Agent setup · step {setupStep} of {setupSteps}
-          </strong>
-          <span>
-            {paidValidation
-              ? "Approve payment → Create service → Apply safety → Set budget → Fund escrow"
-              : "Create service → Apply safety → Set budget → Start service"}
-          </span>
-        </div>
-        {quoteExpiresAt === undefined ? (
-          <small>
-            The 15-minute setup window starts only after every readiness check
-            passes.
-          </small>
-        ) : (
-          <div
-            className="activation-setup-countdown"
-            role="timer"
-            aria-live="polite"
-          >
-            <span>Setup time remaining</span>
-            <strong>{displayRemaining(remaining(quoteExpiresAt))}</strong>
-            {quoteNegotiatedAt === undefined ? null : (
-              <small>
-                Started {new Date(quoteNegotiatedAt).toLocaleTimeString()}
-              </small>
-            )}
-          </div>
-        )}
-      </div>
       {prepared !== null &&
       (operationType === "APPROVE_TOKEN" ||
         operationType === "SET_BUDGET" ||
         operationType === "FUND") ? (
         <dl className="wallet-operation-summary">
           <div>
-            <dt>Budget</dt>
+            <dt>{amountLabel}</dt>
             <dd>{prepared.presentation.servicePrice}</dd>
           </div>
           <div>
@@ -300,12 +347,20 @@ export function WalletCommerceOperation({
           </div>
         </dl>
       ) : null}
+      {prepared === null ? null : (
+        <p>
+          <strong>{prepared.presentation.title}</strong>
+          <br />
+          {prepared.presentation.description}
+        </p>
+      )}
       <button
         type="button"
         onClick={() => void submit()}
         disabled={busy}
         aria-busy={busy}
       >
+        {busy ? <LoaderCircle className="button-loader" aria-hidden="true" /> : null}
         {stage === "preparing"
           ? "Preparing safely…"
           : stage === "awaiting_wallet"
@@ -318,88 +373,25 @@ export function WalletCommerceOperation({
       </button>
       <span role="status" aria-live="polite">
         {stage === "awaiting_wallet"
-          ? "Review the BSC Testnet contract call in your wallet. Relic records nothing unless the wallet returns a transaction hash."
+          ? "Review the confirmation in your wallet."
           : stage === "submitted"
-            ? "Your wallet returned a transaction hash. Relic is recording it now."
+            ? "Confirmation received. Recording your order…"
             : stage === "confirming"
-              ? "Transaction recorded. Relic is reconciling finality and will prepare the next manual wallet step automatically."
+              ? "Confirmation received. Finalizing your order…"
               : operationType === "APPROVE_TOKEN"
-                ? "This grants the commerce contract an exact-amount token allowance. It does not move tokens."
+                ? "The exact payment amount will be shown in your wallet before anything moves."
                 : operationType === "REGISTER_JOB"
-                  ? paidValidation
-                    ? "This applies the approved safety policy. No tokens move in this step."
-                    : "This applies the approved safety policy. You pay network gas only; the service remains free and no funds move."
+                  ? "This confirms the service can run under your approved request."
                   : operationType === "SET_BUDGET"
-                    ? "This records the exact offer budget. No tokens move in this step."
+                    ? "This confirms the service budget."
                     : operationType === "FUND"
-                      ? "This deposits the approved offer amount into escrow and starts the job."
-                      : "This creates the offer-bound service job. It does not fund or settle anything."}
+                      ? "This confirms the payment and starts the service."
+                      : "This confirms your service request. No funds move in this step."}
       </span>
       {transactionHash === null ? null : (
         <small>Transaction: {transactionHash}</small>
       )}
       {error === null ? null : <span role="alert">{error}</span>}
-      {prepared === null && quoteExpiresAt === undefined ? null : (
-        <>
-          {quoteExpiresAt === undefined ? null : (
-            <div className="wallet-operation-expiry" role="status">
-              <strong>Secure setup window</strong>
-              {operationType === "CREATE_JOB" ? (
-                <span>
-                  Buyer approval:{" "}
-                  {displayRemaining(
-                    remaining(prepared?.authorizationExpiresAt),
-                  )}
-                </span>
-              ) : null}
-              <span>
-                Time remaining: {displayRemaining(remaining(quoteExpiresAt))}
-              </span>
-              {operationType === "CREATE_JOB" ? (
-                <span>
-                  Job expiry after creation:{" "}
-                  {prepared?.jobExpiresAt === undefined
-                    ? "Unavailable"
-                    : new Date(prepared.jobExpiresAt).toLocaleString()}
-                </span>
-              ) : null}
-              <small>
-                Complete all {setupSteps} confirmations before this setup window
-                expires. Relic stops safely when too little time remains.
-              </small>
-            </div>
-          )}
-          {prepared === null ? null : (
-            <details>
-              <summary>Technical evidence</summary>
-              <dl>
-                <div>
-                  <dt>Operation</dt>
-                  <dd>{prepared.operationType}</dd>
-                </div>
-                <div>
-                  <dt>Network</dt>
-                  <dd>{prepared.presentation.network} · chain ID 97</dd>
-                </div>
-                <div>
-                  <dt>Contract</dt>
-                  <dd>{prepared.to}</dd>
-                </div>
-                <div>
-                  <dt>Prepared payload hash</dt>
-                  <dd>{prepared.preparedPayloadHash}</dd>
-                </div>
-                <div>
-                  <dt>Funds expected to move</dt>
-                  <dd>
-                    {prepared.presentation.fundsExpectedToMove ? "Yes" : "No"}
-                  </dd>
-                </div>
-              </dl>
-            </details>
-          )}
-        </>
-      )}
     </div>
   );
 }

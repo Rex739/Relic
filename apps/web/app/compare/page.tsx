@@ -9,6 +9,7 @@ import {
   relativeTime,
 } from "../../lib/marketplace";
 import { VerificationTier } from "../_components/verification-tier";
+import { HireLink } from "../_components/hire-link";
 
 export const metadata: Metadata = { title: "Compare verified agents" };
 export const dynamic = "force-dynamic";
@@ -205,12 +206,12 @@ export default async function ComparePage({
                 {agents.map((agent) => (
                   <td key={agent.id}>
                     {agent.hireable ? (
-                      <Link
+                      <HireLink
                         className="primary-button"
                         href={`/agents/${agent.id}/hire`}
                       >
                         Hire this agent
-                      </Link>
+                      </HireLink>
                     ) : (
                       <Link
                         className="secondary-button"

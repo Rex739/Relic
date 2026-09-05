@@ -50,7 +50,7 @@ export default async function MandatePage({
   return (
     <main className="page-shell mandate-page">
       <nav className="breadcrumbs" aria-label="Breadcrumb">
-        <Link href="/my-agents">My Agents</Link>
+        <Link href="/account/my-hires">My orders</Link>
         <span>/</span>
         <span>Mandate {mandate.id.slice(0, 8)}</span>
       </nav>

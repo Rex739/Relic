@@ -1199,6 +1199,27 @@ export class DrizzleCommerceStore {
     if (mandate === undefined || mandate.activeVersion === null)
       throw new Error("An active matching mandate is required before hiring");
     const pricingSnapshot = offer.version.price;
+    const [mandateVersion] = await this.database
+      .select({ expiresAt: mandateVersions.expiresAt })
+      .from(mandateVersions)
+      .where(
+        and(
+          eq(mandateVersions.mandateId, mandate.id),
+          eq(mandateVersions.version, mandate.activeVersion),
+        ),
+      )
+      .limit(1);
+    if (mandateVersion === undefined)
+      throw new Error("The active mandate version could not be found");
+    const offerExpiresAt =
+      offer.version.expiresAt === null
+        ? null
+        : new Date(offer.version.expiresAt);
+    const agreementExpiresAt =
+      offerExpiresAt === null ||
+      mandateVersion.expiresAt < offerExpiresAt
+        ? mandateVersion.expiresAt
+        : offerExpiresAt;
     const id = await this.database.transaction(async (transaction) => {
       const [agreement] = await transaction
         .insert(commerceAgreements)
@@ -1219,10 +1240,7 @@ export class DrizzleCommerceStore {
           amountBaseUnits: offer.version.price.amountBaseUnits,
           paymentTokenAddress: offer.version.price.tokenAddress,
           paymentTokenDecimals: offer.version.price.decimals,
-          expiresAt:
-            offer.version.expiresAt === null
-              ? null
-              : new Date(offer.version.expiresAt),
+          expiresAt: agreementExpiresAt,
         })
         .returning({ id: commerceAgreements.id });
       if (agreement === undefined) throw new Error("Agreement insert failed");
@@ -1343,7 +1361,9 @@ export class DrizzleCommerceStore {
     if (
       agreement === null ||
       (actionSpecific
-        ? !["AUTHORIZED", "ACTIVE"].includes(agreement.status)
+        ? !["AUTHORIZATION_REQUIRED", "AUTHORIZED", "ACTIVE"].includes(
+            agreement.status,
+          )
         : agreement.status !== "AUTHORIZATION_REQUIRED")
     )
       throw new Error("Agreement is not awaiting this authorization type");
@@ -1438,25 +1458,32 @@ export class DrizzleCommerceStore {
             approved: true,
             authorizationKind: "WALLET_EIP712",
             walletAuthorization: true,
-          })
+        })
           .onConflictDoNothing()
           .returning({ id: executionApprovals.id });
         if (approval.length === 0) {
-          const [existingApproval] = await transaction
-            .select()
-            .from(executionApprovals)
+          // A read-only validation may have already been allowed by the
+          // policy engine before the buyer signs. The table deliberately
+          // keeps one approval per execution, so promote that matching
+          // approval to the stronger wallet-backed proof instead of treating
+          // it as a conflicting second approval.
+          const upgraded = await transaction
+            .update(executionApprovals)
+            .set({
+              approved: true,
+              authorizationKind: "WALLET_EIP712",
+              walletAuthorization: true,
+              approvedAt: new Date(),
+            })
             .where(
               and(
                 eq(executionApprovals.executionRequestId, execution.id),
                 eq(executionApprovals.principalId, input.principalId),
                 eq(executionApprovals.normalizedHash, execution.normalizedHash),
-                eq(executionApprovals.approved, true),
-                eq(executionApprovals.authorizationKind, "WALLET_EIP712"),
-                eq(executionApprovals.walletAuthorization, true),
               ),
             )
-            .limit(1);
-          if (existingApproval === undefined)
+            .returning({ id: executionApprovals.id });
+          if (upgraded.length !== 1)
             throw new Error(
               "Existing exact execution approval does not match this refresh",
             );
@@ -1496,11 +1523,40 @@ export class DrizzleCommerceStore {
         });
       }
       if (actionSpecific) {
+        // The first exact action is also the buyer's authorization of the
+        // agreement. This keeps checkout to one signature: it binds the
+        // commercial terms and the first policy-controlled action together.
+        // Subsequent exact actions retain the existing authorized/active
+        // agreement state and only add their action-scoped artifact.
+        if (agreement.status === "AUTHORIZATION_REQUIRED") {
+          const changed = await transaction
+            .update(commerceAgreements)
+            .set({
+              authorizationArtifactId: artifact.id,
+              status: "AUTHORIZED",
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(commerceAgreements.id, agreement.id),
+                eq(commerceAgreements.status, "AUTHORIZATION_REQUIRED"),
+              ),
+            )
+            .returning({ id: commerceAgreements.id });
+          if (changed.length !== 1)
+            throw new Error("Agreement state changed before authorization");
+        }
         await transaction.insert(commerceAgreementEvents).values({
           agreementId: agreement.id,
           fromStatus: agreement.status,
-          toStatus: agreement.status,
-          eventType: "EXACT_EXECUTION_AUTHORIZED",
+          toStatus:
+            agreement.status === "AUTHORIZATION_REQUIRED"
+              ? "AUTHORIZED"
+              : agreement.status,
+          eventType:
+            agreement.status === "AUTHORIZATION_REQUIRED"
+              ? "WALLET_AUTHORIZATION_VERIFIED"
+              : "EXACT_EXECUTION_AUTHORIZED",
           actorPrincipalId: input.principalId,
           evidence: {
             authorizationId: artifact.id,
@@ -1606,7 +1662,9 @@ export class DrizzleCommerceStore {
     if (
       agreement === null ||
       (actionSpecific
-        ? !["AUTHORIZED", "ACTIVE"].includes(agreement.status)
+        ? !["AUTHORIZATION_REQUIRED", "AUTHORIZED", "ACTIVE"].includes(
+            agreement.status,
+          )
         : agreement.status !== "AUTHORIZATION_REQUIRED")
     )
       throw new Error("Agreement is not awaiting this authorization type");
@@ -1695,15 +1753,23 @@ export class DrizzleCommerceStore {
       .select({
         agreement: commerceAgreements,
         session: commerceValidationSessions,
+        mandateVersion: mandateVersions,
         offer: agentOffers,
         version: agentOfferVersions,
         service: marketplaceServices,
         identity: agentIdentities,
       })
       .from(commerceAgreements)
-      .innerJoin(
+      .leftJoin(
         commerceValidationSessions,
         eq(commerceValidationSessions.agreementId, commerceAgreements.id),
+      )
+      .innerJoin(
+        mandateVersions,
+        and(
+          eq(mandateVersions.mandateId, commerceAgreements.mandateId),
+          eq(mandateVersions.version, commerceAgreements.mandateVersion),
+        ),
       )
       .innerJoin(agentOffers, eq(agentOffers.id, commerceAgreements.offerId))
       .innerJoin(
@@ -1746,7 +1812,7 @@ export class DrizzleCommerceStore {
           identity: agentIdentities,
         })
         .from(commerceAgreements)
-        .innerJoin(
+        .leftJoin(
           commerceValidationSessions,
           eq(commerceValidationSessions.agreementId, commerceAgreements.id),
         )
@@ -1767,9 +1833,11 @@ export class DrizzleCommerceStore {
         context.agreement.authorizationArtifactId === null ||
         context.agreement.mandateId === null ||
         context.agreement.mandateVersion === null ||
-        context.session.status !== "CLAIMED" ||
-        context.session.expiresAt <= new Date() ||
-        context.session.buyerPrincipalId !== input.principalId ||
+        (context.session !== null &&
+          context.session !== undefined &&
+          (context.session.status !== "CLAIMED" ||
+            context.session.expiresAt <= new Date() ||
+            context.session.buyerPrincipalId !== input.principalId)) ||
         context.identity.ownerAddress.toLowerCase() !==
           input.providerAddress.toLowerCase()
       )
@@ -1844,7 +1912,7 @@ export class DrizzleCommerceStore {
         activationId: activation.id,
         operationType: "APPROVE_TOKEN",
         state: "AWAITING_SIGNATURE",
-        idempotencyKey: `validation:${context.session.id}:approve-token`,
+        idempotencyKey: `validation:${context.session?.id ?? context.agreement.id}:approve-token`,
         preparedPayloadHash: input.approvalPayloadHash,
         evidence: input.approvalEvidence,
         nextAttemptAt: new Date(),
@@ -1866,13 +1934,138 @@ export class DrizzleCommerceStore {
         actorPrincipalId: input.principalId,
         evidence: {
           activationId: activation.id,
-          validationSessionId: context.session.id,
+          validationSessionId: context.session?.id ?? null,
           purpose: "VERIFICATION",
           marketplaceHistoryEligible: false,
           transactionSubmitted: false,
         },
       });
       return activation;
+    });
+  }
+
+  /**
+   * Retire an unsigned legacy setup attempt before switching an agreement to
+   * the offer-bound validation checkout. This is deliberately narrow: a
+   * legacy attempt can be replaced only before it has a transaction hash,
+   * external job, or progressed beyond PREPARING. It lets existing in-flight
+   * development orders use the same universal checkout as new services.
+   */
+  public async supersedeUnsignedLegacyActivationForValidation(input: {
+    agreementId: string;
+    principalId: string;
+  }) {
+    return this.database.transaction(async (transaction) => {
+      const agreement = await this.#agreementRow(
+        input.agreementId,
+        input.principalId,
+      );
+      if (agreement === null) throw new Error("Commerce agreement not found");
+      if (agreement.status !== "ACTIVE") return false;
+
+      const operations = await transaction
+        .select()
+        .from(commerceOperations)
+        .where(eq(commerceOperations.agreementId, agreement.id));
+      const legacyOperations = operations.filter(
+        (operation) => {
+          const evidence = operation.evidence as Record<string, unknown>;
+          // Older validation attempts carried the commerceValidation marker,
+          // but were not offer-bound and therefore have no signed quote.
+          return (
+            evidence.commerceValidation !== true ||
+            evidence.quote === null ||
+            typeof evidence.quote !== "object"
+          );
+        },
+      );
+      if (legacyOperations.length === 0) return false;
+      if (
+        legacyOperations.some(
+          (operation) =>
+            operation.transactionHash !== null ||
+            !["CREATED", "AWAITING_SIGNATURE"].includes(operation.state),
+        )
+      )
+        throw new Error(
+          "A legacy checkout has progressed and cannot be replaced safely",
+        );
+
+      const activationIds = [
+        ...new Set(
+          legacyOperations
+            .map((operation) => operation.activationId)
+            .filter((id): id is string => id !== null),
+        ),
+      ];
+      if (activationIds.length > 0) {
+        const legacyActivations = await transaction
+          .select()
+          .from(activations)
+          .where(inArray(activations.id, activationIds));
+        if (
+          legacyActivations.some(
+            (activation) =>
+              activation.purpose !== "USER_COMMERCE" ||
+              activation.lifecycleState !== "PREPARING" ||
+              activation.externalJobId !== null,
+          )
+        )
+          throw new Error(
+            "A legacy checkout has progressed and cannot be replaced safely",
+          );
+        await transaction
+          .update(activations)
+          .set({
+            lifecycleState: "FAILED",
+            status: legacyActivationStatusForLifecycle("FAILED"),
+            reconciliationState: "FAILED",
+            failure: {
+              code: "legacy_checkout_replaced",
+              message: "Replaced by the offer-bound checkout flow before any transaction was submitted.",
+            },
+            updatedAt: new Date(),
+          })
+          .where(inArray(activations.id, activationIds));
+      }
+      await transaction
+        .update(commerceOperations)
+        .set({
+          state: "CANCELLED",
+          failure: {
+            code: "legacy_checkout_replaced",
+            message: "Replaced before any wallet transaction was submitted.",
+          },
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(commerceOperations.agreementId, agreement.id),
+            isNull(commerceOperations.transactionHash),
+            inArray(commerceOperations.state, ["CREATED", "AWAITING_SIGNATURE"]),
+          ),
+        );
+      const [updatedAgreement] = await transaction
+        .update(commerceAgreements)
+        .set({ status: "AUTHORIZED", updatedAt: new Date() })
+        .where(
+          and(
+            eq(commerceAgreements.id, agreement.id),
+            eq(commerceAgreements.status, "ACTIVE"),
+          ),
+        )
+        .returning({ id: commerceAgreements.id });
+      if (updatedAgreement === undefined)
+        throw new Error("Agreement changed while replacing legacy checkout");
+      await transaction.insert(commerceAgreementEvents).values({
+        agreementId: agreement.id,
+        fromStatus: "ACTIVE",
+        toStatus: "AUTHORIZED",
+        eventType: "LEGACY_CHECKOUT_REPLACED",
+        actorPrincipalId: input.principalId,
+        evidence: { transactionSubmitted: false },
+      });
+      return true;
     });
   }
 
@@ -2515,8 +2708,6 @@ export class DrizzleCommerceStore {
     if (
       agreement === null ||
       !["AUTHORIZED", "ACTIVE"].includes(agreement.status) ||
-      (agreement.status === "AUTHORIZED" &&
-        agreement.authorizationArtifactId !== input.authorizationId) ||
       agreement.mandateId === null ||
       agreement.mandateVersion === null
     )
@@ -2581,6 +2772,16 @@ export class DrizzleCommerceStore {
       throw new Error(
         "A current wallet authorization from the buyer is required",
       );
+    if (
+      authorization.agreementId !== agreement.id ||
+      authorization.executionRequestId !== execution.id ||
+      authorization.mandateId !== agreement.mandateId ||
+      authorization.mandateVersion !== agreement.mandateVersion ||
+      authorization.actionHash === null
+    )
+      throw new Error(
+        "A current exact-action authorization for this observation is required",
+      );
     if (identity === undefined)
       throw new Error("The current ERC-8004 provider owner is unavailable");
     if (
@@ -2630,10 +2831,6 @@ export class DrizzleCommerceStore {
             and(
               eq(commerceAgreements.id, agreement.id),
               eq(commerceAgreements.status, "AUTHORIZED"),
-              eq(
-                commerceAgreements.authorizationArtifactId,
-                input.authorizationId,
-              ),
             ),
           )
           .returning({ id: commerceAgreements.id });
@@ -2712,26 +2909,23 @@ export class DrizzleCommerceStore {
           transactionSubmitted: false,
         },
       });
-      if (replacement) {
-        const [createAttemptResult] = await transaction
-          .select({
-            value: sql<number>`coalesce(max(${commerceOperations.attempt}), 0)::int + 1`,
-          })
-          .from(commerceOperations)
-          .where(
-            and(
-              eq(commerceOperations.agreementId, agreement.id),
-              eq(commerceOperations.operationType, "CREATE_JOB"),
-            ),
-          );
-        const createAttempt = createAttemptResult?.value ?? 1;
-        const monitoredAccount = asObject(
-          execution.normalizedAction,
-        ).parameters;
-        const account = asObject(monitoredAccount).account;
-        if (typeof account !== "string")
-          throw new Error("Replacement execution has no monitored account");
-        await transaction.insert(commerceOperations).values({
+      const [createAttemptResult] = await transaction
+        .select({
+          value: sql<number>`coalesce(max(${commerceOperations.attempt}), 0)::int + 1`,
+        })
+        .from(commerceOperations)
+        .where(
+          and(
+            eq(commerceOperations.agreementId, agreement.id),
+            eq(commerceOperations.operationType, "CREATE_JOB"),
+          ),
+        );
+      const createAttempt = createAttemptResult?.value ?? 1;
+      const monitoredAccount = asObject(execution.normalizedAction).parameters;
+      const account = asObject(monitoredAccount).account;
+      if (typeof account !== "string")
+        throw new Error("Commerce execution has no monitored account");
+      await transaction.insert(commerceOperations).values({
           agreementId: agreement.id,
           activationId: row.id,
           executionRequestId: execution.id,
@@ -2747,8 +2941,8 @@ export class DrizzleCommerceStore {
           }),
           evidence: {
             userCommerce: true,
-            replacement: true,
-            expiredActivationReplaced: true,
+            replacement,
+            ...(replacement ? { expiredActivationReplaced: true } : {}),
             exactActionAuthorizationId: input.authorizationId,
             authorizationExpiresAt: authorization.expiresAt.toISOString(),
             actionHash: authorization.actionHash,
@@ -2759,7 +2953,6 @@ export class DrizzleCommerceStore {
             transactionSubmitted: false,
           },
         });
-      }
       return row;
     });
   }

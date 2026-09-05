@@ -3,7 +3,9 @@ import type { Mandate } from "@relic/domain";
 import type { CommerceAgreementView } from "./commerce";
 
 export type RelationshipStatus =
-  | "Setting up"
+  | "Awaiting confirmation"
+  | "Awaiting first update"
+  | "Completing payment"
   | "Running"
   | "Needs attention"
   | "Paused"
@@ -102,6 +104,7 @@ export function relationshipSetupComplete(
 export function relationshipStatus(input: {
   mandate: Mandate;
   agreement: CommerceAgreementView | null;
+  hasUpdate?: boolean;
   now?: number;
 }): RelationshipStatus {
   const { mandate, agreement } = input;
@@ -122,5 +125,14 @@ export function relationshipStatus(input: {
     return "Completed";
   if (mandate.status === "ACTIVE" && relationshipSetupComplete(agreement))
     return "Running";
-  return "Setting up";
+  if (
+    agreement === null ||
+    ["DRAFT", "TERMS_ACCEPTED", "AUTHORIZATION_REQUIRED"].includes(
+      agreement.status,
+    )
+  )
+    return "Awaiting confirmation";
+  if (agreement.status === "AUTHORIZED" && agreement.operations.length === 0)
+    return input.hasUpdate ? "Awaiting confirmation" : "Awaiting first update";
+  return "Completing payment";
 }

@@ -12,6 +12,7 @@ import {
   relativeTime,
 } from "../../lib/marketplace";
 import { AgentAvatar } from "./agent-avatar";
+import { HireLink } from "./hire-link";
 
 const concise = (description: string) =>
   description.length > 150 ? `${description.slice(0, 147)}…` : description;
@@ -106,12 +107,12 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
                 View agent
               </Link>
               {agent.hireable ? (
-                <Link
+                <HireLink
                   href={`/agents/${agent.id}/hire`}
                   className="primary-button"
                 >
                   Hire
-                </Link>
+                </HireLink>
               ) : (
                 <span className="unavailable-copy">Not currently hireable</span>
               )}

@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
@@ -43,7 +44,11 @@ export async function acceptTermsAction(formData: FormData) {
   const termsHash = field(formData, "termsHash");
   await acceptTerms(agreementId, termsHash);
   const continuation = safeContinuation(formData.get("continuation"));
-  redirect(continuation ?? `/commerce/agreements/${agreementId}`);
+  redirect(
+    continuation !== null
+      ? `${continuation}${continuation.includes("?") ? "&" : "?"}autoAuthorize=1`
+      : `/commerce/agreements/${agreementId}?autoAuthorize=1`,
+  );
 }
 
 export async function cancelAgreementAction(formData: FormData) {
@@ -76,7 +81,68 @@ export async function prepareCommerceActivationAction(formData: FormData) {
   const mandateId = formData.get("mandateId");
   redirect(
     typeof mandateId === "string" && mandateId.length > 0
-      ? `/my-agents/mandates/${mandateId}`
+      ? `/account/my-hires/mandates/${mandateId}`
       : `/commerce/agreements/${agreementId}`,
   );
+}
+
+/** Replace an unsigned legacy setup attempt with the current checkout flow. */
+export async function restartSecureCheckoutAction(
+  agreementId: string,
+  mandateId: string,
+) {
+  try {
+    await prepareCommerceValidation(agreementId);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Checkout is not ready yet.";
+    redirect(
+      `/account/my-hires/mandates/${mandateId}?checkoutError=${encodeURIComponent(message)}`,
+    );
+  }
+  revalidatePath(`/account/my-hires/mandates/${mandateId}`);
+  redirect(`/account/my-hires/mandates/${mandateId}`);
+}
+
+/** Complete the checkout hand-off after its single exact-action signature. */
+export async function completeHireCheckoutActivation(input: {
+  agreementId: string;
+  mandateId: string;
+}) {
+  // The exact signature has already authorized the agreement and the first
+  // read-only validation. From here, use the offer-bound ERC-8183 sequence so
+  // the service's quoted price—not a legacy zero-price bootstrap job—is what
+  // the buyer sees and funds in escrow.
+  const agreement = await prepareCommerceValidation(input.agreementId);
+  const operation = agreement.operations.find((candidate) => {
+    const evidence = candidate.evidence as Record<string, unknown> | undefined;
+    return (
+      candidate.state === "AWAITING_SIGNATURE" &&
+      evidence?.commerceValidation === true &&
+      evidence.quote !== null &&
+      typeof evidence.quote === "object"
+    );
+  });
+  const supportedOperationTypes = [
+    "APPROVE_TOKEN",
+    "CREATE_JOB",
+    "REGISTER_JOB",
+    "SET_BUDGET",
+    "FUND",
+  ] as const;
+  if (
+    operation === undefined ||
+    typeof operation.id !== "string" ||
+    !supportedOperationTypes.includes(
+      operation.operationType as (typeof supportedOperationTypes)[number],
+    )
+  )
+    throw new Error("Relic could not prepare the offer-bound service request.");
+  revalidatePath(`/account/my-hires/mandates/${input.mandateId}`);
+  revalidatePath("/account/my-hires");
+  return {
+    operationId: operation.id,
+    operationType: operation.operationType as (typeof supportedOperationTypes)[number],
+    operationState: "AWAITING_SIGNATURE" as const,
+  };
 }
