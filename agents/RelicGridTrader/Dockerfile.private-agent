@@ -24,6 +24,12 @@ ENV PORT=9000
 # project-local dependencies from this path at startup.
 COPY --from=build /workspace /workspace
 
+# The runtime process is deliberately unprivileged.  BNB Studio reads its
+# session from this project-local path, which is materialized from the
+# Northflank runtime secret during startup.
+RUN mkdir -p /workspace/.studio/wallets \
+  && chown -R node:node /workspace/.studio
+
 USER node
 EXPOSE 9000
 CMD ["node", "dist/unifiedMain.js"]
