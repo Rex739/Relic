@@ -129,7 +129,7 @@ const executionPresentation = (execution: ExecutionRecord) => {
   else if (denied) risk = "Protected by policy";
   else if (failed) risk = "Result unavailable";
   else if (noPosition) risk = "No active position";
-  else if (riskLevel === "critical") risk = "Shortfall detected";
+  else if (riskLevel === "critical") risk = "Critical — shortfall detected";
   else if (riskLevel === "none") risk = "No shortfall detected";
   else if (riskLevel !== null) risk = sentenceCase(riskLevel);
   else if (succeeded) risk = "Check completed";
@@ -172,6 +172,9 @@ const executionPresentation = (execution: ExecutionRecord) => {
     riskLevel === "none"
   )
     context = `Venus reports ${enteredMarketCount} entered ${enteredMarketCount === 1 ? "market" : "markets"} and no account shortfall at the observed block.`;
+  else if (succeeded && riskLevel === "critical")
+    context =
+      "Venus reports a shortfall at the observed block. This position may be eligible for liquidation.";
   else if (execution.receipt?.source === "independently_observed")
     context = "Relic independently observed this result.";
   else if (execution.receipt?.source === "onchain_verified")
