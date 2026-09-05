@@ -1,0 +1,28 @@
+version: 0.2
+
+# CodePipeline supplies CODEBUILD_RESOLVED_SOURCE_VERSION after checking out
+# GitHub. Every ECS deployment uses that immutable commit-SHA image, never a
+# mutable `latest` tag.
+phases:
+  pre_build:
+    commands:
+      - export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - export REPOSITORY_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/relic-web"
+      - export IMAGE_TAG=$(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c 1-7)
+      - test -n "$IMAGE_TAG"
+      - : "${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in the CodeBuild project}"
+      - : "${NEXT_PUBLIC_PRIVY_APP_ID:?Set NEXT_PUBLIC_PRIVY_APP_ID in the CodeBuild project}"
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+
+  build:
+    commands:
+      - docker build --file Dockerfile.marketplace --target web --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" --build-arg NEXT_PUBLIC_PRIVY_APP_ID="$NEXT_PUBLIC_PRIVY_APP_ID" --build-arg NEXT_PUBLIC_PRIVY_CLIENT_ID="$NEXT_PUBLIC_PRIVY_CLIENT_ID" --tag "$REPOSITORY_URI:$IMAGE_TAG" .
+
+  post_build:
+    commands:
+      - docker push "$REPOSITORY_URI:$IMAGE_TAG"
+      - printf '[{"name":"relic-web","imageUri":"%s"}]' "$REPOSITORY_URI:$IMAGE_TAG" > imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
