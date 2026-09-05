@@ -63,3 +63,8 @@ acknowledged_at = "2026-09-05T06:30:24Z"
 max_per_topup_usd = 1.0
 max_per_day_usd = 3.0
 max_per_month_usd = 15.0
+
+[identity]
+agent_id = 2159
+endpoint = "https://p01--relic-grid-trader-gateway--b28z25yb24gx.code.run"
+last_register_tx = "0xfa89ab77451f7de38c85d45e0f05f19204b7a1fcab4f000c543053d219f3ab5f"
