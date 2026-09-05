@@ -1,0 +1,29 @@
+# Private Layer A runtime for the Relic Grid Trader.
+# Build context: agents/RelicGridTrader. The Altana session enters only as a
+# Northflank runtime secret; `.studio` is excluded by `.dockerignore`.
+FROM node:22-alpine AS build
+
+RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
+
+WORKDIR /workspace
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY app/agent/package.json ./app/agent/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY app/agent ./app/agent
+RUN pnpm --filter RelicGridTrader-agent build
+
+FROM node:22-alpine
+
+WORKDIR /workspace/app/agent
+ENV NODE_ENV=production
+ENV PORT=9000
+
+# Keep the workspace layout: Studio resolves `app/agent/studio.toml` and its
+# project-local dependencies from this path at startup.
+COPY --from=build /workspace /workspace
+
+USER node
+EXPOSE 9000
+CMD ["node", "dist/unifiedMain.js"]
