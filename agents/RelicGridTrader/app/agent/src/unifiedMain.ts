@@ -62,6 +62,8 @@
  */
 
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   GetSecretValueCommand,
@@ -153,6 +155,35 @@ async function loadRuntimeSecrets(): Promise<void> {
       `[runtime-secrets] PIEVERSE_LLM_API_KEY source=secretsmanager sha256=${fingerprint}…`,
     );
   }
+}
+
+/**
+ * Northflank injects `ALTANA_SESSION` as an environment variable, while the
+ * Studio wallet runtime deliberately reads its session from the project-local
+ * `.studio/wallets/altana-session.json` file. Materialize the runtime-only
+ * secret before Studio initializes; the file is created inside the ephemeral
+ * container filesystem with owner-only permissions and is never baked into
+ * the image or committed to source control.
+ */
+function materializeAltanaSessionFromEnvironment(): void {
+  const session = process.env.ALTANA_SESSION?.trim();
+  if (!session) return;
+
+  try {
+    JSON.parse(session);
+  } catch {
+    throw new Error("ALTANA_SESSION must contain valid JSON");
+  }
+
+  const sessionPath = resolve(
+    process.cwd(),
+    "../..",
+    ".studio/wallets/altana-session.json",
+  );
+  if (existsSync(sessionPath)) return;
+
+  mkdirSync(dirname(sessionPath), { recursive: true, mode: 0o700 });
+  writeFileSync(sessionPath, session, { encoding: "utf8", mode: 0o600 });
 }
 
 /** studio.toml `[network].default` (best-effort; used by the funded sweep). */
@@ -417,6 +448,7 @@ function sendStreamingResponse(
 
 async function main(): Promise<void> {
   await loadRuntimeSecrets();
+  materializeAltanaSessionFromEnvironment();
 
   const privateIngressToken = process.env.PRIVATE_AGENT_BEARER_TOKEN?.trim();
   if (process.env.NODE_ENV === "production" && !privateIngressToken) {
