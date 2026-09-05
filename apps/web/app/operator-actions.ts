@@ -18,6 +18,7 @@ import {
   updateOperatorServiceEndpoint,
   requestOperatorServiceVerification,
   requestInternalServiceVerification,
+  selectOperatorSubmissionCategory,
 } from "../lib/commerce";
 
 const field = (formData: FormData, name: string) => {
@@ -64,6 +65,22 @@ const offerRequest = (formData: FormData): CreateOfferRequest => {
 
 export type CreateOfferActionResult = { error: string | null };
 
+export async function selectSellerCategoryAction(
+  submissionId: string,
+  formData: FormData,
+): Promise<void> {
+  const category = formData.get("category");
+  if (
+    category !== "rebalancing" &&
+    category !== "grid-trading" &&
+    category !== "yield-optimisation" &&
+    category !== "health-factor-monitoring"
+  )
+    throw new Error("Choose a marketplace category.");
+  await selectOperatorSubmissionCategory(submissionId, category);
+  revalidatePath("/account/my-listings");
+}
+
 export async function updateSellerProfileAction(
   agentId: string,
   formData: FormData,
@@ -75,7 +92,7 @@ export async function updateSellerProfileAction(
     });
     await updateOperatorAgentProfile(agentId, profile);
     revalidatePath("/marketplace");
-    revalidatePath("/account/mylistings");
+    revalidatePath("/account/my-listings");
     revalidatePath(`/agents/${agentId}`);
     return { error: null };
   } catch (error) {
@@ -99,7 +116,7 @@ export async function updateSellerServiceEndpointAction(
       serviceId,
       field(formData, "serviceEndpoint"),
     );
-    revalidatePath("/account/mylistings");
+    revalidatePath("/account/my-listings");
     revalidatePath("/marketplace");
     return { error: null };
   } catch (error) {
@@ -118,7 +135,7 @@ export async function requestSellerServiceVerificationAction(
 ): Promise<CreateOfferActionResult & { queued?: boolean }> {
   try {
     const result = await requestOperatorServiceVerification(agentId, serviceId);
-    revalidatePath("/account/mylistings");
+    revalidatePath("/account/my-listings");
     return { error: null, queued: result.queued };
   } catch (error) {
     return {
@@ -153,7 +170,7 @@ export async function createOfferAction(
   try {
     await createOperatorOffer(offerRequest(formData));
     revalidatePath("/operator/offers");
-    revalidatePath("/account/mylistings");
+    revalidatePath("/account/my-listings");
     return { error: null };
   } catch (error) {
     return {
@@ -168,7 +185,7 @@ export async function createOfferAction(
 export async function reviseOfferAction(id: string, formData: FormData) {
   await reviseOperatorOffer(id, offerRequest(formData));
   revalidatePath("/operator/offers");
-  revalidatePath("/account/mylistings");
+  revalidatePath("/account/my-listings");
 }
 
 export async function transitionOfferAction(
@@ -177,7 +194,7 @@ export async function transitionOfferAction(
 ) {
   await transitionOperatorOffer(id, action);
   revalidatePath("/operator/offers");
-  revalidatePath("/account/mylistings");
+  revalidatePath("/account/my-listings");
 }
 
 export async function startCommerceValidationAction(offerId: string) {

@@ -10,7 +10,9 @@
  * These functions are NEVER registered as LLM-callable tools (`tools.ts` holds
  * only read-only tools). The price is a FIXED list price from studio.toml
  * (`listPrice()`, clamped by the entrypoint BEFORE it reaches here) — the LLM
- * only produces the work text and never moves money or sets a price.
+ * only produces the work text and never moves money or sets a price. For a
+ * Relic marketplace job, the signed price comes from the exact offer amount
+ * Relic sent in the structured request, after fixed-code bounds validation.
  *
  * The key is loaded by `@bnbagent/studio-runtime/wallet` `getWallet()` (local
  * keystore, unlocked by `WALLET_PASSWORD`). It is injected into the AgentCore
@@ -123,9 +125,8 @@ export function commerceVerifyingContract(
 /**
  * Return `[minPrice, maxPrice]` in raw wei from studio.toml.
  *
- * These are the clamp bounds applied to the configured list price BEFORE
- * signing. `min_price`/`max_price` are raw uint256 strings in
- * `[payments.erc8183]`.
+ * These are the permitted bounds for every quote. `min_price`/`max_price`
+ * are raw uint256 strings in `[payments.erc8183]`.
  */
 export function priceBounds(): [bigint, bigint] {
   const cfg = erc8183Cfg();
@@ -159,6 +160,23 @@ export function clampPrice(proposedWei: bigint): bigint {
   const [lo, hi] = priceBounds();
   const capped = proposedWei < hi ? proposedWei : hi;
   return capped > lo ? capped : lo;
+}
+
+/**
+ * Accept an exact externally-negotiated price only when it is inside the
+ * seller's configured safety range. Unlike {@link clampPrice}, this never
+ * silently changes the requested amount: a marketplace checkout must either
+ * receive the exact advertised price or fail before a buyer can fund it.
+ */
+export function assertPriceWithinBounds(proposedWei: bigint): bigint {
+  const [lo, hi] = priceBounds();
+  if (proposedWei < lo || proposedWei > hi) {
+    throw new Error(
+      `requested price ${proposedWei} is outside the seller's configured ` +
+        `price bounds (${lo}-${hi})`,
+    );
+  }
+  return proposedWei;
 }
 
 /**

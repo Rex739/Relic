@@ -178,4 +178,15 @@ describe("seller marketplace readiness", () => {
       hireable: false,
     });
   });
+
+  it("uses the canonical buyer-facing hireability result when supplied", () => {
+    const result = sellerReadinessProjection({
+      ...readyFacts,
+      activeOffer: true,
+      listingIsHireable: true,
+      publicEligible: true,
+      marketplaceHireable: false,
+    });
+    expect(result.hireable).toBe(false);
+  });
 });

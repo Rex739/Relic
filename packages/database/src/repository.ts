@@ -375,6 +375,14 @@ export class DrizzleAgentRepository implements AgentReadRepository {
     const publicCandidates = new Set(
       publicRows.map((row) => `${row.id}:${row.category}`),
     );
+    // Seller readiness must use the exact same hireability calculation that
+    // powers the buyer-facing marketplace card. Public visibility alone is
+    // intentionally weaker than being ready to accept a buyer.
+    const publicHireableCandidates = new Set(
+      publicRows
+        .filter((row) => row.hireable)
+        .map((row) => `${row.id}:${row.category}`),
+    );
     const cutoff = this.#publicFreshnessCutoff().toISOString();
     const rows = executedRows<{
       agent_id: string;
@@ -426,12 +434,12 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             and ms.endpoint ~ '^https://'
           ) service_available,
           (
-            ms.verification_level in ('SCHEMA_UNDERSTOOD', 'INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+            ms.verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
             and ms.last_verified_at >= ${cutoff}::timestamptz
             and exists (
               select 1 from service_verification_observations svo
               where svo.service_id = ms.id
-                and svo.to_level in ('SCHEMA_UNDERSTOOD', 'INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
+                and svo.to_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')
                 and svo.result in ('success', 'succeeded', 'verified', 'passed')
                 and not exists (
                   select 1 from service_verification_observations newer
@@ -553,7 +561,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             ? null
             : new Date(row.last_verified_at).toISOString(),
         commerceValidated: row.commerce_validated,
-        activeOffer: row.listing_is_hireable,
+        activeOffer: row.active_offer,
         listingStatus: row.listing_status,
         listingStatusReasons: Array.isArray(row.listing_status_reasons)
           ? row.listing_status_reasons.filter(
@@ -566,6 +574,9 @@ export class DrizzleAgentRepository implements AgentReadRepository {
             : new Date(row.listing_status_updated_at).toISOString(),
         listingIsHireable: row.listing_is_hireable,
         publicEligible: publicCandidates.has(`${row.agent_id}:${row.category}`),
+        marketplaceHireable: publicHireableCandidates.has(
+          `${row.agent_id}:${row.category}`,
+        ),
         verifiedPrice,
         latestVerification:
           row.latest_verification_result === null ||

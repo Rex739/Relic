@@ -72,6 +72,7 @@ function pendingSellerReadiness(
     // This is deliberately not a catalog agent ID. A verified ownership record
     // must not be mistaken for a service that can already be offered.
     agentId: `submission:${submission.id}`,
+    submissionId: submission.id,
     serviceId: null,
     name: `Agent #${authorization.externalAgentId}`,
     description:
@@ -621,6 +622,33 @@ const operatorReadinessRoute = createRoute({
     ),
   },
 });
+const operatorSubmissionCategoryRoute = createRoute({
+  method: "put",
+  path: "/v1/operator/agent-submissions/{id}/marketplace-category",
+  request: {
+    params: z.object({ id: z.uuid() }),
+    headers: z.object({ authorization: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            category: z.enum([
+              "rebalancing",
+              "grid-trading",
+              "yield-optimisation",
+              "health-factor-monitoring",
+            ]),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: json(z.object({ data: z.any() }), "Seller category selected"),
+    404: json(errorResponseSchema, "Submission not found"),
+    503: json(errorResponseSchema, "Seller onboarding unavailable"),
+  },
+});
 const operatorAgentProfileRoute = createRoute({
   method: "put",
   path: "/v1/operator/agents/{id}/profile",
@@ -803,6 +831,14 @@ const listAgreementsRoute = createRoute({
   request: { headers: z.object({ authorization: z.string() }) },
   responses: {
     200: json(z.object({ data: z.array(z.any()) }), "Principal agreements"),
+  },
+});
+const listAgreementSummariesRoute = createRoute({
+  method: "get",
+  path: "/v1/commerce-agreements/summaries",
+  request: { headers: z.object({ authorization: z.string() }) },
+  responses: {
+    200: json(z.object({ data: z.array(z.any()) }), "Principal agreement summaries"),
   },
 });
 const getAgreementRoute = createRoute({
@@ -1731,9 +1767,20 @@ export function createApp(
         : await Promise.all(
             ownerAddresses.map((owner) => repository.sellerReadiness!(owner)),
           );
+    const authorizedSubmissionIdByIdentity = new Map(
+      authorizations.map((authorization) => [
+        `${authorization.chainId}:${authorization.externalAgentId}`,
+        authorization.submissionId,
+      ]),
+    );
     const catalogReadiness = [
       ...new Map(readiness.flat().map((item) => [item.agentId, item])).values(),
-    ];
+    ].map((item) => {
+      const submissionId = authorizedSubmissionIdByIdentity.get(
+        `${item.chainId}:${item.externalAgentId}`,
+      );
+      return submissionId === undefined ? item : { ...item, submissionId };
+    });
     const catalogExternalIds = new Set(
       catalogReadiness.map((item) => `${item.chainId}:${item.externalAgentId}`),
     );
@@ -1743,7 +1790,6 @@ export function createApp(
         : (
             await Promise.all(
               authorizations
-                .filter((authorization) => authorization.agentId === null)
                 .map(async (authorization) => ({
                   authorization,
                   submission: await onboarding.findSubmission(
@@ -1766,6 +1812,60 @@ export function createApp(
             );
     const data = [...catalogReadiness, ...pending];
     return context.json({ data }, 200);
+  });
+
+  app.openapi(operatorSubmissionCategoryRoute, async (context) => {
+    const session = await walletPrincipal(context);
+    const { id } = context.req.valid("param");
+    const { category } = context.req.valid("json");
+    const setSubmissionMarketplaceCategory =
+      onboarding?.setSubmissionMarketplaceCategory?.bind(onboarding);
+    if (
+      onboarding === undefined ||
+      options.sellerAuthorizationGuard === undefined ||
+      setSubmissionMarketplaceCategory === undefined
+    )
+      return context.json(
+        {
+          error: {
+            code: "seller_onboarding_unavailable",
+            message: "Seller onboarding is unavailable.",
+          },
+        },
+        503,
+      );
+    const submission = await onboarding.findSubmission(id);
+    if (submission === null || submission.agentId === null)
+      return context.json(
+        {
+          error: {
+            code: "submission_not_found",
+            message: "Verified agent submission not found.",
+          },
+        },
+        404,
+      );
+    await options.sellerAuthorizationGuard.assertAuthorized(
+      session.principalId,
+      submission.agentId,
+    );
+    const updated = await setSubmissionMarketplaceCategory({
+      submissionId: submission.id,
+      principalId: session.principalId,
+      category,
+      selectedAt: options.now?.() ?? new Date(),
+    });
+    if (updated === null)
+      return context.json(
+        {
+          error: {
+            code: "submission_not_found",
+            message: "Verified agent submission not found.",
+          },
+        },
+        404,
+      );
+    return context.json({ data: submissionSchema.parse(updated) }, 200);
   });
 
   app.openapi(operatorAgentProfileRoute, async (context) => {
@@ -2053,6 +2153,17 @@ export function createApp(
     context.json(
       {
         data: await requireCommerce().agreements(
+          await walletPrincipal(context),
+        ),
+      },
+      200,
+    ),
+  );
+
+  app.openapi(listAgreementSummariesRoute, async (context) =>
+    context.json(
+      {
+        data: await requireCommerce().agreementSummaries(
           await walletPrincipal(context),
         ),
       },
@@ -2462,6 +2573,10 @@ export function createApp(
         "Agent not found, or live ERC-8004 ownership could not be read.",
       );
     }
+    // Importing only starts an unbound ownership-proof flow. It deliberately
+    // does not require the Relic login wallet to be the owner: the owner can
+    // prove control through a browser wallet, BNB Agent Studio, or another
+    // supported signer. No seller account is bound until that proof verifies.
     let data;
     try {
       data = await onboarding.createSubmission({
@@ -2555,7 +2670,8 @@ export function createApp(
     const submission = await onboarding.findSubmission(id);
     if (
       submission === null ||
-      submission.relicPrincipalId !== session.principalId
+      (submission.relicPrincipalId !== null &&
+        submission.relicPrincipalId !== session.principalId)
     )
       return context.json(
         {
@@ -2666,7 +2782,8 @@ export function createApp(
     const submission = await onboarding.findSubmission(id);
     if (
       submission === null ||
-      submission.relicPrincipalId !== session.principalId ||
+      (submission.relicPrincipalId !== null &&
+        submission.relicPrincipalId !== session.principalId) ||
       challenge.chainId !== submission.chainId ||
       challenge.externalAgentId !== submission.externalAgentId ||
       getAddress(challenge.registryAddress) !==

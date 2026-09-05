@@ -263,6 +263,8 @@ export interface SellerReadinessRequirement {
 
 export interface SellerAgentReadiness {
   agentId: string;
+  /** Present while a verified identity is waiting for catalog materialization. */
+  submissionId?: string;
   serviceId: string | null;
   serviceEndpoint?: string | null;
   name: string;
@@ -322,6 +324,8 @@ export interface SellerReadinessFacts {
   listingStatusUpdatedAt?: string | null;
   listingIsHireable?: boolean;
   publicEligible: boolean;
+  /** The canonical buyer-facing marketplace decision, when available. */
+  marketplaceHireable?: boolean;
   verifiedPrice: TokenAmount | null;
   latestVerification?: {
     result: "passed" | "failed" | "blocked";
@@ -446,9 +450,10 @@ export function sellerReadinessProjection(
     marketplaceStatus:
       facts.publicEligible && !testDeployment ? "PUBLIC" : "NOT_READY",
     hireable:
-      (facts.listingIsHireable ?? facts.activeOffer) &&
-      facts.publicEligible &&
-      !testDeployment,
+      facts.marketplaceHireable ??
+      ((facts.listingIsHireable ?? facts.activeOffer) &&
+        facts.publicEligible &&
+        !testDeployment),
     lastVerifiedAt: facts.lastVerifiedAt,
   };
 }

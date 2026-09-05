@@ -87,6 +87,11 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
           existing.relicPrincipalId !== null &&
           existing.relicPrincipalId !== input.relicPrincipalId
         ) {
+          // A draft is not a seller claim. Keep it unbound until a live owner
+          // signature succeeds, so a failed or malicious import never locks
+          // the real owner out of any supported signing method.
+          const canRecoverUnverifiedDraft =
+            existing.ownershipVerifiedAt === null;
           const [authorization] = await transaction
             .select()
             .from(sellerAgentAuthorizations)
@@ -103,26 +108,27 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
             )
             .limit(1);
           if (
-            authorization === undefined ||
-            authorization.verifiedOwner.toLowerCase() ===
-              input.liveOwner.toLowerCase()
+            !canRecoverUnverifiedDraft &&
+            (authorization === undefined ||
+              authorization.verifiedOwner.toLowerCase() ===
+                input.liveOwner.toLowerCase())
           )
             throw new Error(
               "This agent listing is already bound to another Relic account",
             );
-          await transaction
-            .update(sellerAgentAuthorizations)
-            .set({
-              revokedAt: new Date(),
-              revocationReason: "erc8004_ownership_transferred",
-            })
-            .where(eq(sellerAgentAuthorizations.id, authorization.id));
         }
         const [updated] = await transaction
           .update(agentSubmissions)
           .set({
             submitterAddress: input.submitterAddress,
-            relicPrincipalId: input.relicPrincipalId,
+            // The principal is supplied only to bind the later challenge and
+            // evidence. Do not bind this seller record until that challenge
+            // has been signed by the current ERC-8004 owner.
+            relicPrincipalId:
+              existing.ownershipVerifiedAt !== null &&
+              existing.relicPrincipalId === input.relicPrincipalId
+                ? existing.relicPrincipalId
+                : null,
             registryAddress: input.registryAddress,
             ownershipVerifiedAt:
               existing.relicPrincipalId === input.relicPrincipalId
@@ -144,7 +150,9 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
           registryAddress: input.registryAddress,
           externalAgentId: input.externalAgentId,
           supplyType: input.supplyType,
-          relicPrincipalId: input.relicPrincipalId,
+          // An import is intentionally unbound. Authorization is created only
+          // after a valid ownership proof is consumed.
+          relicPrincipalId: null,
           submitterAddress: input.submitterAddress,
           developerOverrides: input.developerOverrides ?? {},
           evidence: input.evidence,
@@ -170,6 +178,42 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     return row === undefined ? null : asSubmission(row);
   }
 
+  async setSubmissionMarketplaceCategory(input: {
+    submissionId: string;
+    principalId: string;
+    category: "rebalancing" | "grid-trading" | "yield-optimisation" | "health-factor-monitoring";
+    selectedAt: Date;
+  }) {
+    return this.database.transaction(async (transaction) => {
+      const [existing] = await transaction
+        .select()
+        .from(agentSubmissions)
+        .where(
+          and(
+            eq(agentSubmissions.id, input.submissionId),
+            eq(agentSubmissions.relicPrincipalId, input.principalId),
+            isNotNull(agentSubmissions.ownershipVerifiedAt),
+            isNotNull(agentSubmissions.agentId),
+          ),
+        )
+        .limit(1);
+      if (existing === undefined) return null;
+      const [updated] = await transaction
+        .update(agentSubmissions)
+        .set({
+          developerOverrides: {
+            ...(existing.developerOverrides as Record<string, unknown>),
+            marketplaceCategory: input.category,
+            marketplaceCategorySelectedAt: input.selectedAt.toISOString(),
+          },
+          updatedAt: input.selectedAt,
+        })
+        .where(eq(agentSubmissions.id, existing.id))
+        .returning();
+      return updated === undefined ? null : asSubmission(updated);
+    });
+  }
+
   async listPendingCatalogSubmissions(limit: number) {
     return (
       await this.database
@@ -191,6 +235,11 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
                   select 1 from ${agentServices}
                   where ${agentServices.agentId} = ${agentSubmissions.agentId}
                 )`,
+              ),
+              and(
+                eq(agentSubmissions.status, "BLOCKED"),
+                isNotNull(agentSubmissions.agentId),
+                sql`${agentSubmissions.developerOverrides} ->> 'marketplaceCategory' is not null`,
               ),
             ),
           ),
@@ -338,15 +387,22 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         .returning({ submissionId: ownershipChallenges.submissionId });
       if (challenge === undefined) return null;
       const [submission] = await transaction
-        .select({ agentId: agentSubmissions.agentId })
-        .from(agentSubmissions)
+        .update(agentSubmissions)
+        .set({
+          relicPrincipalId: input.principalId,
+          ownershipVerifiedAt: input.verifiedAt,
+          updatedAt: input.verifiedAt,
+        })
         .where(
           and(
             eq(agentSubmissions.id, challenge.submissionId),
-            eq(agentSubmissions.relicPrincipalId, input.principalId),
+            or(
+              isNull(agentSubmissions.relicPrincipalId),
+              eq(agentSubmissions.relicPrincipalId, input.principalId),
+            ),
           ),
         )
-        .limit(1);
+        .returning({ agentId: agentSubmissions.agentId });
       if (submission === undefined)
         throw new Error("Submission is not bound to this Relic account");
       const [active] = await transaction
@@ -400,13 +456,6 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         .returning();
       if (authorization === undefined)
         throw new Error("Seller authorization insert failed");
-      await transaction
-        .update(agentSubmissions)
-        .set({
-          ownershipVerifiedAt: input.verifiedAt,
-          updatedAt: input.verifiedAt,
-        })
-        .where(eq(agentSubmissions.id, challenge.submissionId));
       return asAuthorization(authorization);
     });
   }

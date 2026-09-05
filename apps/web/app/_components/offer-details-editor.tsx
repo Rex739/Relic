@@ -4,6 +4,7 @@ import { Tag } from "lucide-react";
 import { useState, useTransition } from "react";
 
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 
 type EditableOffer = {
   agentId: string;
@@ -32,10 +33,15 @@ export function OfferDetailsEditor({
   const [pending, startTransition] = useTransition();
   const [terms, setTerms] = useState(offer.terms);
   const [limitations, setLimitations] = useState(offer.limitations);
+  const [price, setPrice] = useState(offer.price.amount);
   const [savedTerms, setSavedTerms] = useState(offer.terms);
   const [savedLimitations, setSavedLimitations] = useState(offer.limitations);
+  const [savedPrice, setSavedPrice] = useState(offer.price.amount);
   const [error, setError] = useState<string | null>(null);
-  const hasChanges = terms !== savedTerms || limitations !== savedLimitations;
+  const hasChanges =
+    terms !== savedTerms ||
+    limitations !== savedLimitations ||
+    price !== savedPrice;
 
   return (
     <details>
@@ -48,6 +54,7 @@ export function OfferDetailsEditor({
               await action(formData);
               setSavedTerms(terms);
               setSavedLimitations(limitations);
+              setSavedPrice(price);
             } catch (caught) {
               setError(
                 caught instanceof Error
@@ -64,7 +71,6 @@ export function OfferDetailsEditor({
         <input name="chainId" type="hidden" value={offer.chainId} />
         <input name="capability" type="hidden" value={offer.capability} />
         <input name="billingModel" type="hidden" value={offer.billingModel} />
-        <input name="price" type="hidden" value={offer.price.amount} />
         <input name="decimals" type="hidden" value={offer.price.decimals} />
         <input
           name="tokenAddress"
@@ -77,16 +83,23 @@ export function OfferDetailsEditor({
           <Tag size={24} />
         </div>
         <div className="seller-profile-fields">
-          <div className="offer-verified-price">
-            <span>Verified price</span>
-            <strong>
-              {offer.price.amount} {offer.price.symbol} per execution
-            </strong>
+          <label>
+            Price per execution ({offer.price.symbol})
+            <Input
+              inputMode="decimal"
+              min="0"
+              name="price"
+              onChange={(event) => setPrice(event.target.value)}
+              required
+              step="any"
+              type="number"
+              value={price}
+            />
             <small>
-              Set by the verified service and kept in sync with its marketplace
-              offer.
+              Changes create a new offer version for future jobs. Existing jobs
+              keep their agreed price.
             </small>
-          </div>
+          </label>
           <label>
             What the buyer receives
             <textarea

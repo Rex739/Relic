@@ -2339,6 +2339,47 @@ export class DrizzleCommerceStore {
     );
   }
 
+  /**
+   * List-view data deliberately excludes audit history, evidence artifacts,
+   * settlement records, and authorizations. Those remain available through
+   * findAgreement when a buyer opens a specific order.
+   */
+  public async listAgreementSummaries(principalId: string) {
+    const rows = await this.database
+      .select()
+      .from(commerceAgreements)
+      .where(eq(commerceAgreements.principalId, principalId))
+      .orderBy(desc(commerceAgreements.updatedAt));
+    if (rows.length === 0) return [];
+
+    const operationRows = await this.database
+      .select()
+      .from(commerceOperations)
+      .where(
+        inArray(
+          commerceOperations.agreementId,
+          rows.map((row) => row.id),
+        ),
+      )
+      .orderBy(asc(commerceOperations.createdAt));
+    const operationsByAgreement = new Map<string, typeof operationRows>();
+    for (const operation of operationRows) {
+      const current = operationsByAgreement.get(operation.agreementId) ?? [];
+      current.push(operation);
+      operationsByAgreement.set(operation.agreementId, current);
+    }
+    return rows.map((row) => ({
+      ...row,
+      operations: (operationsByAgreement.get(row.id) ?? []).map(
+        (operation) => ({
+          ...operation,
+          nonce: operation.nonce?.toString() ?? null,
+          blockNumber: operation.blockNumber?.toString() ?? null,
+        }),
+      ),
+    }));
+  }
+
   public async cancelAgreement(input: {
     agreementId: string;
     principalId: string;

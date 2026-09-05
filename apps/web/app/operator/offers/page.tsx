@@ -16,13 +16,21 @@ import {
 } from "../../../lib/commerce";
 import { labelForCategory } from "../../../lib/marketplace";
 import { usableAgentImageUrl } from "../../../lib/agent-presentation";
-import { buttonVariants } from "../../../components/ui/button";
+import { Button, buttonVariants } from "../../../components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../../components/ui/select";
 import {
   createOfferAction,
   reviseOfferAction,
   transitionOfferAction,
   updateSellerProfileAction,
   requestSellerServiceVerificationAction,
+  selectSellerCategoryAction,
   updateSellerServiceEndpointAction,
 } from "../../operator-actions";
 import { CreateOfferDialog } from "../../_components/create-offer-dialog";
@@ -82,7 +90,7 @@ export default async function OffersPage({
 }: {
   searchParams: Promise<{ agent?: string }>;
 }) {
-  const { agent: externalAgentId } = await searchParams;
+  const { agent: selectedAgentKey } = await searchParams;
   let offers: Awaited<ReturnType<typeof operatorOffers>> = [];
   let history: Awaited<ReturnType<typeof operatorAgreements>> = [];
   let readiness: SellerAgentReadiness[] = [];
@@ -93,7 +101,7 @@ export default async function OffersPage({
       operatorReadiness(),
       // The overview does not display agreement history. Avoid loading an
       // unbounded, nested settlement record until a seller opens one listing.
-      externalAgentId === undefined ? Promise.resolve([]) : operatorAgreements(),
+      selectedAgentKey === undefined ? Promise.resolve([]) : operatorAgreements(),
     ]);
   } catch (caught) {
     error =
@@ -131,19 +139,27 @@ export default async function OffersPage({
   const currentOfferByAgentId = new Map(
     currentOffers.map((offer) => [offer.agentId, offer]),
   );
+  // Relic's UUID is the durable configuration key. External ERC-8004 IDs are
+  // chain-scoped identifiers and are retained as a fallback for existing links.
+  // Prefer the Relic key so every verified agent reaches the same setup route.
   const selectedReadiness =
-    externalAgentId === undefined
+    selectedAgentKey === undefined
       ? readiness
-      : readiness.filter((agent) => agent.externalAgentId === externalAgentId);
+      : readiness.filter(
+          (agent) =>
+            agent.agentId === selectedAgentKey ||
+            agent.externalAgentId === selectedAgentKey ||
+            `submission:${agent.submissionId}` === selectedAgentKey,
+        );
   const selectedAgentIds = new Set(
     selectedReadiness.map((agent) => agent.agentId),
   );
   const visibleCurrentOffers =
-    externalAgentId === undefined
+    selectedAgentKey === undefined
       ? currentOffers
       : currentOffers.filter((offer) => selectedAgentIds.has(offer.agentId));
   const visibleArchivedOffers =
-    externalAgentId === undefined
+    selectedAgentKey === undefined
       ? archivedOffers
       : archivedOffers.filter((offer) => selectedAgentIds.has(offer.agentId));
   const offerableAgents = selectedReadiness
@@ -168,7 +184,7 @@ export default async function OffersPage({
         </p>
         <Link
           className={`${buttonVariants({ size: "sm", variant: "outline" })} mobile-listing-register`}
-          href="/account/mylistings/new"
+          href="/account/my-listings/new"
         >
           Register agent
         </Link>
@@ -190,14 +206,14 @@ export default async function OffersPage({
               </div>
               <Link
                 className={buttonVariants({ size: "lg" })}
-                href="/account/mylistings/new"
+                href="/account/my-listings/new"
               >
                 <ShieldCheck aria-hidden="true" size={18} strokeWidth={2} />
                 Verify agent ownership
               </Link>
             </section>
           ) : null}
-          {externalAgentId === undefined && readiness.length > 0 ? (
+          {selectedAgentKey === undefined && readiness.length > 0 ? (
             <section className="profile-section seller-agent-list-section">
               <div className="section-heading">
                 <div>
@@ -209,6 +225,8 @@ export default async function OffersPage({
               <div className="seller-agent-list">
                 {readiness.map((agent) => {
                   const currentOffer = currentOfferByAgentId.get(agent.agentId);
+                  const listingPrice =
+                    currentOffer?.version.price ?? agent.verifiedPrice;
                   const canSetUpOffer = canCreateOffer(agent);
                   const blockers = setupBlockers(agent);
                   const status = agent.hireable
@@ -270,9 +288,9 @@ export default async function OffersPage({
                             <div>
                               <dt>Price</dt>
                               <dd>
-                                {agent.verifiedPrice === null
+                                {listingPrice === null
                                   ? "Set during offer setup"
-                                  : `${formatBaseUnits(agent.verifiedPrice.amountBaseUnits, agent.verifiedPrice.decimals)} ${agent.verifiedPrice.symbol}`}
+                                  : `${formatBaseUnits(listingPrice.amountBaseUnits, listingPrice.decimals)} ${listingPrice.symbol}`}
                               </dd>
                             </div>
                           </dl>
@@ -282,7 +300,7 @@ export default async function OffersPage({
                         <span className="seller-agent-status">{status}</span>
                         <Link
                           className={buttonVariants({ size: "sm" })}
-                          href={`/account/mylistings?agent=${encodeURIComponent(agent.externalAgentId)}`}
+                          href={`/account/my-listings?agent=${encodeURIComponent(agent.agentId)}`}
                         >
                           Configure
                         </Link>
@@ -293,48 +311,92 @@ export default async function OffersPage({
               </div>
             </section>
           ) : null}
-          {externalAgentId === undefined || selectedAgent === null ? null : (
+          {selectedAgentKey === undefined || selectedAgent === null ? null : (
             <>
-              <Link className="listing-back-link" href="/account/mylistings">
+              <Link className="listing-back-link" href="/account/my-listings">
                 ← Back to My listings
               </Link>
-              <SellerProfileEditor
-                action={updateSellerProfileAction.bind(
-                  null,
-                  selectedAgent.agentId,
-                )}
-                agent={selectedAgent}
-                serviceAction={
-                  selectedAgent.serviceId === null
-                    ? undefined
-                    : updateSellerServiceEndpointAction.bind(
+              {selectedAgent.onboardingState === "PENDING_CATALOG_SETUP" ? (
+                <section className="profile-section seller-category-card">
+                  <span className="overline">Catalog setup</span>
+                  <h2>Choose a category</h2>
+                  <p>Relic couldn’t determine this from the agent’s metadata.</p>
+                  {selectedAgent.submissionId === undefined ? null : (
+                    <form
+                      action={selectSellerCategoryAction.bind(
                         null,
-                        selectedAgent.agentId,
-                        selectedAgent.serviceId,
-                      )
-                }
-                verificationAction={
-                  selectedAgent.serviceId === null ||
-                  selectedAgent.requirements.verification.state === "complete"
-                    ? undefined
-                    : requestSellerServiceVerificationAction.bind(
-                        null,
-                        selectedAgent.agentId,
-                        selectedAgent.serviceId,
-                      )
-                }
-                offerAction={offerableAgents.map((agent) => (
-                  <CreateOfferDialog
-                    action={createOfferAction}
-                    agent={agent}
-                    key={agent.agentId}
-                    paymentToken={erc8183PaymentTokens[agent.chainId]}
-                  />
-                ))}
-              />
+                        selectedAgent.submissionId,
+                      )}
+                      className="seller-category-selection"
+                    >
+                      <Select name="category" required>
+                        <SelectTrigger aria-label="Marketplace category">
+                          <SelectValue placeholder="Choose a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="rebalancing">Rebalancing</SelectItem>
+                          <SelectItem value="grid-trading">Grid Trading</SelectItem>
+                          <SelectItem value="yield-optimisation">
+                            Yield Optimisation
+                          </SelectItem>
+                          <SelectItem value="health-factor-monitoring">
+                            Health Factor Monitoring
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button type="submit">Continue</Button>
+                    </form>
+                  )}
+                </section>
+              ) : (
+                <SellerProfileEditor
+                  action={updateSellerProfileAction.bind(
+                    null,
+                    selectedAgent.agentId,
+                  )}
+                  agent={selectedAgent}
+                  serviceAction={
+                    selectedAgent.serviceId === null
+                      ? undefined
+                      : updateSellerServiceEndpointAction.bind(
+                          null,
+                          selectedAgent.agentId,
+                          selectedAgent.serviceId,
+                        )
+                  }
+                  verificationAction={
+                    selectedAgent.serviceId === null ||
+                    selectedAgent.requirements.verification.state === "complete"
+                      ? undefined
+                      : requestSellerServiceVerificationAction.bind(
+                          null,
+                          selectedAgent.agentId,
+                          selectedAgent.serviceId,
+                        )
+                  }
+                  offerAction={offerableAgents.map((agent) => (
+                    <CreateOfferDialog
+                      action={createOfferAction}
+                      agent={{
+                        ...agent,
+                        initialPrice:
+                          agent.verifiedPrice === null
+                            ? ""
+                            : formatBaseUnits(
+                                agent.verifiedPrice.amountBaseUnits,
+                                agent.verifiedPrice.decimals,
+                              ),
+                      }}
+                      key={agent.agentId}
+                      paymentToken={erc8183PaymentTokens[agent.chainId]}
+                    />
+                  ))}
+                />
+              )}
             </>
           )}
-          {externalAgentId === undefined ? null : (
+          {selectedAgentKey === undefined ||
+          selectedAgent?.onboardingState === "PENDING_CATALOG_SETUP" ? null : (
             <section
               className="profile-section seller-offer-management"
               id="marketplace-offers"
@@ -475,7 +537,8 @@ export default async function OffersPage({
           )}
         </div>
       </div>
-      {externalAgentId === undefined ? null : (
+      {selectedAgentKey === undefined ||
+      selectedAgent?.onboardingState === "PENDING_CATALOG_SETUP" ? null : (
         <section className="profile-section">
           <h2>Agreement, job & settlement history</h2>
           <p>

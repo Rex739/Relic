@@ -32,6 +32,32 @@ const fieldString = (formData: FormData, name: string, fallback = "") => {
   return typeof value === "string" ? value : fallback;
 };
 
+const positiveDecimal = (value: string, label: string) => {
+  if (!/^\d+(?:\.\d+)?$/u.test(value))
+    throw new Error(`${label} must be a positive number`);
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > 18 || BigInt(`${whole}${fraction.padEnd(18, "0")}`) <= 0n)
+    throw new Error(`${label} must be a positive number with at most 18 decimal places`);
+  return value;
+};
+
+const decimalUnits = (value: string) => {
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(`${whole}${fraction.padEnd(18, "0")}`);
+};
+
+const wholeNumberInRange = (
+  value: string,
+  label: string,
+  minimum: number,
+  maximum: number,
+) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum)
+    throw new Error(`${label} must be a whole number between ${minimum} and ${maximum}`);
+  return parsed;
+};
+
 async function serviceConfiguration(formData: FormData): Promise<CreateMandateRequest> {
   const durationDays = Number(formData.get("durationDays") ?? 14);
   const threshold = fieldString(formData, "threshold", "1.30");
@@ -39,6 +65,32 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const agentId = fieldString(formData, "agentId");
   const category = fieldString(formData, "category");
   const profile = await activationProfile(agentId);
+  const isGridTrader = category === "grid-trading";
+  const gridCapitalCap = fieldString(formData, "capitalCap");
+  const gridLowerPrice = fieldString(formData, "lowerPrice");
+  const gridUpperPrice = fieldString(formData, "upperPrice");
+  const gridLevels = fieldString(formData, "gridLevels");
+  const gridDurationHours = fieldString(formData, "durationHours");
+  const validatedGrid = isGridTrader
+    ? {
+        capitalCap: positiveDecimal(gridCapitalCap, "Maximum trading capital"),
+        lowerPrice: positiveDecimal(gridLowerPrice, "Lower price"),
+        upperPrice: positiveDecimal(gridUpperPrice, "Upper price"),
+        levels: wholeNumberInRange(gridLevels, "Grid levels", 5, 8),
+        durationHours: wholeNumberInRange(
+          gridDurationHours,
+          "Run time",
+          1,
+          168,
+        ),
+      }
+    : null;
+  if (
+    validatedGrid !== null &&
+    decimalUnits(validatedGrid.upperPrice) <=
+      decimalUnits(validatedGrid.lowerPrice)
+  )
+    throw new Error("Upper price must be greater than lower price");
   const enabledCapabilities =
     profile.profile.capabilitySet.length > 0
       ? profile.profile.capabilitySet
@@ -64,15 +116,30 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
     // A service input such as "USDT" is not proof that an agent is verified
     // for that asset. Keep it as task context until the offer publishes a
     // supported-asset schema.
-    allowedAssets: [],
+    allowedAssets: validatedGrid === null ? [] : ["TEST_USDT", "WBNB"],
     allowedProtocols: profile.profile.supportedProtocols,
     allowedContracts: [],
-    perActionLimit: null,
-    aggregateLimit: null,
-    executionFrequency: null,
+    perActionLimit:
+      validatedGrid === null
+        ? null
+        : { asset: "TEST_USDT", amount: validatedGrid.capitalCap },
+    aggregateLimit:
+      validatedGrid === null
+        ? null
+        : { asset: "TEST_USDT", amount: validatedGrid.capitalCap },
+    executionFrequency:
+      validatedGrid === null
+        ? null
+        : {
+            maxActions: validatedGrid.levels * 2,
+            windowSeconds: validatedGrid.durationHours * 3_600,
+          },
     startAt: now.toISOString(),
     expiresAt: new Date(
-      now.getTime() + durationDays * 86_400_000,
+      now.getTime() +
+        (validatedGrid === null
+          ? durationDays * 86_400_000
+          : validatedGrid.durationHours * 3_600_000),
     ).toISOString(),
     approvalMode: profile.profile.approvalModes.includes("OBSERVE_ONLY")
       ? "OBSERVE_ONLY"
@@ -88,6 +155,17 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         ? {}
         : { requestedAsset: fieldString(formData, "asset") }),
       ...(monitoredAccount.length === 0 ? {} : { monitoredAccount }),
+      ...(validatedGrid === null
+        ? {}
+        : {
+            market: "WBNB/TEST_USDT",
+            capitalCap: validatedGrid.capitalCap,
+            lowerPrice: validatedGrid.lowerPrice,
+            upperPrice: validatedGrid.upperPrice,
+            gridLevels: validatedGrid.levels,
+            durationHours: validatedGrid.durationHours,
+            minimumSecondsBetweenExecutions: 900,
+          }),
     },
     stopConditions: [
       { kind: "SERVICE_STALE" },

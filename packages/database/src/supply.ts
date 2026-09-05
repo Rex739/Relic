@@ -550,6 +550,27 @@ export class DrizzleSupplyStore {
     });
   }
 
+  /**
+   * A service is hireable only after Relic has independently completed the
+   * protocol-specific publication preflight for its current public endpoint.
+   */
+  async setListingHireable(input: {
+    serviceId: string;
+    hireable: boolean;
+    reasons: string[];
+  }) {
+    await this.database
+      .update(marketplaceServices)
+      .set({
+        listingIsHireable: input.hireable,
+        listingStatus: input.hireable ? "LIVE" : "NEEDS_VERIFICATION",
+        listingStatusReasons: input.reasons,
+        listingStatusUpdatedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(marketplaceServices.id, input.serviceId));
+  }
+
   async createActivation(input: {
     agentId: string;
     serviceId: string;

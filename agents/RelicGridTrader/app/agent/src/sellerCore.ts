@@ -119,6 +119,7 @@ export type RunWork = (
 export interface SigningApi {
   listPrice(): bigint;
   clampPrice(proposedWei: bigint): bigint;
+  assertPriceWithinBounds(proposedWei: bigint): bigint;
   signQuote(
     request: Record<string, unknown>,
     clampedPriceWei: bigint,
@@ -134,6 +135,30 @@ export interface SigningApi {
     responseContent: string,
     metadata?: Record<string, unknown> | null,
   ): Promise<{ submitTx: string; deliverableUrl: string | null }>;
+}
+
+/**
+ * Extract the exact raw-token amount from a Relic offer-bound request.
+ *
+ * Decimal amounts are deliberately rejected: ERC-8183 prices are uint256
+ * base units and converting a floating-point value here could charge a buyer
+ * something other than the amount displayed by Relic.
+ */
+function relicOfferPrice(request: Record<string, unknown>): bigint | null {
+  const terms = request.terms;
+  if (terms === null || typeof terms !== "object" || Array.isArray(terms)) {
+    return null;
+  }
+  const typedTerms = terms as Record<string, unknown>;
+  if (!("relic_offer" in typedTerms)) return null;
+
+  const rawPrice = typedTerms.price;
+  if (typeof rawPrice !== "string" || !/^\d+$/.test(rawPrice)) {
+    throw new Error(
+      "Relic marketplace requests must include terms.price as a whole base-unit string",
+    );
+  }
+  return BigInt(rawPrice);
 }
 
 /** Pending-job scanner used by the sweep (injectable for tests). */
@@ -219,10 +244,12 @@ export class SellerCore {
   /**
    * Rule-based quote → SDK `NegotiationResult` envelope (no LLM).
    *
-   * The price is the FIXED list price from studio.toml, clamped to
-   * `[min,max]` BEFORE signing — a misconfigured or hostile request can
-   * never sign out of bounds. The buyer parses this envelope verbatim and
-   * anchors it on-chain via `createJob` + `fund`.
+   * Relic marketplace requests carry the exact published offer price in
+   * `terms.price`. Fixed code validates that amount against the seller's
+   * configured `[min,max]` range and signs it unchanged. This makes a price
+   * update on Relic effective for the next checkout while ensuring no buyer
+   * can be charged a different amount. Legacy non-Relic requests retain the
+   * configured list-price fallback.
    */
   async negotiate(
     data: Record<string, unknown>,
@@ -237,8 +264,13 @@ export class SellerCore {
       }
       request = picked;
     }
-    const clamped = this.signing.clampPrice(this.signing.listPrice());
-    return this.signing.signQuote(request as Record<string, unknown>, clamped);
+    const normalizedRequest = request as Record<string, unknown>;
+    const requestedPrice = relicOfferPrice(normalizedRequest);
+    const price =
+      requestedPrice === null
+        ? this.signing.clampPrice(this.signing.listPrice())
+        : this.signing.assertPriceWithinBounds(requestedPrice);
+    return this.signing.signQuote(normalizedRequest, price);
   }
 
   /** The seller's two advertised skills. */

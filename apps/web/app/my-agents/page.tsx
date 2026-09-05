@@ -4,7 +4,10 @@ import Link from "next/link";
 import type { MandateListItem } from "@relic/domain";
 
 import { listMyAgents } from "../../lib/mandates";
-import { agreements, type CommerceAgreementView } from "../../lib/commerce";
+import {
+  agreementSummaries,
+  type CommerceAgreementSummary,
+} from "../../lib/commerce";
 import { commercePriceLabel } from "../../lib/commerce-display";
 import { walletAuthenticationRequired } from "../../lib/auth-state";
 import {
@@ -42,14 +45,14 @@ export default async function MyAgentsPage() {
     );
   let items: MandateListItem[] = [];
   let error: string | null = null;
-  let agreementByMandate: Record<string, CommerceAgreementView> = {};
+  let agreementByMandate: Record<string, CommerceAgreementSummary> = {};
   try {
     const [mandateItems, commerceAgreements] = await Promise.all([
       listMyAgents(),
-      agreements(),
+      agreementSummaries(),
     ]);
     const eligibleAgreements = commerceAgreements.filter(
-      (item): item is CommerceAgreementView =>
+      (item): item is CommerceAgreementSummary =>
         item !== null &&
         item.mandateId !== null &&
         item.authorizationArtifactId !== null,

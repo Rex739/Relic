@@ -462,7 +462,7 @@ export function WalletSession({
           {showRegisterAgent ? (
             <Link
               className={`${buttonVariants({ size: "sm", variant: "outline" })} header-register-agent`}
-                href="/account/mylistings/new"
+                href="/account/my-listings/new"
             >
               <span className="register-agent-full">Register agent</span>
               <span className="register-agent-short">Register</span>
@@ -517,7 +517,7 @@ export function WalletSession({
                 Account
               </Link>
               <Link
-                href="/account/mylistings"
+                href="/account/my-listings"
                 onClick={() => setAccountMenuOpen(false)}
               >
                 <PackagePlus size={16} />

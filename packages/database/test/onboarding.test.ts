@@ -98,6 +98,9 @@ describe("seller ownership persistence", () => {
       agreements: 0,
       reviews: 0,
     });
+    expect((await store.findSubmission(submission.id))?.relicPrincipalId).toBe(
+      principal,
+    );
   });
 
   it("upserts one seller-managed marketplace profile per agent", async () => {
@@ -145,10 +148,29 @@ describe("seller ownership persistence", () => {
     });
   });
 
-  it("does not let another Relic principal overwrite an unchanged owner", async () => {
+  it("does not bind a discovered identity before its owner proves control", async () => {
+    const first = await createSubmission();
+    const second = await createSubmission(
+      "01945b1e-7e80-7000-8000-000000000502",
+    );
+    expect(first.relicPrincipalId).toBeNull();
+    expect(second.relicPrincipalId).toBeNull();
+    expect(second.id).toBe(first.id);
+  });
+
+  it("lets any Relic session continue an unbound proof flow", async () => {
     await createSubmission();
-    await expect(
-      createSubmission("01945b1e-7e80-7000-8000-000000000502"),
-    ).rejects.toThrow(/already bound to another Relic account/);
+    const recovered = await store.createSubmission({
+      chainId: 97,
+      registryAddress: registry,
+      externalAgentId: "2016",
+      supplyType: "third_party",
+      relicPrincipalId: "01945b1e-7e80-7000-8000-000000000502",
+      liveOwner: owner,
+      submitterAddress: owner,
+      evidence: { fixture: true },
+    });
+    expect(recovered.relicPrincipalId).toBeNull();
+    expect(recovered.ownershipVerifiedAt).toBeNull();
   });
 });

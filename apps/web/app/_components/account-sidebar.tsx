@@ -12,11 +12,13 @@ const items = [
     match: (pathname: string) => pathname === "/account",
   },
   {
-    href: "/account/mylistings",
+    href: "/account/my-listings",
     label: "My listings",
     icon: PackagePlus,
     match: (pathname: string) =>
-      pathname.startsWith("/account/mylistings") || pathname.startsWith("/operator"),
+      pathname.startsWith("/account/my-listings") ||
+      pathname.startsWith("/account/mylistings") ||
+      pathname.startsWith("/operator"),
   },
   {
     href: "/account/my-hires",

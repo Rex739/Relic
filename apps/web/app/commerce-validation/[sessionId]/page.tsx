@@ -143,7 +143,7 @@ export default async function CommerceValidationPage({
           </div>
         </section>
       )}
-        <Link href="/account/mylistings">Return to my listings</Link>
+        <Link href="/account/my-listings">Return to my listings</Link>
     </main>
   );
 }

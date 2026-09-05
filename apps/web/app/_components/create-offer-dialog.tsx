@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { useState, useTransition } from "react";
 
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ type OfferableSellerAgent = {
   name: string;
   chainId: number;
   category: string;
+  initialPrice: string;
 };
 
 type PaymentToken = {
@@ -61,8 +63,7 @@ export function CreateOfferDialog({
           <span className="overline">Marketplace offer</span>
           <DialogTitle>Create an offer for {agent.name}</DialogTitle>
           <DialogDescription>
-            Your verified service and category are ready. Set a clear buyer
-            price, deliverable, and any important limitations.
+            Set the price and buyer-facing details for new jobs.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -124,7 +125,8 @@ export function CreateOfferDialog({
 
           <label>
             Price per execution ({paymentToken.symbol})
-            <input
+            <Input
+              defaultValue={agent.initialPrice}
               inputMode="decimal"
               min="0"
               name="price"
@@ -133,7 +135,10 @@ export function CreateOfferDialog({
               step="any"
               type="number"
             />
-            <small>Set the amount a buyer pays for one completed execution.</small>
+            <small>
+              Set the amount a buyer pays. Relic requires the agent to sign
+              this exact amount at checkout.
+            </small>
           </label>
           <label>
             What should buyers know this agent cannot do?

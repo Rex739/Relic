@@ -39,7 +39,7 @@ export function SellerOwnershipClaim() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (verified) router.replace("/account/mylistings");
+    if (verified) router.replace("/account/my-listings");
   }, [router, verified]);
 
   const request = async <T,>(url: string, options: RequestInit) => {
@@ -284,7 +284,8 @@ export function SellerOwnershipClaim() {
             </div>
           </dl>
           <p>
-            Choose how the current owner will sign the verification message.
+            Choose a signing method for the current owner. Both methods verify
+            the same on-chain ownership and neither sends a transaction.
           </p>
           <div className="seller-verification-methods">
             <button
@@ -292,16 +293,16 @@ export function SellerOwnershipClaim() {
               className="primary-button seller-verification-primary"
               onClick={() => void chooseMethod("studio")}
             >
-              <span>Verify with BNB Agent Studio</span>
-              <small>Recommended for this agent owner</small>
+              <span>Sign with Agent Studio</span>
+              <small>Use the owner wallet stored in your Studio project</small>
             </button>
             <button
               type="button"
               className="secondary-button seller-verification-secondary"
               onClick={() => void chooseMethod("browser")}
             >
-              <span>Use browser wallet instead</span>
-              <small>Only if the owner wallet is connected here</small>
+              <span>Sign with connected owner wallet</span>
+              <small>Use any connected wallet that is this agent’s owner</small>
             </button>
           </div>
         </div>

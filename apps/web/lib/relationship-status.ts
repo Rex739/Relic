@@ -2,6 +2,14 @@ import type { Mandate } from "@relic/domain";
 
 import type { CommerceAgreementView } from "./commerce";
 
+type AgreementProgressView = Pick<
+  CommerceAgreementView,
+  "mandateId" | "status" | "operations"
+> & {
+  /** Compact list responses include this; full legacy responses need not. */
+  createdAt?: string;
+};
+
 export type RelationshipStatus =
   | "Awaiting confirmation"
   | "Awaiting first update"
@@ -35,7 +43,7 @@ export function resolveHireSelection<T extends { mandate: { id: string } }>(
   };
 }
 
-const operationProgress = (agreement: CommerceAgreementView) => {
+const operationProgress = (agreement: AgreementProgressView) => {
   const finalized = new Set(
     agreement.operations
       .filter((operation) => operation.state === "FINALIZED")
@@ -65,14 +73,14 @@ const agreementStatusPriority = (status: string) =>
     }) as Record<string, number>
   )[status] ?? -4;
 
-const agreementCreatedAt = (agreement: CommerceAgreementView) => {
+const agreementCreatedAt = (agreement: AgreementProgressView) => {
   const value = agreement.createdAt;
   return typeof value === "string" ? Date.parse(value) || 0 : 0;
 };
 
 /** Select the single agreement that represents the furthest durable relationship. */
-export function selectRelationshipAgreement(
-  agreements: CommerceAgreementView[],
+export function selectRelationshipAgreement<T extends AgreementProgressView>(
+  agreements: T[],
   mandateId: string,
 ) {
   return (
@@ -91,7 +99,7 @@ export function selectRelationshipAgreement(
 }
 
 export function relationshipSetupComplete(
-  agreement: CommerceAgreementView | null,
+  agreement: Pick<CommerceAgreementView, "operations"> | null,
 ) {
   return (
     agreement?.operations.some(
@@ -103,7 +111,7 @@ export function relationshipSetupComplete(
 
 export function relationshipStatus(input: {
   mandate: Mandate;
-  agreement: CommerceAgreementView | null;
+  agreement: AgreementProgressView | null;
   hasUpdate?: boolean;
   now?: number;
 }): RelationshipStatus {

@@ -92,6 +92,20 @@ export type CommerceAgreementView = Record<string, unknown> & {
   settlements: Array<Record<string, unknown>>;
 };
 
+/** The compact shape used for order lists; full audit data loads per order. */
+export type CommerceAgreementSummary = Pick<
+  CommerceAgreementView,
+  | "id"
+  | "mandateId"
+  | "status"
+  | "authorizationArtifactId"
+  | "expiresAt"
+  | "pricingSnapshot"
+  | "operations"
+> & {
+  createdAt: string;
+};
+
 export const agreement = (id: string) =>
   request<CommerceAgreementView>(
     `/v1/commerce-agreements/${encodeURIComponent(id)}`,
@@ -99,6 +113,9 @@ export const agreement = (id: string) =>
 
 export const agreements = () =>
   request<Array<CommerceAgreementView | null>>("/v1/commerce-agreements");
+
+export const agreementSummaries = () =>
+  request<CommerceAgreementSummary[]>("/v1/commerce-agreements/summaries");
 
 export const acceptTerms = (id: string, termsHash: string) =>
   request<Record<string, unknown>>(
@@ -145,6 +162,19 @@ export const operatorAgreements = () =>
 
 export const operatorReadiness = () =>
   request<SellerAgentReadiness[]>("/v1/operator/readiness");
+
+export const selectOperatorSubmissionCategory = (
+  submissionId: string,
+  category:
+    | "rebalancing"
+    | "grid-trading"
+    | "yield-optimisation"
+    | "health-factor-monitoring",
+) =>
+  request<Record<string, unknown>>(
+    `/v1/operator/agent-submissions/${encodeURIComponent(submissionId)}/marketplace-category`,
+    { method: "PUT", body: JSON.stringify({ category }) },
+  );
 
 export const updateOperatorAgentProfile = (
   agentId: string,

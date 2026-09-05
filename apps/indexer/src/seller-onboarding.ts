@@ -55,6 +55,16 @@ export type SellerOnboardingResult =
     }
   | { readonly state: "blocked"; readonly reason: string };
 
+const sellerSelectedCategory = (submission: AgentSubmission) => {
+  const category = submission.developerOverrides.marketplaceCategory;
+  return category === "rebalancing" ||
+    category === "grid-trading" ||
+    category === "yield-optimisation" ||
+    category === "health-factor-monitoring"
+    ? category
+    : null;
+};
+
 async function blockSubmission(
   onboarding: SellerOnboardingDependencies["onboarding"],
   submission: AgentSubmission,
@@ -88,12 +98,63 @@ export async function onboardVerifiedSellerSubmission(
     submission?.status === "SERVICE_VERIFICATION" &&
     submission.agentId !== null &&
     submission.candidateId !== null;
+  const selectedCategory =
+    submission === null ? null : sellerSelectedCategory(submission);
+  const isCategoryRecovery =
+    submission?.status === "BLOCKED" &&
+    submission.agentId !== null &&
+    selectedCategory !== null;
   if (
     submission === null ||
     submission.ownershipVerifiedAt === null ||
-    (!isInitialCatalog && !isServiceRecovery)
+    (!isInitialCatalog && !isServiceRecovery && !isCategoryRecovery)
   )
     return { state: "skipped" };
+
+  // Metadata can be valid yet not describe one marketplace category. In that
+  // case the verified seller chooses the intended category and Relic records
+  // it as seller-declared before continuing the same service checks.
+  if (isCategoryRecovery) {
+    const internalId = submission.agentId;
+    if (internalId === null || selectedCategory === null)
+      return { state: "skipped" };
+    await dependencies.onboarding.transitionSubmission({
+      submissionId: submission.id,
+      from: "BLOCKED",
+      to: "SERVICE_DISCOVERY",
+      evidence: {
+        source: "verified-seller-category-selection",
+        category: selectedCategory,
+        classificationAuthority: "seller_declared",
+      },
+      agentId: internalId,
+    });
+    const candidateId = await dependencies.supplyStore.createOnboardingCandidate({
+      agentId: internalId,
+      categorySlug: selectedCategory,
+      supplyType: submission.supplyType,
+      submissionId: submission.id,
+    });
+    const materialize = dependencies.materialize ?? materializeLaunchServices;
+    const materialized = await materialize(
+      dependencies.supplyStore as DrizzleSupplyStore,
+      { limit: 25 },
+    );
+    await dependencies.onboarding.transitionSubmission({
+      submissionId: submission.id,
+      from: "SERVICE_DISCOVERY",
+      to: "SERVICE_VERIFICATION",
+      evidence: { candidateId, materialized },
+      agentId: internalId,
+      candidateId,
+    });
+    return {
+      state: "catalogued",
+      agentId: internalId,
+      candidateId,
+      materialized,
+    };
+  }
 
   // A previous catalog attempt can be interrupted after it creates the
   // candidate but before its registered services are durable. Retry that

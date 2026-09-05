@@ -7,6 +7,7 @@ import {
   DrizzleExecutionStore,
   DrizzleMandateStore,
   DrizzleOnboardingStore,
+  DrizzleSupplyStore,
   DrizzleWalletAuthStore,
 } from "@relic/database";
 import type { AgentReadRepository } from "@relic/domain";
@@ -23,6 +24,7 @@ import {
   SellerAuthorizationGuard,
   ViemErc8004OwnershipReader,
 } from "./seller-ownership.js";
+import { ServicePublicationVerifier } from "./service-publication.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -129,6 +131,7 @@ const commerce =
                 : { rpcUrl: process.env.BSC_TESTNET_RPC_URL }),
             },
         sellerAuthorization,
+        new ServicePublicationVerifier(new DrizzleSupplyStore(connection.db)),
       );
 const mandateApiSecret =
   environment.MANDATE_API_SECRET ??

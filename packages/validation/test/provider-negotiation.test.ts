@@ -153,4 +153,68 @@ describe("offer-bound provider negotiation", () => {
     ).rejects.toThrow("not supported");
   });
 
+  it("marks a publication check as quote-only while preserving the exact offer", async () => {
+    const requesterMock = vi
+      .fn<ProviderRequester>()
+      .mockResolvedValueOnce({
+        endpoint: input.endpoint,
+        ok: true,
+        status: 200,
+        latencyMs: 1,
+        redirectCount: 0,
+        headers: {},
+        body: JSON.stringify({
+          url: "https://agent.example/invoke",
+          skills: [{ id: "negotiate" }],
+        }),
+        errorCode: null,
+      })
+      .mockResolvedValueOnce({
+        endpoint: "https://agent.example/invoke",
+        ok: true,
+        status: 200,
+        latencyMs: 1,
+        redirectCount: 0,
+        headers: {},
+        body: JSON.stringify(result),
+        errorCode: null,
+      });
+    const requester: ProviderRequester = requesterMock;
+
+    await negotiateOfferBoundService(
+      {
+        ...input,
+        purpose: "publication_preflight",
+        preflightId: "preflight-1",
+      },
+      { requester },
+    );
+
+    const posted: unknown = JSON.parse(
+      String(requesterMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(posted).toMatchObject({
+      params: {
+        message: {
+          parts: [
+            {
+              data: {
+                task_description: expect.stringContaining(
+                  "publication preflight only",
+                ),
+                terms: {
+                  price: input.amountBaseUnits,
+                  relic_offer: {
+                    purpose: "publication_preflight",
+                    preflight_id: "preflight-1",
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+  });
+
 });

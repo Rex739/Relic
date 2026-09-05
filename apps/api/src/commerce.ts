@@ -41,6 +41,7 @@ import {
 import { bscTestnet } from "viem/chains";
 
 import type { SellerAuthorizationGuard } from "./seller-ownership.js";
+import type { ServicePublicationVerifier } from "./service-publication.js";
 
 const createJobAbi = [
   {
@@ -452,6 +453,7 @@ export class CommerceApplicationService {
       rpcUrl?: string;
     },
     private readonly sellerAuthorization?: SellerAuthorizationGuard,
+    private readonly publicationVerifier?: ServicePublicationVerifier,
   ) {}
 
   public async marketplaceReviewEligibility(
@@ -561,6 +563,9 @@ export class CommerceApplicationService {
             principal.principalId,
             offer.agentId,
           );
+    // Publication is a safe quote-only preflight. Running it before the
+    // offer changes state keeps seller UI and marketplace eligibility aligned.
+    await this.publicationVerifier?.verify(offer);
     return this.store.activateOffer({
       offerId,
       operatorPrincipalId: principal.principalId,
@@ -756,6 +761,10 @@ export class CommerceApplicationService {
 
   public agreements(principal: WalletSessionPrincipal) {
     return this.store.listAgreements(principal.principalId);
+  }
+
+  public agreementSummaries(principal: WalletSessionPrincipal) {
+    return this.store.listAgreementSummaries(principal.principalId);
   }
 
   public async prepareCommerceValidation(

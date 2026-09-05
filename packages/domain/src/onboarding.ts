@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { marketplaceCategories } from "./model.js";
+
 import type { ActivationStatus } from "./supply.js";
 
 export const supplyTypeSchema = z.enum([
@@ -191,6 +193,12 @@ export interface OwnershipContext {
 export interface OnboardingRepository {
   createSubmission(input: CreateAgentSubmission): Promise<AgentSubmission>;
   findSubmission(id: string): Promise<AgentSubmission | null>;
+  setSubmissionMarketplaceCategory?(input: {
+    submissionId: string;
+    principalId: string;
+    category: (typeof marketplaceCategories)[number];
+    selectedAt: Date;
+  }): Promise<AgentSubmission | null>;
   listPendingCatalogSubmissions(limit: number): Promise<AgentSubmission[]>;
   findSubmissionByIdentity(
     chainId: number,

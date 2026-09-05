@@ -5,7 +5,6 @@ import {
   useConnectWallet,
   useCreateWallet,
   useIdentityToken,
-  useLinkWithOAuth,
   useLogin,
   useLoginWithOAuth,
   usePrivy,
@@ -134,7 +133,6 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const { createWallet } = useCreateWallet();
   const { initOAuth } = useLoginWithOAuth();
   const { login: openPrivyLogin } = useLogin();
-  const { initOAuth: initGoogleLink } = useLinkWithOAuth();
   const { ready: walletsReady, wallets } = useWallets();
   const [loginPending, setLoginPending] = useState(false);
   const [pendingLoginMethod, setPendingLoginMethod] = useState<
@@ -269,8 +267,11 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
     window.sessionStorage.removeItem("relic_active_wallet_source");
     setSelectedWalletAddress(undefined);
     setSelectedWalletSource("embedded");
+    // Authentication may have been restored by Privy from a previously
+    // connected external wallet. Choosing Google must start a Google session,
+    // rather than linking Google to that unrelated wallet session.
     const startGoogleFlow = authenticated
-      ? initGoogleLink({ provider: "google" })
+      ? logout().then(() => initOAuth({ provider: "google" }))
       : initOAuth({ provider: "google" });
     void startGoogleFlow.catch((error: unknown) => {
       setLoginPending(false);
@@ -281,7 +282,7 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
           : "Could not start Google sign-in",
       );
     });
-  }, [authenticated, initGoogleLink, initOAuth]);
+  }, [authenticated, initOAuth, logout]);
 
   const beginEmailLogin = useCallback(() => {
     setLoginError(null);

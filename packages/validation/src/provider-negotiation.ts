@@ -72,6 +72,13 @@ export interface OfferNegotiationInput {
   chainId: number;
   amountBaseUnits: string;
   paymentTokenAddress: string;
+  /**
+   * A publication preflight verifies an offer before it is visible to buyers.
+   * It is deliberately a quote-only request: no job, payment, or transaction
+   * may be created as part of this check.
+   */
+  purpose?: "commerce" | "publication_preflight";
+  preflightId?: string;
 }
 
 export async function negotiateOfferBoundService(
@@ -84,8 +91,11 @@ export async function negotiateOfferBoundService(
       `Service interface ${input.interfaceProtocol} is not supported for commerce validation`,
     );
   const requester = options.requester ?? safeHttpRequest;
+  const publicationPreflight = input.purpose === "publication_preflight";
   const task = {
-    task_description: `Execute capability ${input.capability} under the exact Relic marketplace offer bound to agreement ${input.agreementId}.`,
+    task_description: publicationPreflight
+      ? `Verify that capability ${input.capability} can quote the exact published Relic marketplace offer. This is a publication preflight only: do not create a job, move funds, or execute a transaction.`
+      : `Execute capability ${input.capability} under the exact Relic marketplace offer bound to agreement ${input.agreementId}.`,
     terms: {
       deliverables: input.terms,
       quality_standards:
@@ -97,9 +107,14 @@ export async function negotiateOfferBoundService(
       relic_offer: {
         offer_id: input.offerId,
         offer_version_id: input.offerVersionId,
-        agreement_id: input.agreementId,
         terms_hash: input.termsHash,
         chain_id: input.chainId,
+        ...(publicationPreflight
+          ? {
+              purpose: "publication_preflight",
+              preflight_id: input.preflightId ?? input.offerId,
+            }
+          : { agreement_id: input.agreementId }),
       },
     },
   };
