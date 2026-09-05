@@ -233,7 +233,6 @@ export default async function ExecutionRoomPage({
   const { activationId } = await params;
   const {
     exactAuthorizationId: requestedRecoveryAuthorizationId,
-    start: startInitialCheck,
     checkoutError,
   } = await searchParams;
   let mandate;
@@ -461,6 +460,12 @@ export default async function ExecutionRoomPage({
         />
       ) : null}
 
+      {setupComplete &&
+      latest === null &&
+      agentResponse.data?.category === "health-factor-monitoring" ? (
+        <InitialHealthObservation mandateId={mandate.id} />
+      ) : null}
+
       {commerceAgreement === null || setupComplete ? null : (
         <section className="execution-commerce-context">
           <div>
@@ -479,11 +484,6 @@ export default async function ExecutionRoomPage({
                   ? "Your next checkout confirmation will appear here when it is required."
                   : "Relic will show a secure confirmation here only when your action is required."}
             </p>
-            {startInitialCheck === "1" &&
-            latest === null &&
-            agentResponse.data?.category === "health-factor-monitoring" ? (
-              <InitialHealthObservation mandateId={mandate.id} />
-            ) : null}
           </div>
           {commerceExecution?.status === "SUCCEEDED" &&
           awaitingOperationType === "CREATE_JOB" ? (
@@ -503,7 +503,8 @@ export default async function ExecutionRoomPage({
                 <p>Your request is confirmed. Preparing the wallet confirmation…</p>
               )}
             </div>
-          ) : null}
+      ) : null}
+
           {unsignedLegacyCheckout ? (
             <div className="authorization-action">
               <strong>Update secure checkout</strong>
