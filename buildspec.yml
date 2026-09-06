@@ -16,14 +16,14 @@ phases:
 
   build:
     commands:
-      - docker build --file Dockerfile.marketplace --target web --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" --build-arg NEXT_PUBLIC_PRIVY_APP_ID="$NEXT_PUBLIC_PRIVY_APP_ID" --build-arg NEXT_PUBLIC_PRIVY_CLIENT_ID="$NEXT_PUBLIC_PRIVY_CLIENT_ID" --tag "$REPOSITORY_URI:$IMAGE_TAG" .
+      - docker build --file Dockerfile.marketplace --target web --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" --build-arg NEXT_PUBLIC_PRIVY_APP_ID="$NEXT_PUBLIC_PRIVY_APP_ID" --build-arg NEXT_PUBLIC_PRIVY_CLIENT_ID="$NEXT_PUBLIC_PRIVY_CLIENT_ID" --tag "$REPOSITORY_URI:web-$IMAGE_TAG" .
       - docker build --file Dockerfile.marketplace --target api --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" --build-arg NEXT_PUBLIC_PRIVY_APP_ID="$NEXT_PUBLIC_PRIVY_APP_ID" --build-arg NEXT_PUBLIC_PRIVY_CLIENT_ID="$NEXT_PUBLIC_PRIVY_CLIENT_ID" --tag "$REPOSITORY_URI:api-$IMAGE_TAG" .
 
   post_build:
     commands:
-      - docker push "$REPOSITORY_URI:$IMAGE_TAG"
+      - docker push "$REPOSITORY_URI:web-$IMAGE_TAG"
       - docker push "$REPOSITORY_URI:api-$IMAGE_TAG"
-      - printf '[{"name":"relic-web","imageUri":"%s"}]' "$REPOSITORY_URI:$IMAGE_TAG" > imagedefinitions.json
+      - printf '[{"name":"relic-web","imageUri":"%s"}]' "$REPOSITORY_URI:web-$IMAGE_TAG" > imagedefinitions.json
 
 artifacts:
   files:
