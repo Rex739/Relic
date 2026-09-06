@@ -28,14 +28,16 @@ Add these runtime values as Northflank secrets:
 
 | Variable | Value |
 | --- | --- |
+| `ALTANA_SESSION` | Seller agent's own Studio session JSON, used only for fixed ERC-8183 quote/delivery signatures; never a buyer session |
 | `PRIVATE_AGENT_BEARER_TOKEN` | A newly generated long random service-to-service credential |
 | `RELIC_EXECUTOR_URL` | Private HTTPS base URL of Relic's ECS API |
 | `RELIC_LP_REBALANCER_INTERNAL_TOKEN` | A newly generated 32+ character credential shared only with the ECS API |
 
 Set `NODE_ENV=production`. Never put a buyer session, `.studio`, a keystore,
-or a wallet password in git, a Docker image, Layer A, or Layer B. Layer A only
-forwards an already verified job id; ECS resolves its associated mandate and
-decrypts the buyer session only for that mandate.
+or a wallet password in git, a Docker image, or Layer B. Layer A receives only
+the seller's existing signing session. It forwards an already verified job id;
+ECS resolves its associated mandate and decrypts the buyer session only for
+that mandate.
 
 ## Layer B — public A2A gateway
 
