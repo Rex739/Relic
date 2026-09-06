@@ -32,6 +32,9 @@ export const mandateEventTypes = [
   "MANDATE_REVOKED",
   "MANDATE_EXPIRED",
   "MANDATE_ATTENTION_REQUIRED",
+  "ALTANA_SESSION_PREPARED",
+  "ALTANA_SESSION_GRANTED",
+  "ALTANA_SESSION_REVOKED",
   "ACTIVATION_FAILED",
   "AGENT_INVOCATION_REQUESTED",
   "RECOMMENDATION_PRODUCED",
@@ -215,6 +218,13 @@ export interface MandatePersistence {
     principalId: string;
     reason: string;
   }): Promise<Mandate | null>;
+  setAuthorizationBoundary(input: {
+    id: string;
+    principalId: string;
+    boundary: Mandate["authorizationBoundary"];
+    event: MandateEventType;
+    details?: Record<string, unknown>;
+  }): Promise<Mandate | null>;
 }
 
 export class MandateValidationError extends Error {
@@ -242,6 +252,24 @@ const transactionCapabilities = [
   "approve_contracts",
   "submit_transactions",
 ];
+
+/**
+ * The testnet Grid Trader has a narrowly verified execution surface. Keep
+ * this explicit until the service card publishes a machine-readable asset and
+ * contract schema for every third-party agent.
+ */
+const gridTraderAssets = ["TEST_USDT", "WBNB"];
+const gridTraderCapabilities = ["swap_assets"];
+const lpRangeRebalancerAssets = ["TEST_USDT", "WBNB"];
+const lpRangeRebalancerCapabilities = [
+  "swap_assets",
+  "approve_contracts",
+  "submit_transactions",
+];
+const pancakeSwapV3TestnetPositionManager =
+  "0x427bF5b37357632377eCbEC9de3626C71A5396c1";
+const pancakeSwapV3TestnetSwapRouter =
+  "0xD70C70AD87aa8D45b8D59600342FB3AEe76E3c68";
 
 export function mandateProfileForAgent(
   agent: PublicMarketplaceAgentDetail,
@@ -273,6 +301,10 @@ export function mandateProfileForAgent(
       now.getTime() - freshnessDays * 86_400_000 &&
     agent.availability === "available";
   const isHealthMonitor = agent.category === "health-factor-monitoring";
+  const isGridTrader = agent.category === "grid-trading";
+  const isLpRangeRebalancer = agent.category === "rebalancing";
+  const isTestnetLpRangeRebalancer =
+    isLpRangeRebalancer && agent.chainId === 97;
   const evidenceText = [
     agent.description,
     ...agent.protocols,
@@ -286,7 +318,11 @@ export function mandateProfileForAgent(
         "generate_alerts",
         "generate_recommendations",
       ]
-    : [...new Set(agent.capabilities.map(canonical))];
+    : isGridTrader
+      ? gridTraderCapabilities
+      : isTestnetLpRangeRebalancer
+        ? lpRangeRebalancerCapabilities
+      : [...new Set(agent.capabilities.map(canonical))];
   return {
     agentId: agent.id,
     agentName: agent.name,
@@ -298,21 +334,36 @@ export function mandateProfileForAgent(
     serviceVerificationLevel: service.verificationLevel,
     verificationTimestamp: service.lastVerifiedAt,
     capabilitySet,
-    supportedAssets: [],
+    supportedAssets: isGridTrader
+      ? gridTraderAssets
+      : isTestnetLpRangeRebalancer
+        ? lpRangeRebalancerAssets
+        : [],
     supportedProtocols: venusVerified ? ["Venus"] : agent.protocols,
-    supportedContracts: [],
+    supportedContracts: isTestnetLpRangeRebalancer
+      ? [
+          pancakeSwapV3TestnetPositionManager,
+          pancakeSwapV3TestnetSwapRouter,
+        ]
+      : [],
     approvalModes: isHealthMonitor
       ? ["OBSERVE_ONLY"]
-      : agent.capabilities.some((item) =>
+      : isGridTrader
+        ? ["ASK_BEFORE_EXECUTION", "PRE_AUTHORIZED"]
+        : isTestnetLpRangeRebalancer
+          ? ["ASK_BEFORE_EXECUTION", "PRE_AUTHORIZED"]
+        : agent.capabilities.some((item) =>
             transactionCapabilities.includes(canonical(item)),
           )
         ? ["OBSERVE_ONLY", "ASK_BEFORE_EXECUTION", "PRE_AUTHORIZED"]
         : ["OBSERVE_ONLY"],
     transactional:
-      !isHealthMonitor &&
-      agent.capabilities.some((item) =>
-        transactionCapabilities.includes(canonical(item)),
-      ),
+      isGridTrader ||
+      isTestnetLpRangeRebalancer ||
+      (!isHealthMonitor &&
+        agent.capabilities.some((item) =>
+          transactionCapabilities.includes(canonical(item)),
+        )),
     current,
     attentionReason: current
       ? null

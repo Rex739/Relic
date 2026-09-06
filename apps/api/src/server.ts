@@ -3,6 +3,7 @@ import { getServerEnvironment } from "@relic/config";
 import {
   createDatabase,
   DrizzleAgentRepository,
+  DrizzleAltanaSessionAuthorizationStore,
   DrizzleCommerceStore,
   DrizzleExecutionStore,
   DrizzleMandateStore,
@@ -14,6 +15,8 @@ import type { AgentReadRepository } from "@relic/domain";
 
 import { createApp } from "./app.js";
 import { MandateApplicationService } from "./mandates.js";
+import { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
+import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import { ExecutionApplicationService } from "./executions.js";
 import {
   CommerceApplicationService,
@@ -60,6 +63,15 @@ const mandates =
     : new MandateApplicationService(
         repository,
         new DrizzleMandateStore(connection.db),
+      );
+const altanaSessions =
+  connection === null || mandates === undefined || environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined
+    ? undefined
+    : new AltanaSessionAuthorizationService(
+        mandates,
+        new DrizzleAltanaSessionAuthorizationStore(connection.db),
+        new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY),
+        environment.BSC_TESTNET_RPC_URL,
       );
 const executions =
   connection === null
@@ -151,6 +163,7 @@ const app = createApp(repository, onboarding, mandates, {
     ? {}
     : { privyJwtVerificationKey: environment.PRIVY_JWT_VERIFICATION_KEY }),
   ...(commerce === undefined ? {} : { commerceService: commerce }),
+  ...(altanaSessions === undefined ? {} : { altanaSessionService: altanaSessions }),
   ownershipReader,
   ...(sellerAuthorization === undefined
     ? {}

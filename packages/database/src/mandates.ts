@@ -3,6 +3,7 @@ import type {
   MandateConfiguration,
   MandateEvidenceBinding,
   MandateEvent,
+  MandateEventType,
   MandateListItem,
   MandatePersistence,
   MandateStatus,
@@ -343,6 +344,52 @@ export class DrizzleMandateStore implements MandatePersistence {
         eventType: "MANDATE_ATTENTION_REQUIRED",
         securitySensitive: true,
         details: { reason: input.reason, executionBlocked: true },
+        evidenceReferences: {},
+      });
+      return true;
+    });
+    return changed ? this.findMandate(input.id, input.principalId) : null;
+  }
+
+  public async setAuthorizationBoundary(input: {
+    id: string;
+    principalId: string;
+    boundary: "POLICY_ONLY" | "WALLET_AUTHORIZED";
+    event: MandateEventType;
+    details?: Record<string, unknown>;
+  }) {
+    const changed = await this.database.transaction(async (transaction) => {
+      const [mandate] = await transaction
+        .select({ id: mandates.id, currentVersion: mandates.currentVersion })
+        .from(mandates)
+        .where(
+          and(
+            eq(mandates.id, input.id),
+            eq(mandates.principalId, input.principalId),
+          ),
+        )
+        .limit(1);
+      if (mandate === undefined) return false;
+      await transaction
+        .update(mandates)
+        .set({ authorizationBoundary: input.boundary, updatedAt: new Date() })
+        .where(eq(mandates.id, mandate.id));
+      const [version] = await transaction
+        .select({ id: mandateVersions.id })
+        .from(mandateVersions)
+        .where(
+          and(
+            eq(mandateVersions.mandateId, mandate.id),
+            eq(mandateVersions.version, mandate.currentVersion),
+          ),
+        )
+        .limit(1);
+      await transaction.insert(mandateEvents).values({
+        mandateId: mandate.id,
+        mandateVersionId: version?.id ?? null,
+        eventType: input.event,
+        securitySensitive: true,
+        details: input.details ?? { authorizationBoundary: input.boundary },
         evidenceReferences: {},
       });
       return true;

@@ -100,6 +100,14 @@ export class MandateApplicationService {
         "Activation requires explicit approval of the reviewed mandate.",
       );
     const mandate = await this.#mandate(principalId, id);
+    if (
+      "positionTokenId" in mandate.version.riskConstraints &&
+      mandate.authorizationBoundary !== "WALLET_AUTHORIZED"
+    )
+      throw new MandateValidationError(
+        "buyer_wallet_authorization_required",
+        "Grant the buyer-owned Altana trading permission before activating this rebalancer.",
+      );
     const profile = await this.#currentProfile(mandate);
     this.#validateStoredVersion(mandate, profile);
     return this.#transition({
@@ -116,6 +124,29 @@ export class MandateApplicationService {
         blockchainTransactionAttempted: false,
       },
     });
+  }
+
+  /** Called only after the API has verified the buyer's Altana key on-chain. */
+  public async activateAfterWalletAuthorization(
+    principalId: string,
+    id: string,
+    evidence: { walletAddress: string; sessionPublicKey: string; transactionHash: string },
+  ) {
+    const marked = await this.mandates.setAuthorizationBoundary({
+      id,
+      principalId,
+      boundary: "WALLET_AUTHORIZED",
+      event: "ALTANA_SESSION_GRANTED",
+      details: {
+        walletAddress: evidence.walletAddress,
+        sessionPublicKey: evidence.sessionPublicKey,
+        transactionHash: evidence.transactionHash,
+        buyerAdminPrivateKeyStored: false,
+      },
+    });
+    if (marked === null)
+      throw new MandateValidationError("mandate_not_found", "Mandate not found.");
+    return this.activate(principalId, id, true);
   }
 
   public async pause(principalId: string, id: string) {

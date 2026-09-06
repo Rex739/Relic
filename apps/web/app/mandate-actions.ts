@@ -12,6 +12,11 @@ import {
   activationProfile,
 } from "../lib/mandates";
 import { acceptTerms, hireOffer } from "../lib/commerce";
+import {
+  gridTradingCheckoutSchema,
+  healthMonitoringCheckoutSchema,
+  lpRangeRebalancingCheckoutSchema,
+} from "../lib/checkout-input-validation";
 
 const capabilities = [
   "monitor_positions",
@@ -32,32 +37,6 @@ const fieldString = (formData: FormData, name: string, fallback = "") => {
   return typeof value === "string" ? value : fallback;
 };
 
-const positiveDecimal = (value: string, label: string) => {
-  if (!/^\d+(?:\.\d+)?$/u.test(value))
-    throw new Error(`${label} must be a positive number`);
-  const [whole, fraction = ""] = value.split(".");
-  if (fraction.length > 18 || BigInt(`${whole}${fraction.padEnd(18, "0")}`) <= 0n)
-    throw new Error(`${label} must be a positive number with at most 18 decimal places`);
-  return value;
-};
-
-const decimalUnits = (value: string) => {
-  const [whole, fraction = ""] = value.split(".");
-  return BigInt(`${whole}${fraction.padEnd(18, "0")}`);
-};
-
-const wholeNumberInRange = (
-  value: string,
-  label: string,
-  minimum: number,
-  maximum: number,
-) => {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum)
-    throw new Error(`${label} must be a whole number between ${minimum} and ${maximum}`);
-  return parsed;
-};
-
 async function serviceConfiguration(formData: FormData): Promise<CreateMandateRequest> {
   const durationDays = Number(formData.get("durationDays") ?? 14);
   const threshold = fieldString(formData, "threshold", "1.30");
@@ -66,35 +45,56 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const category = fieldString(formData, "category");
   const profile = await activationProfile(agentId);
   const isGridTrader = category === "grid-trading";
+  const isLpRangeRebalancer = category === "rebalancing";
   const gridCapitalCap = fieldString(formData, "capitalCap");
   const gridLowerPrice = fieldString(formData, "lowerPrice");
   const gridUpperPrice = fieldString(formData, "upperPrice");
   const gridLevels = fieldString(formData, "gridLevels");
   const gridDurationHours = fieldString(formData, "durationHours");
-  const validatedGrid = isGridTrader
-    ? {
-        capitalCap: positiveDecimal(gridCapitalCap, "Maximum trading capital"),
-        lowerPrice: positiveDecimal(gridLowerPrice, "Lower price"),
-        upperPrice: positiveDecimal(gridUpperPrice, "Upper price"),
-        levels: wholeNumberInRange(gridLevels, "Grid levels", 5, 8),
-        durationHours: wholeNumberInRange(
-          gridDurationHours,
-          "Run time",
-          1,
-          168,
-        ),
-      }
+  const gridValidation = isGridTrader
+    ? gridTradingCheckoutSchema.safeParse({
+        capitalCap: gridCapitalCap,
+        lowerPrice: gridLowerPrice,
+        upperPrice: gridUpperPrice,
+        gridLevels,
+        durationHours: gridDurationHours,
+      })
     : null;
-  if (
-    validatedGrid !== null &&
-    decimalUnits(validatedGrid.upperPrice) <=
-      decimalUnits(validatedGrid.lowerPrice)
-  )
-    throw new Error("Upper price must be greater than lower price");
+  if (gridValidation !== null && !gridValidation.success)
+    throw new Error(gridValidation.error.issues[0]?.message ?? "Invalid grid settings");
+  const validatedGrid = gridValidation?.success ? gridValidation.data : null;
+  const rebalancingValidation = isLpRangeRebalancer
+    ? lpRangeRebalancingCheckoutSchema.safeParse({
+        positionTokenId: fieldString(formData, "positionTokenId"),
+        capitalCap: fieldString(formData, "capitalCap"),
+        rangeWidthBps: fieldString(formData, "rangeWidthBps"),
+        durationHours: fieldString(formData, "durationHours"),
+      })
+    : null;
+  if (rebalancingValidation !== null && !rebalancingValidation.success)
+    throw new Error(
+      rebalancingValidation.error.issues[0]?.message ??
+        "Invalid LP rebalancing settings",
+    );
+  const validatedRebalancing = rebalancingValidation?.success
+    ? rebalancingValidation.data
+    : null;
+  const healthValidation = category === "health-factor-monitoring"
+    ? healthMonitoringCheckoutSchema.safeParse({
+        threshold,
+        durationDays: fieldString(formData, "durationDays", "14"),
+      })
+    : null;
+  if (healthValidation !== null && !healthValidation.success)
+    throw new Error(healthValidation.error.issues[0]?.message ?? "Invalid monitoring settings");
+  const validatedHealth = healthValidation?.success ? healthValidation.data : null;
   const enabledCapabilities =
     profile.profile.capabilitySet.length > 0
       ? profile.profile.capabilitySet
       : capabilities.filter((capability) => formData.get(capability) === "on");
+  const deniedCapabilities = denied.filter(
+    (capability) => !enabledCapabilities.includes(capability),
+  );
   const monitoredAccount = fieldString(formData, "publicAccount");
   if (
     monitoredAccount.length > 0 &&
@@ -112,41 +112,59 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         : `Run the requested ${category.replaceAll("-", " ")} service.`,
     ),
     allowedCapabilities: enabledCapabilities,
-    deniedCapabilities: denied,
+    deniedCapabilities,
     // A service input such as "USDT" is not proof that an agent is verified
     // for that asset. Keep it as task context until the offer publishes a
     // supported-asset schema.
-    allowedAssets: validatedGrid === null ? [] : ["TEST_USDT", "WBNB"],
+    allowedAssets:
+      validatedGrid === null && validatedRebalancing === null
+        ? []
+        : profile.profile.supportedAssets,
     allowedProtocols: profile.profile.supportedProtocols,
-    allowedContracts: [],
+    allowedContracts:
+      validatedRebalancing === null ? [] : profile.profile.supportedContracts,
     perActionLimit:
-      validatedGrid === null
-        ? null
-        : { asset: "TEST_USDT", amount: validatedGrid.capitalCap },
-    aggregateLimit:
-      validatedGrid === null
-        ? null
-        : { asset: "TEST_USDT", amount: validatedGrid.capitalCap },
-    executionFrequency:
-      validatedGrid === null
+      validatedGrid === null && validatedRebalancing === null
         ? null
         : {
-            maxActions: validatedGrid.levels * 2,
-            windowSeconds: validatedGrid.durationHours * 3_600,
+            asset: "TEST_USDT",
+            amount:
+              validatedGrid?.capitalCap ?? validatedRebalancing!.capitalCap,
           },
+    aggregateLimit:
+      validatedGrid === null && validatedRebalancing === null
+        ? null
+        : {
+            asset: "TEST_USDT",
+            amount:
+              validatedGrid?.capitalCap ?? validatedRebalancing!.capitalCap,
+          },
+    executionFrequency:
+      validatedGrid === null && validatedRebalancing === null
+        ? null
+        : validatedGrid !== null
+          ? {
+            maxActions: validatedGrid.gridLevels * 2,
+            windowSeconds: validatedGrid.durationHours * 3_600,
+          }
+          : { maxActions: 1, windowSeconds: 3_600 },
     startAt: now.toISOString(),
     expiresAt: new Date(
       now.getTime() +
-        (validatedGrid === null
-          ? durationDays * 86_400_000
-          : validatedGrid.durationHours * 3_600_000),
+        (validatedGrid !== null
+          ? validatedGrid.durationHours * 3_600_000
+          : validatedRebalancing !== null
+            ? validatedRebalancing.durationHours * 3_600_000
+            : (validatedHealth?.durationDays ?? durationDays) * 86_400_000),
     ).toISOString(),
-    approvalMode: profile.profile.approvalModes.includes("OBSERVE_ONLY")
-      ? "OBSERVE_ONLY"
-      : profile.profile.approvalModes[0]!,
+    approvalMode: isGridTrader || isLpRangeRebalancer
+      ? "PRE_AUTHORIZED"
+      : profile.profile.approvalModes.includes("OBSERVE_ONLY")
+        ? "OBSERVE_ONLY"
+        : profile.profile.approvalModes[0]!,
     riskConstraints: {
       ...(category === "health-factor-monitoring"
-        ? { alertHealthFactorBelow: threshold }
+        ? { alertHealthFactorBelow: validatedHealth?.threshold ?? threshold }
         : {}),
       ...(fieldString(formData, "target") === ""
         ? {}
@@ -162,9 +180,19 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
             capitalCap: validatedGrid.capitalCap,
             lowerPrice: validatedGrid.lowerPrice,
             upperPrice: validatedGrid.upperPrice,
-            gridLevels: validatedGrid.levels,
+            gridLevels: validatedGrid.gridLevels,
             durationHours: validatedGrid.durationHours,
             minimumSecondsBetweenExecutions: 900,
+          }),
+      ...(validatedRebalancing === null
+        ? {}
+        : {
+            market: "WBNB/TEST_USDT",
+            positionTokenId: validatedRebalancing.positionTokenId,
+            capitalCap: validatedRebalancing.capitalCap,
+            rangeWidthBps: validatedRebalancing.rangeWidthBps,
+            durationHours: validatedRebalancing.durationHours,
+            minimumSecondsBetweenRebalances: 3_600,
           }),
     },
     stopConditions: [
@@ -186,6 +214,35 @@ export type StartedHireCheckout = {
   agreementId: string;
 };
 
+/** Creates a reviewed rebalancing mandate. It deliberately does not activate
+ * the mandate or create a paid agreement; the buyer's Altana grant must be
+ * verified first. */
+export async function prepareRebalancingAuthorization(formData: FormData) {
+  if (fieldString(formData, "category") !== "rebalancing")
+    throw new Error("This authorization flow is only for LP rebalancing.");
+  if (formData.get("explicitApproval") !== "approved")
+    throw new Error("Explicit mandate approval is required");
+  const draft = await createMandate(await serviceConfiguration(formData));
+  await transitionMandate(draft.id, "review");
+  return { mandateId: draft.id };
+}
+
+/** Runs only after the API verified the buyer-owned Altana grant and activated
+ * the matching mandate. */
+export async function startHireCheckoutForAuthorizedMandate(input: {
+  mandateId: string;
+  offerId: string;
+}) : Promise<StartedHireCheckout> {
+  const createdAgreement = await hireOffer(input.offerId, input.mandateId);
+  const agreementId = typeof createdAgreement.id === "string" ? createdAgreement.id : "";
+  if (!agreementId) throw new Error("Agreement creation returned no identifier");
+  const agreementTermsHash =
+    typeof createdAgreement.termsHash === "string" ? createdAgreement.termsHash : "";
+  if (!agreementTermsHash) throw new Error("Agreement creation returned no terms hash");
+  await acceptTerms(agreementId, agreementTermsHash);
+  return { mandateId: input.mandateId, agreementId };
+}
+
 /**
  * Starts the checkout without navigating away from the service card. The
  * browser still has to collect the buyer's EIP-712 signature afterwards, but
@@ -196,6 +253,8 @@ export async function startHireCheckout(
 ): Promise<StartedHireCheckout> {
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
+  if (fieldString(formData, "category") === "rebalancing")
+    throw new Error("Authorize the buyer-owned trading permission before starting LP rebalancing checkout.");
   const draft = await createMandate(await serviceConfiguration(formData));
   await transitionMandate(draft.id, "review");
   await transitionMandate(draft.id, "activate");

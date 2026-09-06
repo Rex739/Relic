@@ -9,8 +9,12 @@ export type ServiceField = {
   label: string;
   placeholder: string;
   helper: string;
+  help?: string;
   required?: boolean;
   type?: "text" | "number";
+  min?: number;
+  max?: number;
+  step?: number | "any";
 };
 
 export type ServiceWorkflow = {
@@ -43,6 +47,8 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         placeholder: "1.30",
         helper: "Health-factor threshold.",
         type: "number",
+        min: 0.000000000000000001,
+        step: "any",
       },
       {
         name: "durationDays",
@@ -50,22 +56,73 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         placeholder: "14",
         helper: "14 days is recommended so the checkout policy can safely cover the monitoring window. You can pause or end monitoring at any time.",
         type: "number",
+        min: 1,
+        max: 365,
+        step: 1,
       },
     ],
     deliverables: ["Current health factor", "Liquidation-risk status", "Actionable alert when attention is needed"],
     permissionSummary: "Read-only access to public on-chain position data. This service cannot move funds or submit transactions.",
   },
   rebalancing: {
-    taskLabel: "Rebalancing",
-    taskDescription: "Review a public liquidity position against the operating bounds you choose.",
-    confirmLabel: "Confirm & create task",
+    taskLabel: "LP Range Rebalancing",
+    taskDescription:
+      "Keep one PancakeSwap V3 BNB/USDT liquidity position in range, within the limits you choose.",
+    confirmLabel: "Confirm rebalance settings",
     requirements: [
-      addressField,
-      { name: "asset", label: "Asset or position", placeholder: "e.g. WBNB / USDT", helper: "The market or position to assess.", required: true },
-      { name: "target", label: "Target range", placeholder: "e.g. 5% allocation band", helper: "The boundary the agent should evaluate." },
+      {
+        name: "positionTokenId",
+        label: "PancakeSwap V3 position ID",
+        placeholder: "e.g. 12345",
+        helper: "The NFT ID of the one BNB/USDT position this order may manage.",
+        help: "PancakeSwap V3 liquidity positions are NFTs. This identifies the single position the agent may withdraw from and redeploy.",
+        required: true,
+        type: "number",
+        min: 1,
+        step: 1,
+      },
+      {
+        name: "capitalCap",
+        label: "Maximum capital",
+        placeholder: "e.g. 50",
+        helper: "The most TEST_USDT-equivalent capital this order may use.",
+        help: "This is a total cap, not a target balance. The agent must stop rather than use more than this amount.",
+        required: true,
+        type: "number",
+        min: 0.000000000000000001,
+        step: "any",
+      },
+      {
+        name: "rangeWidthBps",
+        label: "Range width on each side",
+        placeholder: "e.g. 1000",
+        helper: "Basis points around the current price. 1000 = 10% above and below.",
+        help: "A narrower range can earn fees more actively but needs rebalancing sooner. A wider range trades activity for fewer adjustments.",
+        required: true,
+        type: "number",
+        min: 100,
+        max: 5000,
+        step: 1,
+      },
+      {
+        name: "durationHours",
+        label: "Run time (hours)",
+        placeholder: "e.g. 24",
+        helper: "The permission expires automatically when this period ends.",
+        required: true,
+        type: "number",
+        min: 1,
+        max: 168,
+        step: 1,
+      },
     ],
-    deliverables: ["Position assessment", "Recommended rebalance", "Reasoning and risk notes"],
-    permissionSummary: "The service begins in observe-only mode. Any transaction-capable action must be separately approved.",
+    deliverables: [
+      "Current range, price, and in-range status",
+      "Each completed rebalance with transaction evidence",
+      "Fees collected, new range, capital used, and stop reason",
+    ],
+    permissionSummary:
+      "The agent may act only on this one BNB/USDT position, through the approved PancakeSwap V3 contracts, within your cap, duration, and one-rebalance-per-hour limit.",
   },
   "grid-trading": {
     taskLabel: "Grid Trading",
@@ -80,6 +137,8 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         helper: "The most this grid can use. It cannot exceed this amount.",
         required: true,
         type: "number",
+        min: 0.000000000000000001,
+        step: "any",
       },
       {
         name: "lowerPrice",
@@ -88,6 +147,8 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         helper: "No new grid buys are placed below this BNB/USDT price.",
         required: true,
         type: "number",
+        min: 0.000000000000000001,
+        step: "any",
       },
       {
         name: "upperPrice",
@@ -96,14 +157,20 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         helper: "No new grid sells are placed above this BNB/USDT price.",
         required: true,
         type: "number",
+        min: 0.000000000000000001,
+        step: "any",
       },
       {
         name: "gridLevels",
         label: "Grid levels",
         placeholder: "e.g. 6",
         helper: "Choose 5–8 levels for the first release.",
+        help: "Price points between your lower and upper limits where the strategy can buy or sell. More levels create smaller, more frequent steps.",
         required: true,
         type: "number",
+        min: 5,
+        max: 8,
+        step: 1,
       },
       {
         name: "durationHours",
@@ -112,6 +179,9 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         helper: "The grid stops automatically when this period ends.",
         required: true,
         type: "number",
+        min: 1,
+        max: 168,
+        step: 1,
       },
     ],
     deliverables: [

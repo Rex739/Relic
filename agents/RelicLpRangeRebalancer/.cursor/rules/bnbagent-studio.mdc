@@ -1,0 +1,70 @@
+---
+description: The single entry point for bnbagent-studio - a TypeScript CLI (`bag`) for building a blockchain SELLER agent that earns $U on BNB Chain via ERC-8004 + ERC-8183 + an x402 or MPP B402 payment face (Pieverse LLM inside). Load this skill whenever the user works in a bnbagent-studio / `bag` project, or wants to create/scaffold, deploy, run, debug, operate, or monetize such a seller agent (composable A2A, MCP, and alternative X402/MPP faces; BNB Chain trial, AWS AgentCore, or Azure Foundry). All detailed playbooks ship as references/ files inside this skill - route via the decision tree in the body. When invoked with arguments, treat them as the user's intent and route the same way.
+alwaysApply: false
+---
+
+# bnbagent-studio (the single entry point)
+
+`bnbagent-studio` (CLI: `bag`) wires the `@bnbagent/sdk` protocol layer (wallet / ERC-8004 / ERC-8183 / Pieverse LLM) into a TypeScript agent project, then deploys it as a **single blockchain seller runtime**. A2A, MCP, and X402 are composable public faces selected with `--protocols`; every wallet kind scaffolds A2A + X402 with both ERC-8183 and B402 rails by default (for altana the paid B402 payout lands at the admin address). `bag deploy` uses **scheme C**: every new deploy or redeploy explicitly selects BNB, AWS, or Azure; a recorded deployment is used only to offer an explicit update action, never as a silent default. BNB is a 48h testnet trial and is disabled after expiry. AWS and Azure self-deploy into the user's own account. All cloud lifecycle mutations go through the pinned `@bnbagent/deploy-cli`; the optional AWS CLI is used only by the fail-open, read-only AgentCore quota check in `bag deploy prepare`. AgentCore and Azure Foundry share the unified A2A/X402 entrypoint; Azure rejects MCP. Treat an incompatible provider row as unavailable-do not force through it or mutate the scaffold during deploy.
+
+Invoked as `/bnbagent-studio <ask>`? Treat `<ask>` as the user's intent and route it through the decision tree below, exactly like a natural-language ask.
+
+## The single seller runtime model (the invariants)
+
+One deployed runtime, one signer: a single valuable Agent serves the selected faces (A2A `src/unifiedMain.ts` on `:9000`, MCP `src/mcpMain.ts` on `:8000/mcp`, or A2A-native `src/dualMain.ts` on `:9000` with tunneled `/mcp`), holds the key, and signs in-process. The ERC-8183 rail exposes exactly two bounded operations - **`negotiate`** (rule-based price clamp + EIP-191 sign; **no LLM touches money**) and **`notify_funded`** (verify the funded job → produce the deliverable → submit on-chain; A2A acks then delivers in the background, MCP delivers synchronously in the tool call). The optional x402 rail adds an anonymous HTTP request at `/x402`; positive prices settle through B402 before work, while explicit zero is FREE passthrough and bypasses the facilitator. It does not expose a general signing tool. Read-only chain tools remain available. ALL signing is fixed entrypoint code in `app/agent/src/signing.ts` or the runtime's bounded x402 payment handler, never an LLM-callable tool. The encrypted keystore lives at the workspace root `.studio/wallets/`, outside the deploy codeLocation, and is injected only via the selected provider's delegated secret channel. `settle` is manual (`bag erc8183 settle`). Full layout and lifecycle details live in the references below - read them before acting.
+
+## Decision tree - which reference to read next
+
+**References are plain markdown files installed in THIS skill's directory** at `references/<name>.md`. When a row matches, READ THAT FILE before acting - do not answer from memory.
+
+| User intent | Read / do |
+| --- | --- |
+| Create a brand new single seller project from zero | `references/bnbagent-studio-scaffolding-agent.md` |
+| Add wallet / the single seller runtime to an existing TypeScript agent | `references/bnbagent-studio-adding-to-project.md` |
+| Run / debug / dev / doctor / RPC / balance / incident triage | `references/bnbagent-studio-operating.md` |
+| Implement what the Agent sells, tune pricing, publish over A2A and/or MCP, defend disputes (seller flow) | `references/bnbagent-studio-selling-via-8183.md` |
+| Sell one paid or FREE HTTP request through the selected B402-backed x402 or MPP rail (pricing choice; paid merchant application, RSA key, credentials, IP allowlist, activation) | `references/bnbagent-studio-selling-via-b402.md` |
+| Deploy / redeploy / status / logs / destroy | Run `bag deploy` and explicitly choose a provider. Non-interactive deploy requires `--provider bnb\|aws\|azure --yes` (and `--allow-multiple` when keeping another provider active). Read `references/bnbagent-studio-use-bnb-trial.md`, `references/bnbagent-studio-use-aws-agentcore.md`, or `references/bnbagent-studio-use-azure-foundry.md` for the selected provider. `bag deploy status` lists every recorded provider; multi-deployment logs/verify/destroy require `--provider`. |
+| Wire chain-read tools into the Agent's LLM (AI SDK `tool()` wrappers, or any TS agent framework) | `references/bnbagent-studio-wiring-llm-tools.md` |
+| Buy a service from another ERC-8183 seller via CLI - incl. testing your own seller from the buyer side (v2/internal - NOT the v1 seller product flow) | `references/bnbagent-studio-buying-via-8183.md` |
+| Give the agent a PAID x402 capability - CMC market data / Binance Bazaar (B402) merchants / any pay-per-call API (`bag x402 trust`, x402-buyer recipe, 402 buyer errors) | `references/bnbagent-studio-buying-from-bazaar.md` |
+| Give the agent a native MPP+B402 buyer capability (`bag mpp trust/quote/buy`, mpp-buyer recipe, recipient/realm pins, unknown outcomes) | `references/bnbagent-studio-buying-via-mpp.md` |
+| Extend the EIP-712 signing allowlist (custom contract / new x402 service / diagnose `PolicyViolation` / `X402PolicyError`) | `references/bnbagent-studio-extending-signing.md` |
+| Project uses `[wallet].kind = "twak"` (create / fund / SIWE-bind / container deploy / known limitations) | `references/bnbagent-studio-using-twak-wallet.md` |
+| Project uses `[wallet].kind = "altana"` (admin keystore / bounded session / quote checker / x402 allowance / local dev / session-only deploy + renewal) | `references/bnbagent-studio-using-altana-wallet.md` |
+| (Pieverse projects only) Fund the LLM, switch to a paid model, hit insufficient credits (`PieverseBudgetExhaustedError` / `PieverseAccountBalanceExhaustedError`) | skill `funding-pieverse-llm` (project-scope; emitted at `bag init --llm-provider pieverse-llm`) |
+
+If two or more match, read both - they're designed to be orthogonal.
+
+### Where the references live
+
+Next to this file: this skill installs as a directory with a `references/` subdirectory (Claude Code: `~/.claude/skills/bnbagent-studio/references/` or the project-scope `<project>/.claude/skills/bnbagent-studio/references/`; Cursor: `bnbagent-studio/references/` under the rules directory, beside the `.mdc` rules). If a reference file is missing, `bag skills install` (re)installs it.
+
+<!-- Maintainers: this skill's DESCRIPTION only carries ENTRY intents (identity + create/deploy/run/debug/operate/monetize). Mid-journey topics such as twak, EIP-712, disputes, buyer flow, and tool wiring are routed by the decision tree above and must NOT be added to the description - see docs/design/decisions.md §14. -->
+
+## 5 core commitments (always honor)
+
+1. **Agent project code is user-owned** - recipe-emitted files are theirs to edit; studio doesn't auto-rewrite them.
+2. **Private keys live in a user-controlled environment, never transmitted to studio or third parties** - the encrypted keystore lives at the workspace root, outside the deploy codeLocation (no packaging path can bundle it). Altana keeps its admin keystore there and gives the runtime only a bounded session — local `bag dev` and deploy both receive the session (`ALTANA_SESSION`), never the admin keystore. Other supported deploy paths inject only their required wallet material into the selected runtime secret channel. (Scoped, consented exception: provider `bnb`, the 48h testnet trial - testnet-forced, throwaway wallet recommended.)
+3. **Signing is fixed handler code, never an LLM-callable tool** - the ERC-8183 rail exposes bounded `negotiate` / `notify_funded` flows and the x402 rail exposes a bounded request handler; raw/arbitrary signing is never exposed. Read-only chain queries remain read-only tools.
+4. **SDK protocol layer stays pure** - studio's opinions don't pollute `bnbagent-sdk`.
+5. **The user can jump ship at any point** - emitted code is theirs to edit / fork / migrate; studio depends on no closed SaaS. Emitted code imports from `@bnbagent/studio-runtime` and depends on that runtime lib (not the CLI), so uninstalling the `@bnbagent/studio-cli` package never breaks a deployed agent.
+
+Treat ERC-8183 amounts as decimal strings at CLI/config boundaries and `bigint` internally. `price = "0"` is an explicit FREE choice, not a missing value; the canonical stack supports it. If a custom stack is selected, require all three contract-address overrides from one verified deployment. Treat B402 `price_usd` as a decimal string too. `"0"` is explicit anonymous FREE passthrough: B402 verify/settle and secret injection are skipped. Positive prices retain the paid merchant flow.
+
+## CLI groups at a glance
+
+`init`, `scan`, `recipe`, `skills`, `wallet`, `erc8004`, `erc8183`, `x402`, `mpp`, `agents`, `config`, `env`, `dev`, `doctor`, `audit`, `deploy`, `platform`, `llm`, `bundle`, `budget` - see `bag --help` for details. `bag deploy [--provider bnb\|aws\|azure] [--backend aws\|azure]` is the primary deploy command; `--backend` is valid only for provider `bnb` and confirms the recipe-derived managed backend. `prepare`, `verify`, `status`, `info`, `destroy`, `logs`, and `fix-gitignore` remain lifecycle subcommands (`deploy agent` is a deprecated compatibility alias). Provider deploy/status/logs/destroy and deploy-time credential validation are delegated to pinned `@bnbagent/deploy-cli@0.5.15`.
+
+## Tool surface
+
+- **CLI** - write-side (wallet ops, on-chain register, x402/MPP buy, deploy)
+- **MCP** - an external seller face (`bag init --protocols MCP`), composable with A2A; dual mode is A2A-native so `HEALTHY_BUSY` preserves background work
+- **`@bnbagent/studio-runtime/tools`** - 15 pure read-only functions, wrapped into LLM tools by the chain-tools recipe (read `references/bnbagent-studio-wiring-llm-tools.md`)
+
+## Where docs live
+
+- `docs/design/architecture.md` - layered architecture
+- `docs/design/decisions.md` - decision records (Pieverse default, signing policy, chain tools, zero-deposit, skill reorg, **single seller runtime + protocol faces**)
+- `docs/guides/pieverse-integration.md` - Pieverse LLM full lifecycle
+- `docs/guides/user-guide.md` - end-user procedures

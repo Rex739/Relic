@@ -1596,6 +1596,41 @@ export const mandates = pgTable(
   ],
 );
 
+/**
+ * One server-held, buyer-authorized Altana session per rebalancing mandate.
+ * The private key is always AES-GCM ciphertext; no buyer admin key is ever
+ * stored by Relic.
+ */
+export const altanaSessionAuthorizations = pgTable(
+  "altana_session_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "cascade" }),
+    principalId: text("principal_id").notNull(),
+    chainId: integer("chain_id").notNull(),
+    walletAddress: text("wallet_address"),
+    sessionAddress: text("session_address").notNull(),
+    sessionPublicKey: text("session_public_key").notNull(),
+    encryptedSessionPrivateKey: text("encrypted_session_private_key").notNull(),
+    permissions: jsonb("permissions").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    grantTransactionHash: text("grant_transaction_hash"),
+    status: text("status").notNull().default("PENDING"),
+    grantedAt: timestamp("granted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("altana_session_authorization_mandate_unique").on(table.mandateId),
+    index("altana_session_authorization_principal_status_idx").on(
+      table.principalId,
+      table.status,
+    ),
+  ],
+);
+
 export const mandateVersions = pgTable(
   "mandate_versions",
   {

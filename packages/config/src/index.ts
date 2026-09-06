@@ -44,6 +44,22 @@ const serverEnvironmentSchema = z.object({
   NEXT_PUBLIC_PRIVY_APP_ID: z.string().trim().min(1).optional(),
   PRIVY_JWT_VERIFICATION_KEY: z.string().trim().min(1).optional(),
   MANDATE_API_SECRET: z.string().min(32).optional(),
+  // A 32-byte Base64 key injected by ECS from Secrets Manager. It encrypts
+  // per-order Altana session keys before they can enter Relic storage.
+  ALTANA_SESSION_ENCRYPTION_KEY: z
+    .string()
+    .trim()
+    .refine(
+      (value) => {
+        try {
+          return Buffer.from(value, "base64").length === 32;
+        } catch {
+          return false;
+        }
+      },
+      "ALTANA_SESSION_ENCRYPTION_KEY must be a Base64-encoded 32-byte key",
+    )
+    .optional(),
   RELIC_DEVELOPMENT_PRINCIPAL_ID: z.uuid().optional(),
   RELIC_WALLET_AUTH_DOMAIN: z.string().trim().min(1).optional(),
   RELIC_WALLET_AUTH_URI: optionalUrl,

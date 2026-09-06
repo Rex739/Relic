@@ -45,6 +45,7 @@ import { z } from "zod";
 import { getAddress, keccak256 } from "viem";
 
 import type { MandateApplicationService } from "./mandates.js";
+import type { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
 import type { ExecutionApplicationService } from "./executions.js";
 import type {
   CommerceApplicationService,
@@ -436,6 +437,34 @@ const activateMandateRoute = mandateTransitionRoute("activate");
 const pauseMandateRoute = mandateTransitionRoute("pause");
 const resumeMandateRoute = mandateTransitionRoute("resume");
 const revokeMandateRoute = mandateTransitionRoute("revoke");
+const altanaSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/altana-session-authorization",
+  request: { params: mandateParams, headers: principalHeaders },
+  responses: {
+    ...mandateResponses,
+    201: json(mandateDataResponse, "Buyer Altana session prepared"),
+  },
+});
+const confirmAltanaSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/altana-session-authorization/confirm",
+  request: {
+    params: mandateParams,
+    headers: principalHeaders,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+            transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+          }),
+        },
+      },
+    },
+  },
+  responses: mandateResponses,
+});
 const executionPreflightRoute = createRoute({
   method: "post",
   path: "/v1/mandates/{id}/execution-preflight",
@@ -1143,6 +1172,7 @@ export function createApp(
     privyAppId?: string;
     privyJwtVerificationKey?: string;
     commerceService?: CommerceApplicationService;
+    altanaSessionService?: AltanaSessionAuthorizationService;
     ownershipReader?: Erc8004OwnershipReader;
     sellerAuthorizationGuard?: SellerAuthorizationGuard;
     adminPrincipalIds?: readonly string[];
@@ -1454,6 +1484,14 @@ export function createApp(
         "Mandate activation is unavailable.",
       );
     return mandateService;
+  };
+  const requireAltanaSession = () => {
+    if (options.altanaSessionService === undefined)
+      throw new MandateValidationError(
+        "altana_session_unavailable",
+        "Buyer wallet authorization is not configured for this environment.",
+      );
+    return options.altanaSessionService;
   };
   const requireExecutions = () => {
     if (options.executionService === undefined)
@@ -2406,6 +2444,42 @@ export function createApp(
     const { id } = mandateParams.parse(context.req.param());
     return context.json(
       { data: await requireMandates().review(await principal(context), id) },
+      200,
+    );
+  });
+
+  app.openapi(altanaSessionRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
+    return context.json(
+      { data: await requireAltanaSession().prepare(session.principalId, id) },
+      201,
+    );
+  });
+
+  app.openapi(confirmAltanaSessionRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
+    const body = z
+      .object({
+        walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+        transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+      })
+      .parse(await context.req.json());
+    if (getAddress(body.walletAddress) !== getAddress(session.walletAddress))
+      throw new MandateValidationError(
+        "altana_session_wallet_mismatch",
+        "Authorize the session with the wallet connected to your Relic account.",
+      );
+    return context.json(
+      {
+        data: await requireAltanaSession().confirm({
+          principalId: session.principalId,
+          mandateId: id,
+          walletAddress: body.walletAddress,
+          transactionHash: body.transactionHash,
+        }),
+      },
       200,
     );
   });

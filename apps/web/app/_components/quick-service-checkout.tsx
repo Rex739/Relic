@@ -3,7 +3,11 @@
 import { useState, type FormEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 
-import { startHireCheckout } from "../mandate-actions";
+import {
+  prepareRebalancingAuthorization,
+  startHireCheckout,
+  startHireCheckoutForAuthorizedMandate,
+} from "../mandate-actions";
 import { CommerceAuthorization } from "./commerce-authorization";
 import { completeHireCheckoutActivation } from "../commerce-actions";
 import { WalletCommerceOperation } from "./wallet-commerce-operation";
@@ -15,7 +19,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip";
+import { checkoutInputSchemaFor } from "../../lib/checkout-input-validation";
 import type { ServiceWorkflow } from "../../lib/service-workflow";
+import { Check, CircleHelp, ShieldCheck } from "lucide-react";
+import { AltanaSessionAuthorization } from "./altana-session-authorization";
 
 type QuickServiceCheckoutProps = {
   agentId: string;
@@ -60,12 +75,20 @@ export function QuickServiceCheckout({
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [rebalancingStep, setRebalancingStep] = useState<"configure" | "review">(
+    "configure",
+  );
+  const [rebalancingInputs, setRebalancingInputs] = useState<Record<string, string>>({});
+  const [rebalancingMandateId, setRebalancingMandateId] = useState<string | null>(null);
+  const isRebalancing = agentCategory === "rebalancing";
 
   const start = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     try {
       const session = await fetch("/api/auth/session", { cache: "no-store" });
       if (session.ok) {
+        if (isRebalancing) setRebalancingStep("configure");
         setOpen(true);
         return;
       }
@@ -81,10 +104,47 @@ export function QuickServiceCheckout({
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const schema = checkoutInputSchemaFor(agentCategory);
+    if (schema !== null) {
+      const validation = schema.safeParse(Object.fromEntries(formData));
+      if (!validation.success) {
+        const errors = validation.error.issues.reduce<Record<string, string>>(
+          (result, issue) => {
+            const field = issue.path[0];
+            if (typeof field === "string" && result[field] === undefined)
+              result[field] = issue.message;
+            return result;
+          },
+          {},
+        );
+        setFieldErrors(errors);
+        setError("Review the highlighted inputs.");
+        return;
+      }
+    }
+    if (isRebalancing && rebalancingStep === "configure") {
+      setRebalancingInputs(
+        workflow.requirements.reduce<Record<string, string>>((inputs, field) => {
+          inputs[field.name] = String(formData.get(field.name) ?? "");
+          return inputs;
+        }, {}),
+      );
+      setFieldErrors({});
+      setError(null);
+      setRebalancingStep("review");
+      return;
+    }
     setSubmitting(true);
     setError(null);
+    setFieldErrors({});
     try {
-      const started = await startHireCheckout(new FormData(event.currentTarget));
+      if (isRebalancing) {
+        const prepared = await prepareRebalancingAuthorization(formData);
+        setRebalancingMandateId(prepared.mandateId);
+        return;
+      }
+      const started = await startHireCheckout(formData);
       setCheckout(started);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start this service.");
@@ -94,10 +154,16 @@ export function QuickServiceCheckout({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <button className={className} type="button" onClick={start}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen && isRebalancing) setRebalancingStep("configure");
+      }}
+    >
+      <Button className={className} type="button" onClick={start}>
         {label}
-      </button>
+      </Button>
       <DialogContent className="quick-checkout-dialog">
         {checkout !== null ? (
           <>
@@ -155,6 +221,27 @@ export function QuickServiceCheckout({
               />
             )}
           </>
+        ) : rebalancingMandateId !== null ? (
+          <>
+            <DialogHeader>
+              <span className="overline">Secure wallet authorization</span>
+              <DialogTitle>Grant the rebalancer&apos;s exact permission</DialogTitle>
+              <DialogDescription>
+                This is a buyer-owned wallet grant. The order remains inactive until Relic verifies it on-chain.
+              </DialogDescription>
+            </DialogHeader>
+            <AltanaSessionAuthorization
+              mandateId={rebalancingMandateId}
+              onAuthorized={async () => {
+                const started = await startHireCheckoutForAuthorizedMandate({
+                  mandateId: rebalancingMandateId,
+                  offerId,
+                });
+                setRebalancingMandateId(null);
+                setCheckout(started);
+              }}
+            />
+          </>
         ) : (
           <>
         <DialogHeader>
@@ -162,22 +249,58 @@ export function QuickServiceCheckout({
           <DialogTitle>{workflow.taskLabel}</DialogTitle>
           <DialogDescription>{workflow.taskDescription}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="quick-checkout-form">
+        <form noValidate onSubmit={submit} className="quick-checkout-form">
           <input type="hidden" name="agentId" value={agentId} />
           <input type="hidden" name="offerId" value={offerId} />
           <input type="hidden" name="chainId" value={chainId} />
           <input type="hidden" name="category" value={agentCategory} />
           <input type="hidden" name="objective" value={`Run ${workflow.taskLabel} for my requested inputs.`} />
-          {workflow.requirements.map((field) => (
+          {isRebalancing && rebalancingStep === "review"
+            ? workflow.requirements.map((field) => (
+                <input
+                  key={field.name}
+                  type="hidden"
+                  name={field.name}
+                  value={rebalancingInputs[field.name] ?? ""}
+                />
+              ))
+            : null}
+          {(!isRebalancing || rebalancingStep === "configure") ? (
+            <TooltipProvider delayDuration={180}>
+            {workflow.requirements.map((field) => (
             <label key={field.name}>
-              {field.label}
-              <input
+              <span className="checkout-field-label">
+                {field.label}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      aria-label={`Explain ${field.label}`}
+                      className="field-help-trigger"
+                      type="button"
+                    >
+                      <CircleHelp aria-hidden="true" size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{field.help ?? field.helper}</TooltipContent>
+                </Tooltip>
+              </span>
+              <Input
                 name={field.name}
                 type={field.type ?? "text"}
                 {...(field.name === "publicAccount" && field.required
                   ? { pattern: "0x[0-9a-fA-F]{40}" }
                   : {})}
                 {...(field.required ? { required: true } : {})}
+                {...(field.type === "number"
+                  ? {
+                      inputMode: field.step === 1 ? "numeric" : "decimal",
+                      min: field.min,
+                      max: field.max,
+                      step: field.step,
+                    }
+                  : {})}
+                aria-describedby={`${field.name}-help${fieldErrors[field.name] === undefined ? "" : ` ${field.name}-error`}`}
+                aria-invalid={fieldErrors[field.name] === undefined ? undefined : true}
                 defaultValue={
                   field.name === "threshold"
                     ? "1.30"
@@ -187,9 +310,62 @@ export function QuickServiceCheckout({
                 }
                 placeholder={field.placeholder}
               />
-              <small>{field.helper}</small>
+              <small id={`${field.name}-help`}>{field.helper}</small>
+              {fieldErrors[field.name] === undefined ? null : (
+                <small className="form-error" id={`${field.name}-error`} role="alert">
+                  {fieldErrors[field.name]}
+                </small>
+              )}
             </label>
           ))}
+          </TooltipProvider>
+          ) : (
+            <>
+              <section className="secure-permission-review" aria-labelledby="secure-permission-title">
+                <div className="secure-permission-heading">
+                  <ShieldCheck aria-hidden="true" size={18} />
+                  <div>
+                    <span className="overline">Your secure trading permission</span>
+                    <h3 id="secure-permission-title">Exactly what the rebalancer can do</h3>
+                  </div>
+                </div>
+                <p>{workflow.permissionSummary}</p>
+                <dl className="secure-permission-limits">
+                  <div>
+                    <dt>Position</dt>
+                    <dd>#{rebalancingInputs.positionTokenId}</dd>
+                  </div>
+                  <div>
+                    <dt>Capital cap</dt>
+                    <dd>{rebalancingInputs.capitalCap} TEST_USDT</dd>
+                  </div>
+                  <div>
+                    <dt>Range</dt>
+                    <dd>±{Number(rebalancingInputs.rangeWidthBps ?? "0") / 100}%</dd>
+                  </div>
+                  <div>
+                    <dt>Ends after</dt>
+                    <dd>{rebalancingInputs.durationHours} hours</dd>
+                  </div>
+                </dl>
+                <ul>
+                  <li><Check aria-hidden="true" size={14} /> BNB/USDT only</li>
+                  <li><Check aria-hidden="true" size={14} /> PancakeSwap V3 contracts only</li>
+                  <li><Check aria-hidden="true" size={14} /> At most one rebalance per hour</li>
+                  <li><Check aria-hidden="true" size={14} /> Revoke any time</li>
+                </ul>
+                <details>
+                  <summary>How secure authorization works</summary>
+                  <p>
+                    Before the rebalancer can act, you authorize a separate, buyer-owned
+                    Altana trading permission in your wallet. Relic never asks for your
+                    private key. If this position is in a different wallet, you will move
+                    only that LP NFT into your secure trading wallet first.
+                  </p>
+                </details>
+              </section>
+            </>
+          )}
           <div className="quick-checkout-summary">
             <div>
               <span>Service</span>
@@ -208,18 +384,40 @@ export function QuickServiceCheckout({
             <span>You&apos;ll receive</span>
             <ul>{workflow.deliverables.map((item) => <li key={item}>{item}</li>)}</ul>
           </div>
-          <label className="terms-confirm">
-            <input type="checkbox" name="explicitApproval" value="approved" required />
-            I approve the displayed permissions and service terms.
-          </label>
+          {isRebalancing && rebalancingStep === "configure" ? null : (
+            <label className="terms-confirm">
+              <input type="checkbox" name="explicitApproval" value="approved" required />
+              {isRebalancing
+                ? "I understand that a separate wallet authorization is required before the rebalancer can trade."
+                : "I approve the displayed permissions and service terms."}
+            </label>
+          )}
           <DialogFooter>
-            <button className="secondary-button" type="button" onClick={() => setOpen(false)}>Cancel</button>
-            <button className="primary-button" type="submit" disabled={submitting}>
-              {submitting ? "Preparing secure request…" : "Confirm & sign"}
-            </button>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() =>
+                isRebalancing && rebalancingStep === "review"
+                  ? setRebalancingStep("configure")
+                  : setOpen(false)
+              }
+            >
+              {isRebalancing && rebalancingStep === "review" ? "Back" : "Cancel"}
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting
+                ? "Preparing secure request…"
+                : isRebalancing && rebalancingStep === "configure"
+                  ? "Review secure permission"
+                  : "Confirm & sign"}
+            </Button>
           </DialogFooter>
           {error !== null ? <p className="form-error" role="alert">{error}</p> : null}
-          <small className="quick-checkout-note">You&apos;ll sign in this dialog. Relic will show any payment before funds move.</small>
+          <small className="quick-checkout-note">
+            {isRebalancing && rebalancingStep === "configure"
+              ? "Next, you will review the exact position, cap, expiry, and contract scope."
+              : "You&apos;ll sign in this dialog. Relic will show any payment before funds move."}
+          </small>
         </form>
           </>
         )}
