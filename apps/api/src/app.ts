@@ -47,6 +47,7 @@ import { getAddress, keccak256 } from "viem";
 import type { MandateApplicationService } from "./mandates.js";
 import type { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
 import type { ExecutionApplicationService } from "./executions.js";
+import type { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
 import type {
   CommerceApplicationService,
   WalletAuthenticationService,
@@ -1168,6 +1169,8 @@ export function createApp(
   options: {
     mandateApiSecret?: string;
     executionService?: ExecutionApplicationService;
+    lpRebalanceAgentBridge?: LpRebalanceAgentBridge;
+    lpRebalanceInternalToken?: string;
     walletAuthService?: WalletAuthenticationService;
     privyAppId?: string;
     privyJwtVerificationKey?: string;
@@ -1501,6 +1504,32 @@ export function createApp(
       );
     return options.executionService;
   };
+  const requireLpRebalanceBridge = () => {
+    if (
+      options.lpRebalanceAgentBridge === undefined ||
+      options.lpRebalanceInternalToken === undefined
+    )
+      throw new MandateValidationError(
+        "lp_rebalancer_bridge_unavailable",
+        "LP agent execution handoff is unavailable.",
+      );
+    return options.lpRebalanceAgentBridge;
+  };
+  app.post("/internal/lp-rebalancer/funded-jobs/:jobId", async (context) => {
+    const token = context.req.header("authorization")?.replace(/^Bearer\s+/u, "");
+    const expected = options.lpRebalanceInternalToken;
+    if (
+      expected === undefined ||
+      token === undefined ||
+      token.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(token), Buffer.from(expected))
+    )
+      return context.json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+    const execution = await requireLpRebalanceBridge().executeFundedJob(
+      z.string().regex(/^\d+$/u).parse(context.req.param("jobId")),
+    );
+    return context.json({ data: execution }, 200);
+  });
   const walletPrincipal = async (context: {
     req: { header(name: string): string | undefined };
   }) => {

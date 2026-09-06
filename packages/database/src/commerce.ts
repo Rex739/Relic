@@ -177,6 +177,34 @@ export class DrizzleWalletAuthStore {
 export class DrizzleCommerceStore {
   public constructor(private readonly database: RelicDatabase) {}
 
+  /** Internal-only lookup used after the private seller runtime has verified
+   * an ERC-8183 funded job. It deliberately derives buyer/mandate identity
+   * from Relic's activation record, never caller-provided request data. */
+  public async findFundedLpRebalanceMandate(externalJobId: string) {
+    const [row] = await this.database
+      .select({ activation: activations, mandate: mandates, version: mandateVersions })
+      .from(activations)
+      .innerJoin(mandates, eq(activations.mandateId, mandates.id))
+      .innerJoin(
+        mandateVersions,
+        and(
+          eq(mandateVersions.mandateId, mandates.id),
+          eq(mandateVersions.version, mandates.currentVersion),
+        ),
+      )
+      .where(
+        and(
+          eq(activations.externalJobId, externalJobId),
+          eq(activations.status, "FUNDED"),
+          eq(activations.lifecycleState, "ACTIVE"),
+          eq(mandates.status, "ACTIVE"),
+          eq(mandates.chainId, 97),
+        ),
+      )
+      .limit(1);
+    return row;
+  }
+
   public async marketplaceReviewEligibility(input: {
     activationId: string;
     principalId: string;

@@ -44,6 +44,10 @@ const serverEnvironmentSchema = z.object({
   NEXT_PUBLIC_PRIVY_APP_ID: z.string().trim().min(1).optional(),
   PRIVY_JWT_VERIFICATION_KEY: z.string().trim().min(1).optional(),
   MANDATE_API_SECRET: z.string().min(32).optional(),
+  // Service-to-service credential used only by the private Northflank LP
+  // runtime to submit a *verified funded job id* to the Relic API. This is
+  // intentionally distinct from MANDATE_API_SECRET and buyer sessions.
+  RELIC_LP_REBALANCER_INTERNAL_TOKEN: z.string().min(32).optional(),
   // A 32-byte Base64 key injected by ECS from Secrets Manager. It encrypts
   // per-order Altana session keys before they can enter Relic storage.
   ALTANA_SESSION_ENCRYPTION_KEY: z

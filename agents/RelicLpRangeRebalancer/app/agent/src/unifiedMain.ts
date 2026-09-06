@@ -216,11 +216,36 @@ function defaultNetwork(): string {
 // URL, but who gets paid and the per-call/daily caps stay locked in
 // studio.toml.)
 export function buildRunWork(): RunWork {
-  return async (prompt, { abortSignal }) => {
+  return async (prompt, { sessionId, abortSignal }) => {
     if (abortSignal?.aborted) throw new Error("rebalance planning was aborted");
-    // This agent's initial value layer is deliberately deterministic. The
-    // future PancakeSwap executor must take this plan plus a verified mandate;
-    // it must never turn model output into a transaction.
+    const executorUrl = process.env.RELIC_EXECUTOR_URL?.replace(/\/$/u, "");
+    const executorToken = process.env.RELIC_LP_REBALANCER_INTERNAL_TOKEN;
+    if (executorUrl && executorToken && /^\d+$/u.test(sessionId)) {
+      const response = await fetch(
+        `${executorUrl}/internal/lp-rebalancer/funded-jobs/${sessionId}`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${executorToken}` },
+          signal: abortSignal,
+        },
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(
+          `Relic execution handoff failed with HTTP ${response.status}: ${JSON.stringify(body)}`,
+        );
+      return JSON.stringify(
+        {
+          delivery: "pancakeswap_v3_rebalance_execution",
+          erc8183JobId: sessionId,
+          execution: body,
+        },
+        null,
+        2,
+      );
+    }
+    // Direct A2A planning has no transaction authority. Funded marketplace
+    // jobs are resolved to their buyer mandate exclusively by the Relic API.
     const plan = createRebalancePlan(rebalanceRequestFromPrompt(prompt));
     return JSON.stringify(plan, null, 2);
   };

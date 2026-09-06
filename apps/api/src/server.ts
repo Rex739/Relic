@@ -19,6 +19,7 @@ import { AltanaSessionAuthorizationService } from "./altana-session-authorizatio
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import { ExecutionApplicationService } from "./executions.js";
 import { PancakeLpRebalanceExecutor } from "./pancake-lp-rebalance-executor.js";
+import { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
 import {
   CommerceApplicationService,
   USER_COMMERCE_JOB_LIFETIME_SECONDS,
@@ -163,6 +164,15 @@ if (mandates !== undefined && mandateApiSecret === undefined)
 const app = createApp(repository, onboarding, mandates, {
   ...(mandateApiSecret === undefined ? {} : { mandateApiSecret }),
   ...(executions === undefined ? {} : { executionService: executions }),
+  ...(connection === null || executions === undefined || environment.RELIC_LP_REBALANCER_INTERNAL_TOKEN === undefined
+    ? {}
+    : {
+        lpRebalanceAgentBridge: new LpRebalanceAgentBridge(
+          new DrizzleCommerceStore(connection.db),
+          executions,
+        ),
+        lpRebalanceInternalToken: environment.RELIC_LP_REBALANCER_INTERNAL_TOKEN,
+      }),
   ...(walletAuth === undefined ? {} : { walletAuthService: walletAuth }),
   ...(environment.NEXT_PUBLIC_PRIVY_APP_ID === undefined
     ? {}

@@ -3,8 +3,8 @@
 Relic LP Range Rebalancer runs as two Northflank services, matching the Grid
 Trader deployment pattern.
 
-- **Layer A** is the private Studio signer. It is the only process that can
-  read the buyer's Altana session, and it has no public route.
+- **Layer A** is the private A2A delivery runtime. It has no public route and
+  never receives buyer Altana sessions.
 - **Layer B** is the public A2A gateway. It exposes only the declared seller
   skills and carries no wallet, session, or signing key.
 
@@ -28,13 +28,14 @@ Add these runtime values as Northflank secrets:
 
 | Variable | Value |
 | --- | --- |
-| `ALTANA_SESSION` | Full JSON contents of the local `.studio/wallets/altana-session.json` file |
 | `PRIVATE_AGENT_BEARER_TOKEN` | A newly generated long random service-to-service credential |
+| `RELIC_EXECUTOR_URL` | Private HTTPS base URL of Relic's ECS API |
+| `RELIC_LP_REBALANCER_INTERNAL_TOKEN` | A newly generated 32+ character credential shared only with the ECS API |
 
-Set `NODE_ENV=production`. The container materializes `ALTANA_SESSION` only in
-its ephemeral filesystem, with owner-only permissions. Never put `.studio`, a
-keystore, a wallet password, or this session JSON in git, a Docker image, or
-Layer B.
+Set `NODE_ENV=production`. Never put a buyer session, `.studio`, a keystore,
+or a wallet password in git, a Docker image, Layer A, or Layer B. Layer A only
+forwards an already verified job id; ECS resolves its associated mandate and
+decrypts the buyer session only for that mandate.
 
 ## Layer B — public A2A gateway
 
@@ -75,7 +76,6 @@ curl -fsS https://YOUR-GATEWAY/.well-known/agent-card.json
 ```
 
 Then set the marketplace service endpoint to the public `/apex` URL. Do not
-publish Layer A's URL. The current agent value layer returns deterministic LP
-range plans; a PancakeSwap execution adapter must be separately completed and
-verified before describing the agent as executing liquidity withdrawals or
-deposits.
+publish Layer A's URL. A verified funded Relic job is delegated to the
+mandate-bound PancakeSwap executor; direct planning requests remain
+deterministic and non-transactional.
