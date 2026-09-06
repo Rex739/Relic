@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+.git
+.studio
+.agent-data
+.deployment-secrets
+.env
+.env.*
+!.env.example
+*.log

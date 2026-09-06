@@ -7,7 +7,7 @@ export const BSC_TESTNET_CHAIN_ID = 97 as const;
 export const PANCAKESWAP_V3_TESTNET_POSITION_MANAGER =
   "0x427bF5b37357632377eCbEC9de3626C71A5396c1" as const;
 export const PANCAKESWAP_V3_TESTNET_SWAP_ROUTER =
-  "0xD70C70AD87aa8D45b8D59600342FB3AEe76E3c68" as const;
+  "0x9a489505a00cE272eAa5e07Dba6491314CaE3796" as const;
 
 const decimal = z
   .string()

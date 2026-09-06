@@ -18,6 +18,7 @@ import { MandateApplicationService } from "./mandates.js";
 import { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import { ExecutionApplicationService } from "./executions.js";
+import { PancakeLpRebalanceExecutor } from "./pancake-lp-rebalance-executor.js";
 import {
   CommerceApplicationService,
   USER_COMMERCE_JOB_LIFETIME_SECONDS,
@@ -91,6 +92,13 @@ const executions =
                   process.env.VENUS_BSC_TESTNET_COMPTROLLER,
               }),
         },
+        environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined
+          ? undefined
+          : new PancakeLpRebalanceExecutor(
+              new DrizzleAltanaSessionAuthorizationStore(connection.db),
+              new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY),
+              environment.BSC_TESTNET_RPC_URL,
+            ),
       );
 const walletAuth =
   connection === null

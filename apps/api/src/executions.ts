@@ -5,6 +5,7 @@ import type {
   ExecutionActionRequest,
   ExecutionPersistence,
   ExecutionReceipt,
+  ExecutionRecord,
   MandatePersistence,
   VerifiedMandateProfile,
 } from "@relic/domain";
@@ -16,6 +17,8 @@ import {
   normalizedActionHash,
 } from "@relic/domain";
 import { createPublicClient, getAddress, http } from "viem";
+
+import { PartialLpRebalanceError } from "./pancake-lp-rebalance-executor.js";
 
 const readOnlyCapabilities = new Set([
   "monitor_positions",
@@ -31,6 +34,11 @@ const transactionalCapabilities = new Set([
   "approve_contracts",
   "submit_transactions",
 ]);
+
+export interface TransactionalExecutionAdapter {
+  supports(record: ExecutionRecord): boolean;
+  execute(record: ExecutionRecord): Promise<ExecutionReceipt>;
+}
 const comptrollerAbi = [
   {
     type: "function",
@@ -61,6 +69,7 @@ export class ExecutionApplicationService {
       bscTestnetRpcUrl?: string;
       venusBscTestnetComptroller?: string;
     },
+    private readonly transactionalExecutor?: TransactionalExecutionAdapter,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -137,8 +146,10 @@ export class ExecutionApplicationService {
       reserveAmount: action.transactional ? action.amount : null,
       aggregateLimit: mandate.version.aggregateLimit?.amount ?? null,
     });
-    if (record.status === "APPROVED" && !action.transactional)
-      record = await this.#executeReadOnly(record, profile);
+    if (record.status === "APPROVED")
+      record = action.transactional
+        ? await this.#executeTransaction(record)
+        : await this.#executeReadOnly(record, profile);
     return record;
   }
 
@@ -154,7 +165,90 @@ export class ExecutionApplicationService {
         "execution_not_found",
         "Execution not found.",
       );
+    if (record.status === "APPROVED") return this.#executeTransaction(record);
     return record;
+  }
+
+  async #executeTransaction(record: ExecutionRecord) {
+    if (this.transactionalExecutor === undefined || !this.transactionalExecutor.supports(record))
+      return record;
+    const prior = await this.executions.list(record.mandateId, record.principalId);
+    const cutoff = this.now().getTime() - 3_600_000;
+    if (
+      prior.some(
+        (candidate) =>
+          candidate.id !== record.id &&
+          candidate.status === "SUCCEEDED" &&
+          candidate.action.actionType === "rebalance_liquidity" &&
+          candidate.completedAt !== null &&
+          Date.parse(candidate.completedAt) > cutoff,
+      )
+    ) {
+      const receipt: ExecutionReceipt = {
+        source: "onchain_verified",
+        outcome: { success: false, message: "The one-hour rebalance cooldown is active." },
+        evidence: { blockchainWrite: false, walletAuthorization: true, cooldownSeconds: 3_600 },
+        cost: null,
+        transactionHash: null,
+        jobId: null,
+        observedAt: this.now().toISOString(),
+      };
+      const failed = await this.executions.transition({
+        executionId: record.id,
+        principalId: record.principalId,
+        from: ["APPROVED"],
+        to: "FAILED",
+        receipt,
+        evidence: receipt.evidence,
+      });
+      return failed ?? record;
+    }
+    const executing = await this.executions.transition({
+      executionId: record.id,
+      principalId: record.principalId,
+      from: ["APPROVED"],
+      to: "EXECUTING",
+      evidence: { executor: "pancakeswap_v3_lp_rebalancer" },
+    });
+    if (executing === null) return record;
+    try {
+      const receipt = await this.transactionalExecutor.execute(executing);
+      const completed = await this.executions.transition({
+        executionId: record.id,
+        principalId: record.principalId,
+        from: ["EXECUTING"],
+        to: "SUCCEEDED",
+        receipt,
+        evidence: receipt.evidence,
+      });
+      if (completed === null) throw new Error("Execution completion transition failed");
+      return completed;
+    } catch (error) {
+      const receipt: ExecutionReceipt = error instanceof PartialLpRebalanceError
+        ? error.receipt(this.now().toISOString())
+        : {
+            source: "onchain_verified",
+            outcome: {
+              success: false,
+              message: error instanceof Error ? error.message : "PancakeSwap LP rebalance failed",
+            },
+            evidence: { blockchainWrite: false, walletAuthorization: true },
+            cost: null,
+            transactionHash: null,
+            jobId: null,
+            observedAt: this.now().toISOString(),
+          };
+      const failed = await this.executions.transition({
+        executionId: record.id,
+        principalId: record.principalId,
+        from: ["EXECUTING"],
+        to: "FAILED",
+        receipt,
+        evidence: receipt.evidence,
+      });
+      if (failed === null) throw error;
+      return failed;
+    }
   }
 
   public async approve(

@@ -18,7 +18,7 @@ import {
   relationshipStatus,
   selectRelationshipAgreement,
 } from "../../../lib/relationship-status";
-import { requestHealthObservation } from "../../execution-actions";
+import { requestHealthObservation, requestLpRebalance } from "../../execution-actions";
 import { transitionMandateAction } from "../../mandate-actions";
 import {
   prepareCommerceActivationAction,
@@ -102,6 +102,18 @@ const executionPresentation = (execution: ExecutionRecord) => {
       : null;
   const riskLevel =
     typeof outcome.riskLevel === "string" ? outcome.riskLevel : null;
+  const withdrawalTransactionHash =
+    typeof outcome.withdrawalTransactionHash === "string"
+      ? outcome.withdrawalTransactionHash
+      : null;
+  const mintTransactionHash =
+    typeof outcome.mintTransactionHash === "string"
+      ? outcome.mintTransactionHash
+      : null;
+  const swapTransactionHash =
+    typeof outcome.swapTransactionHash === "string"
+      ? outcome.swapTransactionHash
+      : null;
   const observedProtocol =
     typeof outcome.protocol === "string"
       ? outcome.protocol
@@ -120,6 +132,8 @@ const executionPresentation = (execution: ExecutionRecord) => {
     enteredMarketCount !== null
   )
     result = `Active Venus position found in ${enteredMarketCount} ${enteredMarketCount === 1 ? "market" : "markets"}`;
+  else if (succeeded && mintTransactionHash !== null)
+    result = "PancakeSwap V3 position rebalanced on-chain";
   else if (succeeded) result = "The requested check completed successfully";
   else if (execution.status === "APPROVAL_REQUIRED")
     result = "Waiting for explicit approval";
@@ -187,8 +201,11 @@ const executionPresentation = (execution: ExecutionRecord) => {
     action,
     context,
     funds,
+    mintTransactionHash,
     result,
     risk,
+    withdrawalTransactionHash,
+    swapTransactionHash,
     why,
     statusLabel:
       denied && safetyValidation
@@ -252,6 +269,7 @@ export default async function ExecutionRoomPage({
     (await cookies()).get("relic_session")?.value !== undefined;
   const agentResponse = await marketplaceAgent(mandate.agentId);
   const agentName = agentResponse.data?.name ?? "Active agent";
+  const isLpRangeRebalancer = agentResponse.data?.category === "rebalancing";
   const workflow = serviceWorkflowFor(agentResponse.data?.category ?? "");
   const request = requestedValues(
     agentResponse.data?.category ?? "",
@@ -709,6 +727,48 @@ export default async function ExecutionRoomPage({
                           <dt>Risk</dt>
                           <dd>{presentation.risk}</dd>
                         </div>
+                        {presentation.withdrawalTransactionHash === null ? null : (
+                          <div>
+                            <dt>Withdrawal</dt>
+                            <dd>
+                              <a
+                                href={`https://testnet.bscscan.com/tx/${presentation.withdrawalTransactionHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View transaction ↗
+                              </a>
+                            </dd>
+                          </div>
+                        )}
+                        {presentation.mintTransactionHash === null ? null : (
+                          <div>
+                            <dt>Replacement position</dt>
+                            <dd>
+                              <a
+                                href={`https://testnet.bscscan.com/tx/${presentation.mintTransactionHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View transaction ↗
+                              </a>
+                            </dd>
+                          </div>
+                        )}
+                        {presentation.swapTransactionHash === null ? null : (
+                          <div>
+                            <dt>Balancing swap</dt>
+                            <dd>
+                              <a
+                                href={`https://testnet.bscscan.com/tx/${presentation.swapTransactionHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View transaction ↗
+                              </a>
+                            </dd>
+                          </div>
+                        )}
                       </dl>
                     </section>
                   </div>
@@ -723,6 +783,16 @@ export default async function ExecutionRoomPage({
             <summary>Manage order</summary>
             <p>{workflow.permissionSummary}</p>
             <div className="execution-controls">
+            {isLpRangeRebalancer && mandate.status === "ACTIVE" && setupComplete ? (
+              <form action={requestLpRebalance.bind(null, mandate.id)}>
+                <button type="submit">Check range &amp; rebalance now <span>→</span></button>
+                <small>
+                  Relic checks the live PancakeSwap V3 position first. If it is
+                  out of range and within the mandate, it submits the approved
+                  on-chain rebalance and records both transaction hashes here.
+                </small>
+              </form>
+            ) : null}
             {mandate.status === "ACTIVE" ? (
               <form
                 action={transitionMandateAction.bind(null, mandate.id, "pause")}

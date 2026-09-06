@@ -61,8 +61,9 @@
  *   run `bag erc8183 settle <job_id>`; it is deliberately NOT an A2A skill.
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   GetSecretValueCommand,
@@ -118,6 +119,35 @@ function generatorTag(): string {
   return name.endsWith("-agent")
     ? name.slice(0, -"-agent".length)
     : name || APP_NAME;
+}
+
+/**
+ * Northflank injects `ALTANA_SESSION` as an environment variable, while the
+ * Studio wallet runtime deliberately reads its session from the project-local
+ * `.studio/wallets/altana-session.json` file. Materialize the runtime-only
+ * secret before Studio initializes; the file is created inside the ephemeral
+ * container filesystem with owner-only permissions and is never baked into
+ * the image or committed to source control.
+ */
+function materializeAltanaSessionFromEnvironment(): void {
+  const session = process.env.ALTANA_SESSION?.trim();
+  if (!session) return;
+
+  try {
+    JSON.parse(session);
+  } catch {
+    throw new Error("ALTANA_SESSION must contain valid JSON");
+  }
+
+  const sessionPath = resolve(
+    process.cwd(),
+    "../..",
+    ".studio/wallets/altana-session.json",
+  );
+  if (existsSync(sessionPath)) return;
+
+  mkdirSync(dirname(sessionPath), { recursive: true, mode: 0o700 });
+  writeFileSync(sessionPath, session, { encoding: "utf8", mode: 0o600 });
 }
 
 // ── Runtime secrets ───────────────────────────────────────────────────────────
@@ -228,6 +258,23 @@ function flatQuery(query: Record<string, unknown>): Record<string, string> {
 
 function b402Work(runWork: RunWork): B402RunWork {
   return ({ prompt }) => runWork(prompt, { sessionId: "b402" });
+}
+
+/**
+ * Checks the gateway-to-agent credential without ever treating a buyer as a
+ * cloud identity. This is only the private Layer A ingress credential; buyer
+ * authorization remains the ERC-8183/Altana flow handled by Relic.
+ */
+function hasPrivateIngressAuthorization(
+  authorization: string | undefined,
+  expectedToken: string,
+): boolean {
+  if (!authorization?.startsWith("Bearer ")) return false;
+  const supplied = Buffer.from(authorization.slice("Bearer ".length));
+  const expected = Buffer.from(expectedToken);
+  return (
+    supplied.length === expected.length && timingSafeEqual(supplied, expected)
+  );
 }
 
 // ── Foundry text-carrier adapters ────────────────────────────────────────────
@@ -405,6 +452,14 @@ function sendStreamingResponse(
 
 async function main(): Promise<void> {
   await loadRuntimeSecrets();
+  materializeAltanaSessionFromEnvironment();
+
+  const privateIngressToken = process.env.PRIVATE_AGENT_BEARER_TOKEN?.trim();
+  if (process.env.NODE_ENV === "production" && !privateIngressToken) {
+    throw new Error(
+      "PRIVATE_AGENT_BEARER_TOKEN is required when running the private agent in production",
+    );
+  }
 
   // Wallet material is NEVER bundled into the deploy artifact. `bag deploy`
   // injects it via the runtime secret channel (Secrets Manager bundle on
@@ -491,6 +546,20 @@ async function main(): Promise<void> {
   app.get("/readiness", (_req, res) => {
     res.json({ status: "READY" });
   });
+
+  // Health probes above are reachable only on Northflank's private network.
+  // Every useful agent route below requires the gateway's service credential.
+  // This prevents a misrouted internal URL from becoming an anonymous seller
+  // endpoint while keeping buyers completely free of IAM/AWS credentials.
+  if (privateIngressToken) {
+    app.use((req, res, next) => {
+      if (hasPrivateIngressAuthorization(req.get("authorization"), privateIngressToken)) {
+        next();
+        return;
+      }
+      res.status(401).json({ error: "private_agent_authorization_required" });
+    });
+  }
 
   if (seller.state !== "disabled") {
     app.all(

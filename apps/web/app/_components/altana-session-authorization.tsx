@@ -3,7 +3,7 @@
 import { createClient, BNB_TESTNET, type Signer } from "@altananetwork/sdk";
 import { LoaderCircle, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { Address, Hex } from "viem";
+import { encodeFunctionData, type Address, type Hex } from "viem";
 
 import { signerFromConnectedWallet } from "../../lib/altana-injected-signer";
 import { Button } from "../../components/ui/button";
@@ -20,6 +20,24 @@ type Authorization = {
   };
 };
 
+const positionManager = "0x427bF5b37357632377eCbEC9de3626C71A5396c1" as const;
+const swapRouter = "0x9a489505a00cE272eAa5e07Dba6491314CaE3796" as const;
+const wbnb = "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd" as const;
+const testUsdt = "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565" as const;
+
+const erc20ApprovalAbi = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
 export function AltanaSessionAuthorization({
   mandateId,
   autoStart = true,
@@ -30,7 +48,7 @@ export function AltanaSessionAuthorization({
   onAuthorized: () => void | Promise<void>;
 }) {
   const wallet = useRelicWallet();
-  const [stage, setStage] = useState<"idle" | "preparing" | "signing" | "verifying">("idle");
+  const [stage, setStage] = useState<"idle" | "preparing" | "signing" | "approving" | "verifying">("idle");
   const [error, setError] = useState<string | null>(null);
   const attempted = useRef(false);
   const busy = stage !== "idle";
@@ -84,6 +102,27 @@ export function AltanaSessionAuthorization({
       });
       if (grant.transactionHash === undefined)
         throw new Error("Altana confirmed the grant without a transaction receipt. Try again shortly.");
+      const spendLimit = new Map(
+        (prepared.permissions.spend ?? []).map(({ token, limit }) => [token.toLowerCase(), BigInt(limit)]),
+      );
+      const wbnbLimit = spendLimit.get(wbnb.toLowerCase());
+      const usdtLimit = spendLimit.get(testUsdt.toLowerCase());
+      if (wbnbLimit === undefined || usdtLimit === undefined)
+        throw new Error("Relic did not prepare both bounded asset permissions for this LP position.");
+      setStage("approving");
+      const approval = await client.execute({
+        wallet: altanaWallet,
+        signer: adminSigner,
+        chainId: 97,
+        calls: [
+          { to: wbnb, data: approveData(positionManager, wbnbLimit) },
+          { to: wbnb, data: approveData(swapRouter, wbnbLimit) },
+          { to: testUsdt, data: approveData(positionManager, usdtLimit) },
+          { to: testUsdt, data: approveData(swapRouter, usdtLimit) },
+        ],
+      });
+      if (approval.status !== "CONFIRMED" || approval.transactionHash === undefined)
+        throw new Error("PancakeSwap approvals were not confirmed. The LP session is not active yet.");
       setStage("verifying");
       const confirmedResponse = await fetch(
         `/api/mandates/${encodeURIComponent(mandateId)}/altana-session-authorization/confirm`,
@@ -123,9 +162,17 @@ export function AltanaSessionAuthorization({
       </p>
       <Button type="button" onClick={() => void authorize()} disabled={busy}>
         {busy ? <LoaderCircle className="button-loader" aria-hidden="true" /> : null}
-        {stage === "preparing" ? "Preparing permission…" : stage === "signing" ? "Confirm in wallet…" : stage === "verifying" ? "Verifying on-chain…" : "Authorize trading session"}
+        {stage === "preparing" ? "Preparing permission…" : stage === "signing" ? "Confirm session in wallet…" : stage === "approving" ? "Confirm bounded PancakeSwap approvals…" : stage === "verifying" ? "Verifying on-chain…" : "Authorize trading session"}
       </Button>
       {error === null ? null : <p className="form-error" role="alert">{error}</p>}
     </section>
   );
+}
+
+function approveData(spender: Address, amount: bigint) {
+  return encodeFunctionData({
+    abi: erc20ApprovalAbi,
+    functionName: "approve",
+    args: [spender, amount],
+  });
 }

@@ -1,9 +1,9 @@
 # RelicLpRangeRebalancer — A2A + X402 seller agent
 
 The valuable Agent and the **SOLE key-holder/signer** for the RelicLpRangeRebalancer seller.
-Serves A2A + X402 directly on AgentCore; every signing op (quote-clamp-sign /
-submit / settle) is fixed entrypoint code in `src/signing.ts` — never an
-LLM-callable tool.
+Runs as the private Layer A signer behind the Northflank public gateway. Every
+signing op (quote-clamp-sign / submit / settle) is fixed entrypoint code in
+`src/signing.ts` — never an LLM-callable tool.
 
 ## What's here
 
@@ -40,9 +40,8 @@ bag dev                                    # A2A + X402 on http://localhost:9000
 
 ## Deploy
 
-```bash
-# From the workspace root:
-bag deploy --provider aws
-# ships to AgentCore (--protocol A2A) after a readiness sweep; the wallet
-# is injected via AWS Secrets Manager, never in the package.
-```
+Build this package into the private Northflank Layer A service using
+`../../Dockerfile.private-agent`. The service must remain private and receive
+`ALTANA_SESSION` and `PRIVATE_AGENT_BEARER_TOKEN` as runtime secrets. See
+[`../../docs/northflank-public-gateway.md`](../../docs/northflank-public-gateway.md)
+for the full two-layer configuration.

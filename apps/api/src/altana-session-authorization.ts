@@ -12,8 +12,66 @@ import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import type { MandateApplicationService } from "./mandates.js";
 
 const positionManager = "0x427bF5b37357632377eCbEC9de3626C71A5396c1" as const;
-const swapRouter = "0xD70C70AD87aa8D45b8D59600342FB3AEe76E3c68" as const;
+const swapRouter = "0x9a489505a00cE272eAa5e07Dba6491314CaE3796" as const;
 const testUsdt = "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565" as const;
+const wbnb = "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd" as const;
+const pancakeV3Factory = "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865" as const;
+const Q192 = 2n ** 192n;
+
+const positionAbi = [
+  {
+    type: "function",
+    name: "positions",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [
+      { name: "nonce", type: "uint96" },
+      { name: "operator", type: "address" },
+      { name: "token0", type: "address" },
+      { name: "token1", type: "address" },
+      { name: "fee", type: "uint24" },
+      { name: "tickLower", type: "int24" },
+      { name: "tickUpper", type: "int24" },
+      { name: "liquidity", type: "uint128" },
+      { name: "feeGrowthInside0LastX128", type: "uint256" },
+      { name: "feeGrowthInside1LastX128", type: "uint256" },
+      { name: "tokensOwed0", type: "uint128" },
+      { name: "tokensOwed1", type: "uint128" },
+    ],
+  },
+] as const;
+
+const factoryAbi = [
+  {
+    type: "function",
+    name: "getPool",
+    stateMutability: "view",
+    inputs: [
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "fee", type: "uint24" },
+    ],
+    outputs: [{ name: "pool", type: "address" }],
+  },
+] as const;
+
+const poolAbi = [
+  {
+    type: "function",
+    name: "slot0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "sqrtPriceX96", type: "uint160" },
+      { name: "tick", type: "int24" },
+      { name: "observationIndex", type: "uint16" },
+      { name: "observationCardinality", type: "uint16" },
+      { name: "observationCardinalityNext", type: "uint16" },
+      { name: "feeProtocol", type: "uint32" },
+      { name: "unlocked", type: "bool" },
+    ],
+  },
+] as const;
 
 const accountKeysAbi = [
   {
@@ -104,11 +162,15 @@ export class AltanaSessionAuthorizationService {
         this.now().getTime() + settings.durationHours * 3_600_000,
       ),
     );
+    const wbnbLimit = await this.#boundedWbnbSpend(settings.positionTokenId, settings.capitalCap);
     const permissions: PermissionSnapshot = {
       calls: [{ to: positionManager }, { to: swapRouter }],
       // TEST_USDT is an 18-decimal test token. Persist the exact base-unit cap
       // that Altana enforces instead of re-parsing a display amount later.
-      spend: [{ token: testUsdt, limit: parseUnits(settings.capitalCap, 18).toString(), period: "day" }],
+      spend: [
+        { token: testUsdt, limit: parseUnits(settings.capitalCap, 18).toString(), period: "day" },
+        { token: wbnb, limit: wbnbLimit.toString(), period: "day" },
+      ],
     };
     const created = await this.store.create({
       mandateId,
@@ -185,6 +247,56 @@ export class AltanaSessionAuthorizationService {
   public async isGranted(principalId: string, mandateId: string) {
     const record = await this.store.find(mandateId, principalId);
     return record?.status === "GRANTED" && record.expiresAt > this.now();
+  }
+
+  /**
+   * The buyer approves the exact session caps at setup. Derive the WBNB cap
+   * from the NFT's live pool price so the session cannot receive an arbitrary
+   * WBNB allowance disguised as a TEST_USDT capital limit. The 20% buffer
+   * only absorbs short-lived price movement between authorization and a run.
+   */
+  async #boundedWbnbSpend(positionTokenId: string, capitalCap: string) {
+    const client = createPublicClient({
+      chain: bscTestnet,
+      transport: http(this.testnetRpcUrl),
+    });
+    const [, , token0Value, token1Value, fee] = await client.readContract({
+      address: positionManager,
+      abi: positionAbi,
+      functionName: "positions",
+      args: [BigInt(positionTokenId)],
+    });
+    const token0 = getAddress(token0Value);
+    const token1 = getAddress(token1Value);
+    if (!((token0 === wbnb && token1 === testUsdt) || (token0 === testUsdt && token1 === wbnb)))
+      throw new MandateValidationError(
+        "altana_session_unsupported_position",
+        "This rebalancer only supports a BSC Testnet WBNB/TEST_USDT PancakeSwap V3 position.",
+      );
+    const pool = await client.readContract({
+      address: pancakeV3Factory,
+      abi: factoryAbi,
+      functionName: "getPool",
+      args: [token0, token1, fee],
+    });
+    if (pool === "0x0000000000000000000000000000000000000000")
+      throw new MandateValidationError(
+        "altana_session_pool_missing",
+        "Relic could not find the PancakeSwap V3 pool for this position.",
+      );
+    const [sqrtPriceX96] = await client.readContract({
+      address: getAddress(pool),
+      abi: poolAbi,
+      functionName: "slot0",
+    });
+    if (sqrtPriceX96 === 0n)
+      throw new MandateValidationError("altana_session_price_missing", "The LP pool has no usable live price.");
+    const cap = parseUnits(capitalCap, 18);
+    const square = sqrtPriceX96 * sqrtPriceX96;
+    const rawWbnb = token0 === testUsdt
+      ? (cap * square) / Q192
+      : (cap * Q192) / square;
+    return (rawWbnb * 12n) / 10n;
   }
 
   #public(record: AltanaSessionAuthorizationRecord) {
