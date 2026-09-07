@@ -18,7 +18,7 @@ Create a Northflank combined service with these settings:
 | Setting | Value |
 | --- | --- |
 | Name | `relic-lp-range-rebalancer-agent` |
-| Build context | `/` |
+| Build context | `/agents/RelicLpRangeRebalancer` |
 | Dockerfile | `/agents/RelicLpRangeRebalancer/Dockerfile.private-agent` |
 | Port | `9000` |
 | Readiness | `GET /ping` or `GET /readiness` |
@@ -46,7 +46,7 @@ Create a second Northflank combined service:
 | Setting | Value |
 | --- | --- |
 | Name | `relic-lp-range-rebalancer-gateway` |
-| Build context | `/` |
+| Build context | `/agents/RelicLpRangeRebalancer` |
 | Dockerfile | `/agents/RelicLpRangeRebalancer/Dockerfile` |
 | Port | `8003` (or Northflank-injected `PORT`) |
 | Liveness | `GET /health` |
