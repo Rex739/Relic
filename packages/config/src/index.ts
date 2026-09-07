@@ -52,6 +52,7 @@ const serverEnvironmentSchema = z.object({
   // Optimizer. Both are required before its durable execution API exists.
   RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN: z.string().min(32).optional(),
   RELIC_YIELD_OPTIMIZER_AGENT_ID: z.uuid().optional(),
+  RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
   // A 32-byte Base64 key injected by ECS from Secrets Manager. It encrypts
   // per-order Altana session keys before they can enter Relic storage.
   ALTANA_SESSION_ENCRYPTION_KEY: z
