@@ -13,6 +13,10 @@ export type YieldExecutionDependencies = Readonly<{
   store: YieldJobStore;
 }>;
 
+export type YieldExecutionDependencyFactory = (
+  request: ReturnType<typeof parseVerifiedFundedYieldRequest>,
+) => Promise<YieldExecutionDependencies>;
+
 /**
  * Runtime composition root. Readiness is fail-closed: an unavailable or
  * changed protocol deployment prevents Layer B from reaching execution.
@@ -24,7 +28,7 @@ export class YieldPrivateExecutor implements PrivateYieldExecutor {
   public constructor(
     private readonly config: VenusTestnetConfig,
     private readonly venus: VenusReadClient,
-    private readonly execution?: YieldExecutionDependencies,
+    private readonly execution?: YieldExecutionDependencies | YieldExecutionDependencyFactory,
   ) {}
 
   async readiness(): Promise<{ ready: boolean; detail?: string }> {
@@ -44,7 +48,8 @@ export class YieldPrivateExecutor implements PrivateYieldExecutor {
     }
     try {
       const request = parseVerifiedFundedYieldRequest(body);
-      const job = await executeSupplyWithdrawal({ ...request, config: this.config, ...this.execution });
+      const execution = typeof this.execution === "function" ? await this.execution(request) : this.execution;
+      const job = await executeSupplyWithdrawal({ ...request, config: this.config, ...execution });
       return {
         status: job.state === "RECOVERY_REQUIRED" ? 409 : 200,
         body: {
