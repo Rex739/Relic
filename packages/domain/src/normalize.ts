@@ -29,6 +29,40 @@ export function primaryMarketplaceCategory(
   return categories.length === 1 ? categories[0]! : null;
 }
 
+const marketplaceCategoryRules = [
+  ["rebalancing", "Rebalancing", /(^|[/_. -])(?:lp[-_ ]?)?rebalanc(e|ing)($|[/_. -])/i],
+  [
+    "grid-trading",
+    "Grid Trading",
+    /(^|[/_. -])grid[_. -]?trad(e|ing)($|[/_. -])/i,
+  ],
+  [
+    "yield-optimisation",
+    "Yield Optimisation",
+    /(^|[/_. -])yield(?:[_. -]?optimi[sz](e|ation))?($|[/_. -])/i,
+  ],
+  [
+    "health-factor-monitoring",
+    "Health Factor Monitoring",
+    /(^|[/_. -])health[_. -]?factor[_. -]?(monitor|monitoring)($|[/_. -])/i,
+  ],
+] as const;
+
+/** Creates deterministic category assignments from structured metadata or tags. */
+export function marketplaceCategoryAssignments(
+  values: readonly string[],
+  evidence: Evidence,
+) {
+  return marketplaceCategoryRules
+    .filter(([, , expression]) => values.some((value) => expression.test(value)))
+    .map(([slug, label]) => ({
+      kind: "category" as const,
+      slug,
+      label,
+      evidence: [evidence],
+    }));
+}
+
 function validationIssues(error: {
   issues: readonly { path: PropertyKey[]; message: string }[];
 }): string[] {
@@ -87,39 +121,10 @@ export function normalizeRegistryAgent(
       ...(service.domains ?? []),
     ]),
   ].filter((value): value is string => typeof value === "string");
-  const categoryRules = [
-    ["rebalancing", "Rebalancing", /(^|[/_. -])rebalanc(e|ing)($|[/_. -])/i],
-    [
-      "grid-trading",
-      "Grid Trading",
-      /(^|[/_. -])grid[_. -]?trad(e|ing)($|[/_. -])/i,
-    ],
-    [
-      "yield-optimisation",
-      "Yield Optimisation",
-      /(^|[/_. -])yield(?:[_. -]?optimi[sz](e|ation))?($|[/_. -])/i,
-    ],
-    [
-      "health-factor-monitoring",
-      "Health Factor Monitoring",
-      /(^|[/_. -])health[_. -]?factor[_. -]?(monitor|monitoring)($|[/_. -])/i,
-    ],
-  ] as const;
-  const taxonomy = categoryRules
-    .filter(([, , expression]) =>
-      classificationText.some((value) => expression.test(value)),
-    )
-    .map(([slug, label]) => ({
-      kind: "category" as const,
-      slug,
-      label,
-      evidence: [
-        {
-          ...declaredEvidence,
-          details: { method: "explicit_metadata_capability_match" },
-        },
-      ],
-    }));
+  const taxonomy = marketplaceCategoryAssignments(classificationText, {
+    ...declaredEvidence,
+    details: { method: "explicit_metadata_capability_match" },
+  });
 
   return canonicalAgentSchema.parse({
     id: options.id ?? randomUUID(),

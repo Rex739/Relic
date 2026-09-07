@@ -1,16 +1,19 @@
 import type { Erc8004RegistryProvider } from "@relic/blockchain";
 import type {
   AgentSubmission,
+  CanonicalAgent,
   OnboardingRepository,
   RegistryAgentRecord,
 } from "@relic/domain";
 import {
+  marketplaceCategoryAssignments,
   normalizeRegistryAgent,
   primaryMarketplaceCategory,
 } from "@relic/domain";
 import type { DrizzleAgentWriter, DrizzleSupplyStore } from "@relic/database";
 
 import { materializeLaunchServices } from "./service-catalog.js";
+import { resolveA2aInvocationEndpoint } from "./a2a-service-discovery.js";
 
 type SellerOnboardingStore = Pick<
   OnboardingRepository,
@@ -41,7 +44,43 @@ type SellerOnboardingDependencies = {
     submission: AgentSubmission,
   ) => Pick<Erc8004RegistryProvider, "getAgent">;
   readonly materialize?: typeof materializeLaunchServices;
+  readonly resolveA2aEndpoint?: typeof resolveA2aInvocationEndpoint;
 };
+
+async function includeA2aCardCategories(
+  agent: CanonicalAgent,
+  resolve: typeof resolveA2aInvocationEndpoint,
+) {
+  const cards = await Promise.all(
+    agent.services
+      .filter(
+        (service) =>
+          service.endpoint !== null &&
+          /\/agent-card\.json(?:$|[?#])/i.test(service.endpoint),
+      )
+      .map((service) => resolve(service.endpoint!)),
+  );
+  const terms = cards.flatMap((card) =>
+    card.status === "resolved" ? card.categoryTerms : [],
+  );
+  if (terms.length === 0) return agent;
+  const observedAt = new Date().toISOString();
+  const additions = marketplaceCategoryAssignments(terms, {
+    provenance: "independently_observed",
+    source: "a2a-agent-card",
+    observedAt,
+    details: { method: "a2a_skill_tag_match", terms: [...new Set(terms)] },
+  }).filter(
+    (assignment) =>
+      !agent.taxonomy.some(
+        (existing) =>
+          existing.kind === assignment.kind && existing.slug === assignment.slug,
+      ),
+  );
+  return additions.length === 0
+    ? agent
+    : { ...agent, taxonomy: [...agent.taxonomy, ...additions] };
+}
 
 export type SellerOnboardingResult =
   | { readonly state: "skipped" }
@@ -189,7 +228,10 @@ export async function onboardVerifiedSellerSubmission(
         recoveryAgentId,
       );
 
-    const normalized = normalizeRegistryAgent(record);
+    const normalized = await includeA2aCardCategories(
+      normalizeRegistryAgent(record),
+      dependencies.resolveA2aEndpoint ?? resolveA2aInvocationEndpoint,
+    );
     const internalId = await dependencies.writer.persist(normalized, record);
     if (normalized.services.length === 0)
       return blockSubmission(
@@ -250,7 +292,10 @@ export async function onboardVerifiedSellerSubmission(
       },
     );
 
-  const normalized = normalizeRegistryAgent(record);
+  const normalized = await includeA2aCardCategories(
+    normalizeRegistryAgent(record),
+    dependencies.resolveA2aEndpoint ?? resolveA2aInvocationEndpoint,
+  );
   const internalId = await dependencies.writer.persist(normalized, record);
   await dependencies.onboarding.transitionSubmission({
     submissionId: submission.id,

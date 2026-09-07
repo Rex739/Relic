@@ -119,6 +119,47 @@ describe("seller onboarding worker", () => {
     expect(getAgent).not.toHaveBeenCalled();
   });
 
+  it("uses structured A2A skill tags as category evidence", async () => {
+    const materialize = vi.fn().mockResolvedValue({
+      candidates: 1,
+      identitiesVerified: 0,
+      services: 1,
+      serviceIdentified: 1,
+    });
+    const persist = vi.fn().mockResolvedValue("agent-1");
+    await onboardVerifiedSellerSubmission(
+      {
+        onboarding: {
+          findSubmission: vi.fn().mockResolvedValue(submission),
+          listPendingCatalogSubmissions: vi.fn().mockResolvedValue([]),
+          transitionSubmission: vi.fn(),
+        },
+        supplyStore: { createOnboardingCandidate: vi.fn().mockResolvedValue("candidate-1") } as never,
+        writer: { persist },
+        providerFor: vi.fn().mockReturnValue({
+          getAgent: vi.fn().mockResolvedValue({
+            ...record,
+            metadata: {
+              name: "Portfolio manager",
+              description: "Constrained BNB position automation.",
+              services: [{ name: "A2A", endpoint: "https://agent.example/.well-known/agent-card.json" }],
+            },
+          }),
+        }),
+        materialize,
+        resolveA2aEndpoint: vi.fn().mockResolvedValue({
+          status: "resolved",
+          discoveryUrl: "https://agent.example/.well-known/agent-card.json",
+          invocationUrl: "https://agent.example/invoke",
+          categoryTerms: ["lp-rebalancing", "pancakeswap-v3"],
+        }),
+      },
+      submission.id,
+    );
+    const agent = persist.mock.calls[0]?.[0] as { taxonomy: Array<{ slug: string }> };
+    expect(agent.taxonomy.map(({ slug }) => slug)).toEqual(["rebalancing"]);
+  });
+
   it("recovers a verified submission whose service catalog was interrupted", async () => {
     const createOnboardingCandidate = vi.fn();
     const materialize = vi.fn().mockResolvedValue({

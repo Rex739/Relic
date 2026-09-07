@@ -4,9 +4,17 @@ import { safeHttpRequest } from "./endpoint-observer.js";
 
 const agentCardSchema = z.object({
   name: z.string().min(1),
+  description: z.string().optional(),
   url: z.url(),
   protocolVersion: z.string().min(1),
-  skills: z.array(z.object({ id: z.string().min(1) })),
+  skills: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    }),
+  ),
 });
 
 type SafeRequester = typeof safeHttpRequest;
@@ -16,6 +24,7 @@ export type A2aEndpointResolution =
       readonly status: "resolved";
       readonly discoveryUrl: string;
       readonly invocationUrl: string;
+      readonly categoryTerms: readonly string[];
     }
   | {
       readonly status: "unresolved";
@@ -79,6 +88,16 @@ export async function resolveA2aInvocationEndpoint(
       status: "resolved",
       discoveryUrl,
       invocationUrl: invocation.toString(),
+      categoryTerms: [
+        card.name,
+        ...(card.description === undefined ? [] : [card.description]),
+        ...card.skills.flatMap((skill) => [
+          skill.id,
+          ...(skill.name === undefined ? [] : [skill.name]),
+          ...(skill.description === undefined ? [] : [skill.description]),
+          ...(skill.tags ?? []),
+        ]),
+      ],
     };
   } catch {
     return {

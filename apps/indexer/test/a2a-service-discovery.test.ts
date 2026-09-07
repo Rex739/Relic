@@ -33,6 +33,7 @@ describe("A2A service discovery", () => {
       status: "resolved",
       discoveryUrl: "https://agent.example/.well-known/agent-card.json",
       invocationUrl: "https://agent.example/custom-invocation",
+      categoryTerms: ["Seller", "negotiate"],
     });
   });
 
