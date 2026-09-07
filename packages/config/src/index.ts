@@ -48,6 +48,10 @@ const serverEnvironmentSchema = z.object({
   // runtime to submit a *verified funded job id* to the Relic API. This is
   // intentionally distinct from MANDATE_API_SECRET and buyer sessions.
   RELIC_LP_REBALANCER_INTERNAL_TOKEN: z.string().min(32).optional(),
+  // Private Layer A credential and the Relic UUID for the executable Yield
+  // Optimizer. Both are required before its durable execution API exists.
+  RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN: z.string().min(32).optional(),
+  RELIC_YIELD_OPTIMIZER_AGENT_ID: z.uuid().optional(),
   // A 32-byte Base64 key injected by ECS from Secrets Manager. It encrypts
   // per-order Altana session keys before they can enter Relic storage.
   ALTANA_SESSION_ENCRYPTION_KEY: z

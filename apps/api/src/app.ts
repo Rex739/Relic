@@ -48,6 +48,7 @@ import type { MandateApplicationService } from "./mandates.js";
 import type { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
 import type { ExecutionApplicationService } from "./executions.js";
 import type { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
+import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import type {
   CommerceApplicationService,
   WalletAuthenticationService,
@@ -1171,6 +1172,8 @@ export function createApp(
     executionService?: ExecutionApplicationService;
     lpRebalanceAgentBridge?: LpRebalanceAgentBridge;
     lpRebalanceInternalToken?: string;
+    yieldOptimizerExecutionStore?: YieldOptimizerExecutionStore;
+    yieldOptimizerInternalToken?: string;
     walletAuthService?: WalletAuthenticationService;
     privyAppId?: string;
     privyJwtVerificationKey?: string;
@@ -1515,20 +1518,61 @@ export function createApp(
       );
     return options.lpRebalanceAgentBridge;
   };
-  app.post("/internal/lp-rebalancer/funded-jobs/:jobId", async (context) => {
-    const token = context.req.header("authorization")?.replace(/^Bearer\s+/u, "");
-    const expected = options.lpRebalanceInternalToken;
+  const requireYieldOptimizerStore = () => {
     if (
-      expected === undefined ||
-      token === undefined ||
-      token.length !== expected.length ||
-      !timingSafeEqual(Buffer.from(token), Buffer.from(expected))
+      options.yieldOptimizerExecutionStore === undefined ||
+      options.yieldOptimizerInternalToken === undefined
     )
+      throw new MandateValidationError(
+        "yield_optimizer_execution_unavailable",
+        "Yield Optimizer execution persistence is unavailable.",
+      );
+    return options.yieldOptimizerExecutionStore;
+  };
+  const hasInternalToken = (context: { req: { header(name: string): string | undefined } }, expected: string | undefined) => {
+    const token = context.req.header("authorization")?.replace(/^Bearer\s+/u, "");
+    return expected !== undefined && token !== undefined && token.length === expected.length && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  };
+  app.post("/internal/lp-rebalancer/funded-jobs/:jobId", async (context) => {
+    const expected = options.lpRebalanceInternalToken;
+    if (!hasInternalToken(context, expected))
       return context.json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
     const execution = await requireLpRebalanceBridge().executeFundedJob(
       z.string().regex(/^\d+$/u).parse(context.req.param("jobId")),
     );
     return context.json({ data: execution }, 200);
+  });
+  app.post("/internal/yield-optimizer/execution-jobs", async (context) => {
+    if (!hasInternalToken(context, options.yieldOptimizerInternalToken))
+      return context.json({ error: "unauthorized" }, 401);
+    const input = z.object({
+      id: z.uuid(),
+      commerceJobId: z.string().regex(/^\d+$/u),
+      idempotencyKey: z.string().min(1).max(200),
+    }).parse(await context.req.json());
+    return context.json(await requireYieldOptimizerStore().createOrFind(input), 200);
+  });
+  app.get("/internal/yield-optimizer/execution-jobs/:id", async (context) => {
+    if (!hasInternalToken(context, options.yieldOptimizerInternalToken))
+      return context.json({ error: "unauthorized" }, 401);
+    return context.json(await requireYieldOptimizerStore().get(z.uuid().parse(context.req.param("id"))), 200);
+  });
+  app.post("/internal/yield-optimizer/execution-jobs/:id/transitions", async (context) => {
+    if (!hasInternalToken(context, options.yieldOptimizerInternalToken))
+      return context.json({ error: "unauthorized" }, 401);
+    const input = z.object({
+      expectedRevision: z.number().int().nonnegative(),
+      to: z.enum(["FUNDED", "POLICY_ACCEPTED", "APPROVAL_SUBMITTED", "APPROVED", "SUPPLY_SUBMITTED", "SUPPLIED", "WITHDRAW_SUBMITTED", "COMPLETED", "REJECTED", "RECOVERY_REQUIRED"]),
+      transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/u).optional(),
+      recoveryReason: z.string().min(1).max(1_000).optional(),
+    }).parse(await context.req.json());
+    return context.json(await requireYieldOptimizerStore().transition({
+      id: z.uuid().parse(context.req.param("id")),
+      expectedRevision: input.expectedRevision,
+      to: input.to,
+      ...(input.transactionHash === undefined ? {} : { transactionHash: input.transactionHash }),
+      ...(input.recoveryReason === undefined ? {} : { recoveryReason: input.recoveryReason }),
+    }), 200);
   });
   const walletPrincipal = async (context: {
     req: { header(name: string): string | undefined };

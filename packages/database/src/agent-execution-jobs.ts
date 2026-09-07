@@ -101,4 +101,13 @@ export class DrizzleAgentExecutionJobStore {
       .returning();
     return updated ? record(updated) : null;
   }
+
+  async get(input: { id: string; agentId: string }): Promise<PersistedAgentExecutionJob | null> {
+    const [row] = await this.database
+      .select()
+      .from(agentExecutionJobs)
+      .where(and(eq(agentExecutionJobs.id, input.id), eq(agentExecutionJobs.agentId, input.agentId)))
+      .limit(1);
+    return row ? record(row) : null;
+  }
 }

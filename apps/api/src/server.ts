@@ -3,6 +3,7 @@ import { getServerEnvironment } from "@relic/config";
 import {
   createDatabase,
   DrizzleAgentRepository,
+  DrizzleAgentExecutionJobStore,
   DrizzleAltanaSessionAuthorizationStore,
   DrizzleCommerceStore,
   DrizzleExecutionStore,
@@ -30,6 +31,7 @@ import {
   ViemErc8004OwnershipReader,
 } from "./seller-ownership.js";
 import { ServicePublicationVerifier } from "./service-publication.js";
+import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -172,6 +174,15 @@ const app = createApp(repository, onboarding, mandates, {
           executions,
         ),
         lpRebalanceInternalToken: environment.RELIC_LP_REBALANCER_INTERNAL_TOKEN,
+      }),
+  ...(connection === null || environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN === undefined || environment.RELIC_YIELD_OPTIMIZER_AGENT_ID === undefined
+    ? {}
+    : {
+        yieldOptimizerExecutionStore: new YieldOptimizerExecutionStore(
+          new DrizzleAgentExecutionJobStore(connection.db),
+          environment.RELIC_YIELD_OPTIMIZER_AGENT_ID,
+        ),
+        yieldOptimizerInternalToken: environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN,
       }),
   ...(walletAuth === undefined ? {} : { walletAuthService: walletAuth }),
   ...(environment.NEXT_PUBLIC_PRIVY_APP_ID === undefined
