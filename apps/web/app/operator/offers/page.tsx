@@ -373,6 +373,7 @@ export default async function OffersPage({
                   }
                   verificationAction={
                     selectedAgent.serviceId === null ||
+                    selectedAgent.requirements.service.state === "complete" ||
                     selectedAgent.requirements.verification.state === "complete"
                       ? undefined
                       : requestSellerServiceVerificationAction.bind(

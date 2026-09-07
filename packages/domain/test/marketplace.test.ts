@@ -194,6 +194,11 @@ describe("seller marketplace readiness", () => {
       nextAction: "Create marketplace offer",
     });
     expect(result.hireable).toBe(false);
+    expect(result.requirements.verification).toMatchObject({
+      state: "attention",
+      label: "Exact offer verification pending",
+      nextAction: "Create and activate offer",
+    });
   });
 
   it("never promotes an explicitly labelled test deployment", () => {

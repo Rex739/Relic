@@ -400,15 +400,21 @@ export function sellerReadinessProjection(
             ? "Latest verification failed"
             : facts.latestVerification?.result === "blocked"
               ? "Latest verification was blocked"
-              : facts.lastVerifiedAt === null
-                ? "Relic has not checked the service yet"
-                : "Verification is stale",
+              : facts.serviceAvailable
+                ? "Exact offer verification pending"
+                : facts.lastVerifiedAt === null
+                  ? "Relic has not checked the service yet"
+                  : "Verification is stale",
         explanation:
           facts.latestVerification?.errorMessage ??
-          (facts.lastVerifiedAt === null
-            ? "Relic has not recorded a verification attempt for this service yet."
-            : "Relic is refreshing this service check before it becomes available to buyers."),
-        nextAction: "Waiting for a successful Relic check",
+          (facts.serviceAvailable
+            ? "Create an offer draft. Relic verifies its exact price and terms when you activate it."
+            : facts.lastVerifiedAt === null
+              ? "Relic has not recorded a verification attempt for this service yet."
+              : "Relic is refreshing this service check before it becomes available to buyers."),
+        nextAction: facts.serviceAvailable
+          ? "Create and activate offer"
+          : "Waiting for a successful Relic check",
       };
   const commerce: SellerReadinessRequirement = facts.commerceValidated
     ? {
