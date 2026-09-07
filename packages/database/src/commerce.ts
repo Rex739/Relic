@@ -33,6 +33,7 @@ import {
   activationLifecycleTransitions,
   activationTransitions,
   activations,
+  altanaSessionAuthorizations,
   agentIdentities,
   agentOfferEvents,
   agentOfferVersions,
@@ -205,6 +206,18 @@ export class DrizzleCommerceStore {
     return row;
   }
 
+  public async findFundedYieldSession(externalJobId: string) {
+    const [row] = await this.database
+      .select({ activation: activations, mandate: mandates, version: mandateVersions, session: altanaSessionAuthorizations })
+      .from(activations)
+      .innerJoin(mandates, eq(activations.mandateId, mandates.id))
+      .innerJoin(mandateVersions, and(eq(mandateVersions.mandateId, mandates.id), eq(mandateVersions.version, mandates.currentVersion)))
+      .innerJoin(altanaSessionAuthorizations, eq(altanaSessionAuthorizations.mandateId, mandates.id))
+      .where(and(eq(activations.externalJobId, externalJobId), eq(activations.status, "FUNDED"), eq(activations.lifecycleState, "ACTIVE"), eq(mandates.status, "ACTIVE"), eq(mandates.chainId, 97), eq(altanaSessionAuthorizations.status, "GRANTED"), gt(altanaSessionAuthorizations.expiresAt, new Date())))
+      .limit(1);
+    return row;
+  }
+
   public async marketplaceReviewEligibility(input: {
     activationId: string;
     principalId: string;
@@ -220,6 +233,7 @@ export class DrizzleCommerceStore {
         marketplaceHistoryEligible: activations.marketplaceHistoryEligible,
         lifecycleState: activations.lifecycleState,
         status: activations.status,
+        agreementStatus: commerceAgreements.status,
         buyerPrincipalId: activations.principalId,
         providerAddress: activations.providerAddress,
         operatorPrincipalId: agentOffers.operatorPrincipalId,
@@ -254,7 +268,11 @@ export class DrizzleCommerceStore {
       record.lifecycleState !== "COMPLETED" ||
       record.status !== "COMPLETED" ||
       record.commerceSuccessful !== true ||
-      !record.acceptedResponsibility
+      !record.acceptedResponsibility ||
+      // A terminally cancelled, expired, or failed agreement is not a
+      // successful hired job, even if an inconsistent upstream observation
+      // happens to report a completed activation.
+      ["CANCELLED", "EXPIRED", "FAILED"].includes(record.agreementStatus ?? "")
     )
       return { eligible: false as const, reason: "job_not_completed" };
     if (record.agreementId === null)

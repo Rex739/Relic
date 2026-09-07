@@ -32,6 +32,7 @@ import {
 } from "./seller-ownership.js";
 import { ServicePublicationVerifier } from "./service-publication.js";
 import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
+import { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -183,6 +184,7 @@ const app = createApp(repository, onboarding, mandates, {
           environment.RELIC_YIELD_OPTIMIZER_AGENT_ID,
         ),
         yieldOptimizerInternalToken: environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN,
+        ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY === undefined ? {} : { yieldFundedSessionRelease: new YieldFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_YIELD_OPTIMIZER_AGENT_ID, environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY) }),
       }),
   ...(walletAuth === undefined ? {} : { walletAuthService: walletAuth }),
   ...(environment.NEXT_PUBLIC_PRIVY_APP_ID === undefined
