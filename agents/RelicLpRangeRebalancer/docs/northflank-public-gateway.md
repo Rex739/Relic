@@ -18,8 +18,8 @@ Create a Northflank combined service with these settings:
 | Setting | Value |
 | --- | --- |
 | Name | `relic-lp-range-rebalancer-agent` |
-| Build context | `agents/RelicLpRangeRebalancer` |
-| Dockerfile | `Dockerfile.private-agent` |
+| Build context | `/` |
+| Dockerfile | `/agents/RelicLpRangeRebalancer/Dockerfile.private-agent` |
 | Port | `9000` |
 | Readiness | `GET /ping` or `GET /readiness` |
 | Public exposure | Disabled |
@@ -30,7 +30,7 @@ Add these runtime values as Northflank secrets:
 | --- | --- |
 | `ALTANA_SESSION` | Seller agent's own Studio session JSON, used only for fixed ERC-8183 quote/delivery signatures; never a buyer session |
 | `PRIVATE_AGENT_BEARER_TOKEN` | A newly generated long random service-to-service credential |
-| `RELIC_EXECUTOR_URL` | Private HTTPS base URL of Relic's ECS API |
+| `RELIC_EXECUTOR_URL` | Public HTTPS base URL of Relic's web proxy, ending in `/api`; it forwards only the bearer-protected funded-job handoff to ECS |
 | `RELIC_LP_REBALANCER_INTERNAL_TOKEN` | A newly generated 32+ character credential shared only with the ECS API |
 
 Set `NODE_ENV=production`. Never put a buyer session, `.studio`, a keystore,
@@ -46,8 +46,8 @@ Create a second Northflank combined service:
 | Setting | Value |
 | --- | --- |
 | Name | `relic-lp-range-rebalancer-gateway` |
-| Build context | `agents/RelicLpRangeRebalancer` |
-| Dockerfile | `Dockerfile` |
+| Build context | `/` |
+| Dockerfile | `/agents/RelicLpRangeRebalancer/Dockerfile` |
 | Port | `8003` (or Northflank-injected `PORT`) |
 | Liveness | `GET /health` |
 | Readiness | `GET /ready` |
