@@ -10,6 +10,9 @@
     "test": "pnpm build && node --test dist/*.test.js",
     "verify-deployment": "pnpm build && node dist/verifyDeployment.js"
   },
+  "dependencies": {
+    "@bnbagent/studio-runtime": "0.0.13"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0"

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { resolve } from "node:path";
+import { ensureAltanaSessionLoaded } from "@bnbagent/studio-runtime/wallet";
 import { materializeAltanaSession } from "./altanaSession.js";
 import { loadVenusTestnetConfig } from "./networkConfig.js";
 import { YieldPrivateExecutor } from "./privateExecutor.js";
@@ -13,6 +14,7 @@ materializeAltanaSession(
   process.env.ALTANA_SESSION,
   resolve(process.cwd(), ".studio/wallets/altana-session.json"),
 );
+await ensureAltanaSessionLoaded();
 
 const config = loadVenusTestnetConfig();
 const executor = new YieldPrivateExecutor(config, new VenusJsonRpcClient(config.rpcUrl));

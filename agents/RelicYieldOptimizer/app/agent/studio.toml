@@ -1,0 +1,16 @@
+[project]
+name = "RelicYieldOptimizer-agent"
+display_name = "Relic Yield Optimizer"
+
+[network]
+default = "bsc-testnet"
+
+[wallet]
+# The admin key remains outside the deployment. Northflank receives only the
+# bounded session materialized at runtime by `ALTANA_SESSION`.
+kind = "altana"
+session_file = ".studio/wallets/altana-session.json"
+# address is added by the universal seller flow after `bag wallet new`.
+
+[identity]
+# agent_id and public endpoint are added only after ERC-8004 registration.
