@@ -35,6 +35,7 @@ import {
 } from "../../operator-actions";
 import { CreateOfferDialog } from "../../_components/create-offer-dialog";
 import { AccountSidebar } from "../../_components/account-sidebar";
+import { OfferDeactivateButton } from "../../_components/offer-deactivate-button";
 import { OfferDetailsEditor } from "../../_components/offer-details-editor";
 import { SellerProfileEditor } from "../../_components/seller-profile-editor";
 
@@ -490,19 +491,18 @@ export default async function OffersPage({
                     </div>
                     {offer.status !== "DEACTIVATED" ? (
                       <div className="offer-discard">
-                        <form
+                        <OfferDeactivateButton
                           action={transitionOfferAction.bind(
                             null,
                             offer.id,
                             "deactivate",
                           )}
-                        >
-                          <button className="danger-link">
-                            {offer.status === "DRAFT"
+                          label={
+                            offer.status === "DRAFT"
                               ? "Discard draft"
-                              : "Deactivate"}
-                          </button>
-                        </form>
+                              : "Deactivate"
+                          }
+                        />
                         {offer.status === "DRAFT" ? (
                           <small>
                             Discarding removes this draft while preserving its
