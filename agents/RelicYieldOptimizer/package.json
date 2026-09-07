@@ -1,0 +1,9 @@
+{
+  "name": "relic-yield-optimizer-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.24.0",
+  "scripts": {
+    "build": "pnpm --filter relic-yield-optimizer-agent build && pnpm --filter relic-yield-optimizer-service build",
+    "test": "pnpm --filter relic-yield-optimizer-agent test && pnpm --filter relic-yield-optimizer-service test"
+  }
+}
