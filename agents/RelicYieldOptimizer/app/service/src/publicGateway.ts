@@ -6,6 +6,8 @@
 export type GatewayConfig = Readonly<{
   privateAgentUrl: string;
   privateAgentBearerToken: string;
+  relicApiUrl: string;
+  relicInternalToken: string;
   allowInternalHttp?: boolean;
 }>;
 
@@ -13,6 +15,14 @@ export function privateAgentEndpoint(config: GatewayConfig): URL {
   const endpoint = new URL(config.privateAgentUrl);
   if (endpoint.protocol !== "https:" && !config.allowInternalHttp)
     throw new Error("PRIVATE_AGENT_URL must use HTTPS outside Northflank private networking");
+  return endpoint;
+}
+
+function relicApiEndpoint(config: GatewayConfig, jobId: string): URL {
+  if (!/^\d+$/u.test(jobId)) throw new Error("A funded ERC-8183 job id is required");
+  const endpoint = new URL(`/internal/yield-optimizer/funded-jobs/${jobId}/execution-request`, config.relicApiUrl);
+  if (endpoint.protocol !== "https:" && !config.allowInternalHttp)
+    throw new Error("RELIC_API_URL must use HTTPS outside Northflank private networking");
   return endpoint;
 }
 
@@ -69,6 +79,38 @@ export function isAllowedA2aSkill(body: unknown): boolean {
   });
 }
 
+/** Extract only the job identifier from a public funded notification. */
+export function fundedJobId(body: unknown): string | null {
+  if (!isAllowedA2aSkill(body)) return null;
+  const parts = ((body as { params: { message: { parts: unknown[] } } }).params.message.parts);
+  for (const part of parts) {
+    const data = part && typeof part === "object" && !Array.isArray(part)
+      ? (part as { kind?: unknown; data?: unknown }).data : undefined;
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    const value = data as Record<string, unknown>;
+    if (value.skill !== "notify_funded") continue;
+    const jobId = value.jobId ?? value.commerceJobId;
+    if (typeof jobId === "string" && /^\d+$/u.test(jobId)) return jobId;
+  }
+  return null;
+}
+
+async function canonicalFundedRequest(jobId: string, config: GatewayConfig, fetchImpl: typeof fetch): Promise<unknown> {
+  const response = await fetchImpl(relicApiEndpoint(config, jobId), {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.relicInternalToken}` },
+  });
+  const text = await response.text();
+  let body: unknown;
+  try { body = JSON.parse(text) as unknown; } catch { throw new Error("Relic canonical execution endpoint returned non-JSON"); }
+  if (!response.ok) {
+    const detail = body && typeof body === "object" && !Array.isArray(body)
+      ? String((body as { error?: unknown }).error ?? "request failed") : "request failed";
+    throw new Error(`Relic canonical execution request failed (${String(response.status)}): ${detail}`);
+  }
+  return body;
+}
+
 export async function forwardA2aRequest(
   body: unknown,
   config: GatewayConfig,
@@ -77,14 +119,19 @@ export async function forwardA2aRequest(
   if (!isAllowedA2aSkill(body)) {
     return { status: 400, body: { error: "Only negotiate and notify_funded A2A skills are accepted" } };
   }
+  const jobId = fundedJobId(body);
+  if (jobId === null) {
+    return { status: 400, body: { error: "A funded notify_funded message with a numeric jobId is required for execution" } };
+  }
   const endpoint = privateAgentEndpoint(config);
+  const canonical = await canonicalFundedRequest(jobId, config, fetchImpl);
   const response = await fetchImpl(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${config.privateAgentBearerToken}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(canonical),
   });
   const text = await response.text();
   try {

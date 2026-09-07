@@ -5,6 +5,8 @@ const port = Number(process.env.PORT ?? "8003");
 const publicUrl = process.env.PUBLIC_SERVICE_URL?.trim();
 const privateAgentUrl = process.env.PRIVATE_AGENT_URL?.trim();
 const privateAgentBearerToken = process.env.PRIVATE_AGENT_BEARER_TOKEN?.trim();
+const relicApiUrl = process.env.RELIC_API_URL?.trim();
+const relicInternalToken = process.env.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN?.trim();
 
 const send = (response: ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { "content-type": "application/json" });
@@ -26,9 +28,13 @@ async function jsonBody(request: IncomingMessage): Promise<unknown> {
 function config() {
   if (!privateAgentUrl) throw new Error("PRIVATE_AGENT_URL is not configured");
   if (!privateAgentBearerToken) throw new Error("PRIVATE_AGENT_BEARER_TOKEN is not configured");
+  if (!relicApiUrl) throw new Error("RELIC_API_URL is not configured");
+  if (!relicInternalToken) throw new Error("RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN is not configured");
   return {
     privateAgentUrl,
     privateAgentBearerToken,
+    relicApiUrl,
+    relicInternalToken,
     allowInternalHttp: process.env.ALLOW_INTERNAL_HTTP === "true",
   };
 }

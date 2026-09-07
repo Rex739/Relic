@@ -1559,6 +1559,11 @@ export function createApp(
     if (options.yieldFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
     return context.json(await options.yieldFundedSessionRelease.release(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
   });
+  app.post("/internal/yield-optimizer/funded-jobs/:jobId/execution-request", async (context) => {
+    if (!hasInternalToken(context, options.yieldOptimizerInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.yieldFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
+    return context.json(await options.yieldFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
   app.get("/internal/yield-optimizer/execution-jobs/:id", async (context) => {
     if (!hasInternalToken(context, options.yieldOptimizerInternalToken))
       return context.json({ error: "unauthorized" }, 401);
