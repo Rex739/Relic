@@ -10,7 +10,7 @@ an earlier phase is incomplete.
 | 2 | Live deployment verification | `verify-deployment` validates chain, bytecode, token, vToken and Comptroller relation against the injected runtime configuration | Ready for operator validation |
 | 3 | Durable job state | Idempotency state machine and atomic Postgres repository/migration are implemented; Layer A must inject this store before it may enable readiness | Ready for runtime wiring |
 | 4 | Bounded-session signer integration | Code-only signing boundary validates mandate, session account, chain, target, gas reserve, and simulation before broadcast; runtime adapter remains to be connected to the scoped session | In progress |
-| 5 | Venus transaction adapter | Fixed calldata builders for exact approval, `mint(uint256)`, and `redeemUnderlying(uint256)` are implemented; receipt and balance reconciliation will be wired in the private runtime | In progress |
+| 5 | Venus transaction adapter | Fixed calldata builders and deterministic supply/withdraw execution bridge are implemented; live receipt/balance adapter remains to be wired to the scoped runtime | In progress |
 | 6 | Private Layer A runtime | Bearer-only HTTP service, `/health`, `/readiness`, Dockerfile, and fail-closed Venus readiness check are implemented; execution route stays disabled until the session and durable-store bridge is connected | In progress |
 | 7 | Public Layer B gateway | `/apex`, agent card, skill allowlist, internal forwarding | Complete |
 | 8 | Northflank deployment | Two-service deployment, secrets, external card and readiness checks | Not started |

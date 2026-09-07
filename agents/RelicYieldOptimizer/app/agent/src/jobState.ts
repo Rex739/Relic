@@ -68,7 +68,8 @@ export interface YieldJobStore {
 
 const nextStates: Readonly<Record<YieldJobState, readonly YieldJobState[]>> = {
   FUNDED: ["POLICY_ACCEPTED", "REJECTED"],
-  POLICY_ACCEPTED: ["APPROVAL_SUBMITTED", "REJECTED"],
+  // A prior exact allowance may make the approval call unnecessary.
+  POLICY_ACCEPTED: ["APPROVAL_SUBMITTED", "APPROVED", "REJECTED"],
   APPROVAL_SUBMITTED: ["APPROVED", "RECOVERY_REQUIRED"],
   APPROVED: ["SUPPLY_SUBMITTED", "REJECTED"],
   SUPPLY_SUBMITTED: ["SUPPLIED", "RECOVERY_REQUIRED"],
