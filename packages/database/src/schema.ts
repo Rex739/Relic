@@ -1735,6 +1735,50 @@ export const mandateEvents = pgTable(
   ],
 );
 
+/** Private-executor transaction state; separate from marketplace offer state. */
+export const agentExecutionJobStatus = pgEnum("agent_execution_job_status", [
+  "FUNDED",
+  "POLICY_ACCEPTED",
+  "APPROVAL_SUBMITTED",
+  "APPROVED",
+  "SUPPLY_SUBMITTED",
+  "SUPPLIED",
+  "WITHDRAW_SUBMITTED",
+  "COMPLETED",
+  "REJECTED",
+  "RECOVERY_REQUIRED",
+]);
+
+export const agentExecutionJobs = pgTable(
+  "agent_execution_jobs",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    commerceJobId: text("commerce_job_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: agentExecutionJobStatus("status").notNull().default("FUNDED"),
+    revision: integer("revision").notNull().default(0),
+    approvalTxHash: text("approval_tx_hash"),
+    supplyTxHash: text("supply_tx_hash"),
+    withdrawTxHash: text("withdraw_tx_hash"),
+    recoveryReason: text("recovery_reason"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("agent_execution_job_idempotency_unique").on(
+      table.agentId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("agent_execution_job_commerce_unique").on(
+      table.agentId,
+      table.commerceJobId,
+    ),
+    index("agent_execution_job_status_time_idx").on(table.status, table.updatedAt),
+  ],
+);
+
 export const executionRequests = pgTable(
   "execution_requests",
   {
