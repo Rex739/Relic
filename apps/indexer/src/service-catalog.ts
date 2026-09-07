@@ -56,7 +56,16 @@ export async function materializeLaunchServices(
       status = "IDENTITY_VERIFIED";
       counters.identitiesVerified += 1;
     }
-    if (status !== "IDENTITY_VERIFIED" && status !== "SERVICE_IDENTIFIED")
+    // Re-resolve declared A2A cards for services that are already observed or
+    // live. A card's invocation URL can change without changing its registry
+    // discovery URL, and sellers should never need to repair that by hand.
+    if (
+      status !== "IDENTITY_VERIFIED" &&
+      status !== "SERVICE_IDENTIFIED" &&
+      status !== "SERVICE_OBSERVED" &&
+      status !== "INVOCATION_VERIFIED" &&
+      status !== "ACTIONABLE"
+    )
       continue;
     const source = await store.sourceServices(row.agent.id);
     let materialized = 0;

@@ -392,7 +392,7 @@ export function sellerReadinessProjection(
           facts.latestVerification?.errorMessage ??
           (facts.lastVerifiedAt === null
             ? "Relic has not recorded a verification attempt for this service yet."
-            : `The last successful verification was ${facts.lastVerifiedAt}. Relic needs a newer successful check before this service can appear to buyers.`),
+            : "Relic is refreshing this service check before it becomes available to buyers."),
         nextAction: "Waiting for a successful Relic check",
       };
   const commerce: SellerReadinessRequirement = facts.commerceValidated
