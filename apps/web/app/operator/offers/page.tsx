@@ -468,6 +468,7 @@ export default async function OffersPage({
                       {offer.status === "DRAFT" || offer.status === "PAUSED" ? (
                         <ActivateOfferButton
                           action={activateOfferAction.bind(null, offer.id)}
+                          status={offer.status}
                         />
                       ) : null}
                       {offer.status === "ACTIVE" ? (

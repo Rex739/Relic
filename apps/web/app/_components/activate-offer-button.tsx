@@ -23,16 +23,46 @@ const failureCopy = (error: string) => {
 
 export function ActivateOfferButton({
   action,
+  status,
 }: {
   action: () => Promise<{ error: string | null }>;
+  status: "DRAFT" | "PAUSED" | "ACTIVE";
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const failure = error === null ? null : failureCopy(error);
+  const phase = pending
+    ? "checking"
+    : failure !== null
+      ? "failed"
+      : status === "ACTIVE"
+        ? "live"
+        : "draft";
 
   return (
     <div className="activation-control">
+      <div aria-label={`Offer status: ${phase}`} className="activation-rail">
+        {[
+          ["draft", "Draft"],
+          ["checking", "Checking"],
+          ["failed", "Fix needed"],
+          ["live", "Live"],
+        ].map(([id, label]) => (
+          <span
+            className={
+              id === phase
+                ? "current"
+                : id === "draft" && phase !== "draft"
+                  ? "complete"
+                  : ""
+            }
+            key={id}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
       <button
         disabled={pending}
         onClick={() =>
@@ -47,8 +77,8 @@ export function ActivateOfferButton({
           <strong>{failure.title}</strong>
           <span>{failure.detail}</span>
           <small>
-            No buyer job, payment, or blockchain transaction was created. Edit
-            the offer above if needed, then retry.
+            No buyer job, payment, or transaction was created. Edit offer only
+            if you want to change its terms, then retry.
           </small>
           <details>
             <summary>Technical detail</summary>

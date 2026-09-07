@@ -2153,6 +2153,43 @@ summary:focus-visible {
 .activation-control {
   display: grid;
   gap: 8px;
+  min-width: min(100%, 560px);
+}
+.activation-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.activation-rail span {
+  position: relative;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+.activation-rail span::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--line);
+  content: "";
+}
+.activation-rail span.complete::before,
+.activation-rail span.current::before {
+  background: #52d782;
+}
+.activation-rail span.current {
+  color: var(--foreground);
+}
+.activation-rail span.current:nth-child(3) {
+  color: #ef7064;
+}
+.activation-rail span.current:nth-child(3)::before {
+  background: #ef7064;
 }
 .activation-failure {
   display: grid;
