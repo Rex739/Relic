@@ -4,8 +4,6 @@ import { ImageIcon, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useTransition } from "react";
 
-import { sellerProfileImageMaxBytes } from "@relic/domain";
-
 import { Button } from "../../components/ui/button";
 import { labelForCategory } from "../../lib/marketplace";
 
@@ -20,6 +18,9 @@ type SellerProfileAgent = {
 };
 
 const PROFILE_IMAGE_SIZE = 1024;
+// The API schema independently enforces this same 2 MiB maximum. Keep this
+// browser-side copy free of server-only package imports.
+const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
 const JPEG_DATA_URL_PREFIX = "data:image/jpeg;base64,";
 
 const dataUrlByteLength = (value: string) => {
@@ -169,17 +170,14 @@ export function SellerProfileEditor({
                 const file = event.target.files?.[0];
                 setImageError(null);
                 if (file === undefined) return;
-                if (file.size > sellerProfileImageMaxBytes) {
+                if (file.size > MAX_IMAGE_SIZE_BYTES) {
                   setImageError("Choose an image smaller than 2 MB.");
                   event.target.value = "";
                   return;
                 }
                 void cropProfileImage(file)
                   .then((croppedImage) => {
-                    if (
-                      dataUrlByteLength(croppedImage) >
-                      sellerProfileImageMaxBytes
-                    )
+                    if (dataUrlByteLength(croppedImage) > MAX_IMAGE_SIZE_BYTES)
                       throw new Error("Choose an image smaller than 2 MB.");
                     setImageUrl(croppedImage);
                   })
