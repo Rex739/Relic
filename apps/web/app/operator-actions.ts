@@ -178,6 +178,24 @@ export async function transitionOfferAction(
   revalidatePath("/account/my-listings");
 }
 
+export async function activateOfferAction(
+  id: string,
+): Promise<CreateOfferActionResult> {
+  try {
+    await transitionOperatorOffer(id, "activate");
+    revalidatePath("/operator/offers");
+    revalidatePath("/account/my-listings");
+    return { error: null };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Activation could not be completed. Update the draft and try again.",
+    };
+  }
+}
+
 export async function startCommerceValidationAction(offerId: string) {
   const handoff = await createOperatorValidationSession(offerId);
   redirect(

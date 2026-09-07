@@ -72,12 +72,14 @@ export function SellerProfileEditor({
   action,
   offerAction,
   serviceAction,
+  serviceStatusMessage,
 }: {
   agent: SellerProfileAgent;
   action: (formData: FormData) => Promise<{ error: string | null }>;
   offerAction?: ReactNode;
   serviceAction?:
     ((formData: FormData) => Promise<{ error: string | null }>) | undefined;
+  serviceStatusMessage?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [imageUrl, setImageUrl] = useState(agent.imageUrl ?? "");
@@ -215,6 +217,9 @@ export function SellerProfileEditor({
               Use the public HTTPS endpoint buyers will reach. Changing it
               triggers a fresh Relic verification.
             </small>
+            {serviceStatusMessage === null || serviceStatusMessage === undefined ? null : (
+              <small role="status">{serviceStatusMessage}</small>
+            )}
           </label>
           <label>
             Description

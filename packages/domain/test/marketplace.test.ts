@@ -162,6 +162,25 @@ describe("seller marketplace readiness", () => {
     expect(result.requirements.service.nextAction).not.toMatch(/publish/i);
   });
 
+  it("gives a compact endpoint recovery action when the safe service check fails", () => {
+    const result = sellerReadinessProjection({
+      ...readyFacts,
+      serviceAvailable: false,
+      verificationPassed: false,
+      latestVerification: {
+        result: "failed",
+        observedAt: "2026-09-07T09:00:00.000Z",
+        errorMessage: "Agent card returned HTTP 503.",
+      },
+    });
+
+    expect(result.requirements.service).toMatchObject({
+      label: "Service check failed",
+      explanation: "Agent card returned HTTP 503.",
+      nextAction: "Correct the endpoint and save to retry",
+    });
+  });
+
   it("allows a seller to draft their first price before publication", () => {
     const result = sellerReadinessProjection({
       ...readyFacts,

@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "../../../components/ui/select";
 import {
+  activateOfferAction,
   createOfferAction,
   reviseOfferAction,
   transitionOfferAction,
@@ -34,6 +35,7 @@ import {
 } from "../../operator-actions";
 import { CreateOfferDialog } from "../../_components/create-offer-dialog";
 import { AccountSidebar } from "../../_components/account-sidebar";
+import { ActivateOfferButton } from "../../_components/activate-offer-button";
 import { OfferDetailsEditor } from "../../_components/offer-details-editor";
 import { SellerProfileEditor } from "../../_components/seller-profile-editor";
 
@@ -370,6 +372,11 @@ export default async function OffersPage({
                           selectedAgent.serviceId,
                         )
                   }
+                  serviceStatusMessage={
+                    selectedAgent.requirements.service.state === "complete"
+                      ? null
+                      : selectedAgent.requirements.service.explanation
+                  }
                   offerAction={offerableAgents.map((agent) => (
                     <CreateOfferDialog
                       action={createOfferAction}
@@ -459,15 +466,9 @@ export default async function OffersPage({
                     />
                     <div className="relationship-actions">
                       {offer.status === "DRAFT" || offer.status === "PAUSED" ? (
-                        <form
-                          action={transitionOfferAction.bind(
-                            null,
-                            offer.id,
-                            "activate",
-                          )}
-                        >
-                          <button>Activate</button>
-                        </form>
+                        <ActivateOfferButton
+                          action={activateOfferAction.bind(null, offer.id)}
+                        />
                       ) : null}
                       {offer.status === "ACTIVE" ? (
                         <form

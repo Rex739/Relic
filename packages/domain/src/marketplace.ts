@@ -372,6 +372,8 @@ export function sellerReadinessProjection(
           "Relic must verify the current registered owner before seller controls are available.",
         nextAction: "Verify ownership",
       };
+  const serviceFailure =
+    !facts.serviceAvailable && facts.latestVerification?.result === "failed";
   const service: SellerReadinessRequirement = facts.serviceAvailable
     ? {
         state: "complete",
@@ -381,10 +383,16 @@ export function sellerReadinessProjection(
       }
     : {
         state: "attention",
-        label: "Relic is checking the service",
-        explanation:
-          "Relic is safely checking the service advertised by this agent. No seller setup is required.",
-        nextAction: "Relic check in progress",
+        label: serviceFailure
+          ? "Service check failed"
+          : "Relic is checking the service",
+        explanation: serviceFailure
+          ? (facts.latestVerification?.errorMessage ??
+            "Relic could not reach the advertised service.")
+          : "Relic is safely checking the service advertised by this agent. No seller setup is required.",
+        nextAction: serviceFailure
+          ? "Correct the endpoint and save to retry"
+          : "Relic check in progress",
       };
   const verification: SellerReadinessRequirement = facts.verificationPassed
     ? {

@@ -89,8 +89,11 @@ function executedRows<T>(result: unknown): T[] {
 
 const verificationErrorMessage = (value: unknown): string | null => {
   if (typeof value !== "object" || value === null) return null;
-  if (!("message" in value) || typeof value.message !== "string") return null;
-  return value.message === "[object Object]" ? null : value.message;
+  if ("message" in value && typeof value.message === "string")
+    return value.message === "[object Object]" ? null : value.message;
+  if ("code" in value && typeof value.code === "string")
+    return `Service check failed (${value.code}).`;
+  return null;
 };
 
 export class DrizzleAgentRepository implements AgentReadRepository {
