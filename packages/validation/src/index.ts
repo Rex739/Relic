@@ -119,6 +119,9 @@ export const publicMarketplaceQuerySchema = z.object({
     ])
     .optional(),
   interface: z.string().trim().min(1).max(50).optional(),
+  sort: z
+    .enum(["relevance", "recently-verified", "completed-jobs", "completion-rate"])
+    .optional(),
   pricingKnown: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
@@ -128,6 +131,8 @@ export const publicMarketplaceQuerySchema = z.object({
     .transform((value) => value === "true")
     .optional(),
 });
+
+export const marketplaceIntentInputSchema = z.string().trim().min(2).max(200);
 
 export const publicMarketplaceAgentSchema = z.object({
   id: z.uuid(),
@@ -141,6 +146,8 @@ export const publicMarketplaceAgentSchema = z.object({
   registryAddress: z.string(),
   externalAgentId: z.string(),
   supplyType: z.enum(["third_party", "partner", "relic_reference"]),
+  serviceName: z.string().optional(),
+  serviceCapability: z.string().optional(),
   capabilities: z.array(z.string()),
   protocols: z.array(z.string()),
   interfaces: z.array(z.string()),
@@ -155,6 +162,7 @@ export const publicMarketplaceAgentSchema = z.object({
     .nullable(),
   hireable: z.boolean(),
   verifiedInvocationCount: z.number().int().nonnegative(),
+  weeklyHireCount: z.number().int().nonnegative().optional(),
   eligibleAcceptedJobCount: z.number().int().nonnegative(),
   completedCommerceJobCount: z.number().int().nonnegative(),
   completionRatePercent: z.number().int().min(0).max(100).nullable(),

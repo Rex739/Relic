@@ -34,8 +34,38 @@ describe("deterministic marketplace intent mapping", () => {
       "I have USDT sitting idle and want conservative yield",
     );
     expect(params.get("category")).toBe("yield-optimisation");
-    expect(params.get("requirements")).toBe("USDT,conservative");
+    expect(params.get("requirements")).toBe("USDT");
     expect(params.has("agent")).toBe(false);
+  });
+
+  it("keeps unsupported preferences out of evidence filters", () => {
+    const input =
+      "I have 1,000 USDT and want a low-risk trading agent for 30 days";
+    expect(understandMarketplaceIntent(input)).toMatchObject({
+      category: "grid-trading",
+      asset: "USDT",
+      capital: { amount: 1000, asset: "USDT" },
+      durationDays: 30,
+      risk: "conservative",
+    });
+    expect(intentSearchParams(input).get("requirements")).toBe("USDT");
+  });
+
+  it("falls back to ordinary text for uncertain intent and agent numbers", () => {
+    expect(intentSearchParams("Agent #117823").get("text")).toBe(
+      "Agent #117823",
+    );
+    expect(intentSearchParams("unfamiliar service phrase").get("text")).toBe(
+      "unfamiliar service phrase",
+    );
+  });
+
+  it("maps PancakeSwap LP intent to the existing rebalancing category", () => {
+    expect(
+      understandMarketplaceIntent(
+        "I have a PancakeSwap LP and want to keep it in range",
+      ),
+    ).toMatchObject({ category: "rebalancing", protocol: "PancakeSwap" });
   });
 
   it("uses ecosystem protocols as evidence requirements, not interface filters", () => {

@@ -4,9 +4,14 @@ import Link from "next/link";
 import { AgentGrid } from "../_components/agent-grid";
 import { IntentSearch } from "../_components/intent-search";
 import {
+  MarketplaceFilters,
+  MobileMarketplaceFilters,
+} from "../_components/marketplace-filters";
+import {
   categories,
   marketplaceAgents,
   marketplaceCategories,
+  productCapabilityLabel,
 } from "../../lib/marketplace";
 
 export const metadata: Metadata = { title: "Verified marketplace" };
@@ -32,8 +37,10 @@ export default async function MarketplacePage({
     "interface",
     "pricingKnown",
     "hasReputation",
+    "sort",
   ])
-    if (typeof search[key] === "string") params.set(key, search[key]);
+    if (typeof search[key] === "string" && search[key].length > 0)
+      params.set(key, search[key]);
   params.set("limit", "12");
   const [agentsResponse, categoryResponse] = await Promise.all([
     marketplaceAgents(params),
@@ -48,6 +55,23 @@ export default async function MarketplacePage({
     ]),
   );
   const intent = typeof search.intent === "string" ? search.intent : "";
+  const filters = {
+    text: typeof search.text === "string" ? search.text : "",
+    requirements:
+      typeof search.requirements === "string" ? search.requirements : "",
+    intent,
+    category: typeof search.category === "string" ? search.category : "",
+    tier: typeof search.tier === "string" ? search.tier : "",
+    chainId: typeof search.chainId === "string" ? search.chainId : "",
+    sort: typeof search.sort === "string" ? search.sort : "relevance",
+  };
+  const topHiredThisWeek = [...agents]
+    .filter((agent) => (agent.weeklyHireCount ?? 0) > 0)
+    .sort(
+      (left, right) =>
+        (right.weeklyHireCount ?? 0) - (left.weeklyHireCount ?? 0),
+    )
+    .slice(0, 4);
 
   return (
     <main className="marketplace-app">
@@ -67,6 +91,21 @@ export default async function MarketplacePage({
           </div>
         </div>
         <IntentSearch initialValue={intent} />
+        <MobileMarketplaceFilters filters={filters} />
+        <nav className="mobile-category-pills" aria-label="Marketplace categories">
+          <Link href="/marketplace" className={!params.has("category") ? "active" : ""}>
+            All <span>{pagination?.total ?? 0}</span>
+          </Link>
+          {categories.map((category) => (
+            <Link
+              href={`/marketplace?category=${category.slug}`}
+              className={search.category === category.slug ? "active" : ""}
+              key={category.slug}
+            >
+              {category.label}
+            </Link>
+          ))}
+        </nav>
       </section>
 
       <section className="page-shell category-section">
@@ -75,9 +114,6 @@ export default async function MarketplacePage({
             <span className="overline">Browse by category</span>
             <h2>What do you want done?</h2>
           </div>
-          <p>
-            All four BNB competition categories, backed by real inventory data.
-          </p>
         </div>
         <div className="category-grid">
           {categories.map((category, index) => {
@@ -105,86 +141,71 @@ export default async function MarketplacePage({
         </div>
       </section>
 
+      {topHiredThisWeek.length > 0 ? (
+        <section className="page-shell marketplace-top-hired">
+          <div className="section-heading">
+            <div>
+              <span className="overline">Marketplace activity</span>
+              <h2>Most hired this week</h2>
+            </div>
+            <p>Eligible, funded buyer hires from the last seven days.</p>
+          </div>
+          <div className="top-hired-grid">
+            {topHiredThisWeek.map((agent) => (
+              <Link href={`/agents/${agent.id}`} key={agent.id}>
+                <span>{productCapabilityLabel(agent.serviceCapability ?? agent.category)}</span>
+                <strong>{agent.name}</strong>
+                <small>{agent.weeklyHireCount ?? 0} {(agent.weeklyHireCount ?? 0) === 1 ? "hire" : "hires"} this week</small>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="inventory-section" id="inventory">
         <div className="page-shell">
-          <div className="section-heading inventory-heading">
-            <div>
-              <span className="overline">Agent inventory</span>
-              <h2>
-                {params.has("category")
-                  ? "Agents matching your task"
-                  : "Available agents"}
-              </h2>
-            </div>
-            <span className="result-count">
-              {pagination?.total ?? 0} public agent
-              {pagination?.total === 1 ? "" : "s"}
-            </span>
-          </div>
-          <form className="filter-bar" action="/marketplace">
-            <input
-              name="text"
-              defaultValue={typeof search.text === "string" ? search.text : ""}
-              placeholder="Search verified capability"
-              aria-label="Search agents"
+          <div className="marketplace-results-layout">
+            <MarketplaceFilters
+              filters={filters}
             />
-            <select
-              name="category"
-              defaultValue={
-                typeof search.category === "string" ? search.category : ""
-              }
-              aria-label="Category"
-            >
-              <option value="">All categories</option>
-              {categories.map((category) => (
-                <option value={category.slug} key={category.slug}>
-                  {category.label}
-                </option>
-              ))}
-            </select>
-            <select
-              name="tier"
-              defaultValue={typeof search.tier === "string" ? search.tier : ""}
-              aria-label="Verification tier"
-            >
-              <option value="">Working + Actionable</option>
-              <option>Working</option>
-              <option>Actionable</option>
-            </select>
-            <select
-              name="chainId"
-              defaultValue={
-                typeof search.chainId === "string" ? search.chainId : ""
-              }
-              aria-label="Network"
-            >
-              <option value="">All networks</option>
-              <option value="56">BNB Chain</option>
-              <option value="97">BNB Chain Testnet</option>
-            </select>
-            <button type="submit">Apply filters</button>
-          </form>
-          {agentsResponse.error !== null ? (
-            <div className="state-panel">
-              <span>Connection interrupted</span>
-              <h3>Marketplace data could not be loaded.</h3>
-              <p>{agentsResponse.error}</p>
+            <div className="marketplace-results-main">
+              <div className="section-heading inventory-heading">
+                <div>
+                  <span className="overline">Verified service inventory</span>
+                  <h2>
+                    {params.has("category")
+                      ? "Services matching your task"
+                      : "Available services"}
+                  </h2>
+                </div>
+                <span className="result-count">
+                  {pagination?.total ?? 0} public service
+                  {pagination?.total === 1 ? "" : "s"}
+                </span>
+              </div>
+              {agentsResponse.error !== null ? (
+                <div className="state-panel">
+                  <span>Connection interrupted</span>
+                  <h3>Marketplace data could not be loaded.</h3>
+                  <p>{agentsResponse.error}</p>
+                </div>
+              ) : agents.length === 0 ? (
+                <div className="state-panel">
+                  <span>No verified match</span>
+                  <h3>
+                    No usable service currently satisfies all of those requirements.
+                  </h3>
+                  <p>
+                    Relax a filter or explore another category. Relic will not
+                    substitute services that have not passed its checks.
+                  </p>
+                  <Link href="/marketplace">Clear filters</Link>
+                </div>
+              ) : (
+                <AgentGrid agents={agents} />
+              )}
             </div>
-          ) : agents.length === 0 ? (
-            <div className="state-panel">
-              <span>No verified match</span>
-              <h3>
-                No usable agent currently satisfies all of those requirements.
-              </h3>
-              <p>
-                Relax a filter or explore another category. Relic will not
-                substitute agents that have not passed its checks.
-              </p>
-              <Link href="/marketplace">Clear filters</Link>
-            </div>
-          ) : (
-            <AgentGrid agents={agents} />
-          )}
+          </div>
           {pagination !== undefined && pagination.totalPages > 1 ? (
             <nav className="pagination" aria-label="Marketplace pages">
               {Array.from({ length: pagination.totalPages }, (_, index) => {

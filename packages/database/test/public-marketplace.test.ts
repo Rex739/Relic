@@ -149,6 +149,40 @@ beforeEach(async () => {
 afterEach(() => database.close());
 
 describe("verified public marketplace", () => {
+  it("searches public services by agent identity and service metadata", async () => {
+    await expect(
+      repository.listPublicMarketplace({
+        page: 1,
+        limit: 10,
+        text: "Agent #3",
+      }),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          name: "Actionable monitor",
+          serviceName: "Actionable service",
+          serviceCapability: "health-factor-monitoring",
+        },
+      ],
+    });
+    await expect(
+      repository.listPublicMarketplace({
+        page: 1,
+        limit: 10,
+        text: "Actionable service",
+      }),
+    ).resolves.toMatchObject({
+      items: [{ name: "Actionable monitor" }],
+    });
+    await expect(
+      repository.listPublicMarketplace({
+        page: 1,
+        limit: 10,
+        text: "Stale grid agent",
+      }),
+    ).resolves.toMatchObject({ items: [] });
+  });
+
   it("never leaks a plain registration and removes stale evidence", async () => {
     const result = await repository.listPublicMarketplace({
       page: 1,

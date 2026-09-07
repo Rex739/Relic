@@ -48,6 +48,8 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   registryAddress: string;
   externalAgentId: string;
   supplyType: "third_party" | "partner" | "relic_reference";
+  serviceName: string;
+  serviceCapability: string;
   capabilities: string[];
   protocols: string[];
   interfaces: string[];
@@ -60,6 +62,7 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   } | null;
   hireable: boolean;
   verifiedInvocationCount: number;
+  weeklyHireCount: number;
   eligibleAcceptedJobCount: number;
   completedCommerceJobCount: number;
   completionRatePercent: number | null;
@@ -72,6 +75,7 @@ interface PublicMarketplaceRow extends Record<string, unknown> {
   feedbackCount: number;
   lastVerifiedAt: Date | string;
   updatedAt: Date | string;
+  searchRank: number;
   total: number;
 }
 
@@ -403,7 +407,13 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       last_verified_at: Date | string | null;
       commerce_validated: boolean;
       active_offer: boolean;
-      listing_status: "NEEDS_VERIFICATION" | "READY_FOR_OFFER" | "LIVE" | "PAUSED" | "OWNERSHIP_CHANGED" | "UNAVAILABLE";
+      listing_status:
+        | "NEEDS_VERIFICATION"
+        | "READY_FOR_OFFER"
+        | "LIVE"
+        | "PAUSED"
+        | "OWNERSHIP_CHANGED"
+        | "UNAVAILABLE";
       listing_status_reasons: unknown;
       listing_is_hireable: boolean;
       listing_status_updated_at: Date | string | null;
@@ -675,6 +685,27 @@ export class DrizzleAgentRepository implements AgentReadRepository {
     paginate: boolean,
   ) {
     const actionable = sql`lc.status = 'ACTIONABLE'`;
+    const searchTerms = [query.text, ...(query.requirements ?? [])].filter(
+      (term): term is string => term !== undefined,
+    );
+    const searchRank =
+      searchTerms.length === 0
+        ? sql`0`
+        : sql`(${sql.join(
+            searchTerms.map(
+              (term) => sql`case
+                when ms.name ilike ${`%${term}%`}
+                  or coalesce(ms.description, '') ilike ${`%${term}%`}
+                  or coalesce(ms.capability, '') ilike ${`%${term}%`}
+                  then 2
+                when a.name ilike ${`%${term}%`}
+                  or coalesce(smp.description, a.description) ilike ${`%${term}%`}
+                  then 1
+                else 0
+              end`,
+            ),
+            sql` + `,
+          )})`;
     const filters = [
       sql`ms.verification_level in ('INVOCATION_VERIFIED', 'COMMERCE_VERIFIED')`,
       sql`ms.availability = 'available'`,
@@ -726,14 +757,26 @@ export class DrizzleAgentRepository implements AgentReadRepository {
               sql`, `,
             )})`,
       );
-    if (query.text !== undefined)
+    if (query.text !== undefined) {
+      const agentNumber = query.text.match(/^agent\s*#?\s*(\d+)$/i)?.[1];
       filters.push(
-        sql`(a.name ilike ${`%${query.text}%`} or coalesce(smp.description, a.description) ilike ${`%${query.text}%`} or coalesce(ms.capability, '') ilike ${`%${query.text}%`})`,
+        agentNumber === undefined
+          ? sql`(
+              a.name ilike ${`%${query.text}%`}
+              or coalesce(smp.description, a.description) ilike ${`%${query.text}%`}
+              or ms.name ilike ${`%${query.text}%`}
+              or coalesce(ms.description, '') ilike ${`%${query.text}%`}
+              or coalesce(ms.capability, '') ilike ${`%${query.text}%`}
+            )`
+          : sql`ai.external_agent_id = ${agentNumber}`,
       );
+    }
     for (const requirement of query.requirements ?? [])
       filters.push(sql`(
         a.name ilike ${`%${requirement}%`}
         or coalesce(smp.description, a.description) ilike ${`%${requirement}%`}
+        or ms.name ilike ${`%${requirement}%`}
+        or coalesce(ms.description, '') ilike ${`%${requirement}%`}
         or coalesce(ms.capability, '') ilike ${`%${requirement}%`}
         or exists (
           select 1 from classification_evidence ce
@@ -791,6 +834,14 @@ export class DrizzleAgentRepository implements AgentReadRepository {
     const pagination = paginate
       ? sql`limit ${query.limit} offset ${(query.page - 1) * query.limit}`
       : sql``;
+    const resultOrder =
+      query.sort === "recently-verified"
+        ? sql`ranked."lastVerifiedAt" desc, ranked."searchRank" desc`
+        : query.sort === "completed-jobs"
+          ? sql`ranked."completedCommerceJobCount" desc, ranked."searchRank" desc, ranked."lastVerifiedAt" desc`
+          : query.sort === "completion-rate"
+            ? sql`ranked."completionRatePercent" desc nulls last, ranked."searchRank" desc, ranked."lastVerifiedAt" desc`
+            : sql`ranked."searchRank" desc, ranked."lastVerifiedAt" desc`;
     return sql`
       with ranked as (
         select
@@ -804,6 +855,9 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           ai.registry_address "registryAddress",
           ai.external_agent_id "externalAgentId",
           lc.supply_type::text "supplyType",
+          ms.name "serviceName",
+          coalesce(ms.capability, ms.category_slug, ms.name) "serviceCapability",
+          ${searchRank} "searchRank",
           coalesce(array(
             select distinct tt.slug
             from agent_taxonomy at
@@ -909,6 +963,19 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           )) "hireable",
           (select count(*)::int from marketplace_outcomes mo where mo.agent_id = a.id and mo.invocation_successful = true) "verifiedInvocationCount",
           (select count(*)::int
+            from activations weekly_hire
+            where weekly_hire.agent_id = a.id
+              and weekly_hire.service_id = ms.id
+              and weekly_hire.purpose = 'USER_COMMERCE'
+              and weekly_hire.marketplace_history_eligible = true
+              and weekly_hire.created_at >= now() - interval '7 days'
+              and exists (
+                select 1 from commerce_operations funded_operation
+                where funded_operation.activation_id = weekly_hire.id
+                  and funded_operation.operation_type = 'FUND'
+                  and funded_operation.state = 'FINALIZED'
+              )) "weeklyHireCount",
+          (select count(*)::int
             from activations accepted_activation
             where accepted_activation.agent_id = a.id
               and accepted_activation.purpose = 'USER_COMMERCE'
@@ -1009,7 +1076,8 @@ export class DrizzleAgentRepository implements AgentReadRepository {
           greatest(a.updated_at, ms.updated_at, smp.updated_at) "updatedAt",
           row_number() over (
             partition by a.id
-            order by case when ${actionable} then 1 else 0 end desc,
+            order by ${searchRank} desc,
+                     case when ${actionable} then 1 else 0 end desc,
                      ms.last_verified_at desc,
                      ms.id
           ) row_number
@@ -1024,8 +1092,8 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       select ranked.*, count(*) over()::int total
       from ranked
       where ranked.row_number = 1 and ${tierFilter}
-      order by case ranked.tier when 'Actionable' then 1 else 0 end desc,
-               ranked."lastVerifiedAt" desc,
+      order by ${resultOrder},
+               case ranked.tier when 'Actionable' then 1 else 0 end desc,
                ranked.name,
                ranked.id
       ${pagination}
@@ -1048,6 +1116,8 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       registryAddress: row.registryAddress,
       externalAgentId: row.externalAgentId,
       supplyType: row.supplyType,
+      serviceName: row.serviceName,
+      serviceCapability: row.serviceCapability,
       capabilities: row.capabilities,
       protocols: row.protocols,
       interfaces: row.interfaces,
@@ -1055,6 +1125,7 @@ export class DrizzleAgentRepository implements AgentReadRepository {
       activeOfferPrice: row.activeOfferPrice,
       hireable: row.hireable,
       verifiedInvocationCount: Number(row.verifiedInvocationCount),
+      weeklyHireCount: Number(row.weeklyHireCount),
       eligibleAcceptedJobCount: Number(row.eligibleAcceptedJobCount),
       completedCommerceJobCount: Number(row.completedCommerceJobCount),
       completionRatePercent:

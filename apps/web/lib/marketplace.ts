@@ -59,6 +59,8 @@ export type IntentUnderstanding = {
   category?: string;
   asset?: string;
   protocol?: string;
+  capital?: { amount: number; asset?: string };
+  durationDays?: number;
   risk?: "conservative" | "balanced" | "aggressive";
 };
 
@@ -69,11 +71,13 @@ export function understandMarketplaceIntent(
   const category =
     /health factor|liquidat|borrow|collateral|venus position/.test(text)
       ? "health-factor-monitoring"
-      : /grid|range order|ladder/.test(text)
+      : /grid|range order|ladder|trading agent|trader/.test(text)
         ? "grid-trading"
         : /yield|earn|idle|lend|apy|return/.test(text)
           ? "yield-optimisation"
-          : /rebalance|liquidity position|lp position|range boundary/.test(text)
+          : /rebalance|liquidity position|\blp\b|range boundary|keep.*range/.test(
+                text,
+              )
             ? "rebalancing"
             : undefined;
   const asset = ["USDT", "USDC", "BNB", "ETH", "BTC"].find((candidate) =>
@@ -82,17 +86,30 @@ export function understandMarketplaceIntent(
   const protocol = ["Venus", "PancakeSwap", "Aave"].find((candidate) =>
     text.includes(candidate.toLowerCase()),
   );
-  const risk = /conservative|low risk|capital preserv/.test(text)
+  const risk = /conservative|low[-\s]risk|capital preserv/.test(text)
     ? "conservative"
     : /aggressive|high risk|maximi[sz]e/.test(text)
       ? "aggressive"
       : /balanced|moderate/.test(text)
         ? "balanced"
         : undefined;
+  const capitalMatch = text.match(/\b([\d,.]+)\s*(usdt|usdc|bnb|eth|btc)\b/i);
+  const capital =
+    capitalMatch === null
+      ? undefined
+      : {
+          amount: Number(capitalMatch[1]!.replaceAll(",", "")),
+          asset: capitalMatch[2]!.toUpperCase(),
+        };
+  const durationMatch = text.match(/\b(\d+)\s*(?:day|days|d)\b/i);
+  const durationDays =
+    durationMatch === null ? undefined : Number(durationMatch[1]);
   return {
     ...(category === undefined ? {} : { category }),
     ...(asset === undefined ? {} : { asset }),
     ...(protocol === undefined ? {} : { protocol }),
+    ...(capital === undefined ? {} : { capital }),
+    ...(durationDays === undefined ? {} : { durationDays }),
     ...(risk === undefined ? {} : { risk }),
   };
 }
@@ -102,13 +119,16 @@ export function intentSearchParams(input: string) {
   const params = new URLSearchParams();
   if (understood.category !== undefined)
     params.set("category", understood.category);
+  // Only query evidence-bearing fields. Capital, duration, and risk stay
+  // visible as user preferences until an offer models them structurally.
   const requirements = [
     understood.asset,
     understood.protocol,
-    understood.risk,
   ].filter((item): item is string => item !== undefined);
   if (requirements.length > 0)
     params.set("requirements", requirements.join(","));
+  if (understood.category === undefined && requirements.length === 0)
+    params.set("text", input.trim());
   params.set("intent", input.trim());
   return params;
 }

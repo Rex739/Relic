@@ -6,20 +6,34 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import {
-  labelForCategory,
   marketplacePriceLabel,
   productCapabilityLabel,
   relativeTime,
 } from "../../lib/marketplace";
 import { AgentAvatar } from "./agent-avatar";
 import { HireLink } from "./hire-link";
+import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 
-const concise = (description: string) =>
-  description.length > 150 ? `${description.slice(0, 147)}…` : description;
+const mobileDescriptionPreviewLength = 96;
+const desktopDescriptionPreviewLength = 220;
+const concise = (description: string, limit: number) =>
+  description.length > limit
+    ? `${description.slice(0, limit - 1)}…`
+    : description;
 
 export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string[]>([]);
+  const [expandedDescription, setExpandedDescription] =
+    useState<PublicMarketplaceAgent | null>(null);
   const toggle = (id: string) =>
     setSelected((current) =>
       current.includes(id)
@@ -33,28 +47,8 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
     <>
       <div className="agent-grid">
         {agents.map((agent) => (
-          <article className="agent-card" key={agent.id}>
-            <div className="agent-card-topline">
-              <span className="live-status">
-                <i /> Live
-              </span>
-              <span
-                className={
-                  agent.chainId === 97 ? "testnet-tag" : "network-label"
-                }
-              >
-                {agent.network}
-              </span>
-              <label className="compare-check">
-                <input
-                  type="checkbox"
-                  checked={selected.includes(agent.id)}
-                  onChange={() => toggle(agent.id)}
-                />
-                Compare
-              </label>
-            </div>
-            <Link href={`/agents/${agent.id}`} className="card-main-link">
+          <article className="agent-result-row" key={agent.id}>
+            <Link href={`/agents/${agent.id}`} className="agent-result-main">
               <AgentAvatar
                 id={agent.id}
                 imageUrl={agent.imageUrl}
@@ -62,59 +56,101 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
               />
               <div>
                 <h3>{agent.name}</h3>
-                <p className="category-label">
-                  {labelForCategory(agent.category)}
+                <p className="agent-result-provider">
+                  {productCapabilityLabel(agent.serviceCapability ?? agent.category)} · Agent #{agent.externalAgentId}
+                  <span className="agent-result-network">{agent.network}</span>
                 </p>
+                <p className="agent-description agent-description-desktop">
+                  {concise(agent.description, desktopDescriptionPreviewLength)}
+                </p>
+                <p className="agent-description agent-description-mobile">
+                  {concise(agent.description, mobileDescriptionPreviewLength)}
+                </p>
+                {agent.description.length > desktopDescriptionPreviewLength ? (
+                  <Button
+                    className="description-expand description-expand-desktop"
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setExpandedDescription(agent)}
+                  >
+                    View full description
+                  </Button>
+                ) : null}
+                {agent.description.length > mobileDescriptionPreviewLength ? (
+                  <Button
+                    className="description-expand description-expand-mobile"
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setExpandedDescription(agent)}
+                  >
+                    View full description
+                  </Button>
+                ) : null}
+                <div className="agent-card-tags">
+                  <span>Verified service</span>
+                  {agent.protocols.slice(0, 2).map((protocol) => (
+                    <span key={protocol}>{productCapabilityLabel(protocol)}</span>
+                  ))}
+                  {agent.hireable ? <span>Active offer</span> : null}
+                </div>
               </div>
             </Link>
-            <p className="agent-description">{concise(agent.description)}</p>
-            <div className="agent-card-tags">
-              {agent.protocols.slice(0, 3).map((protocol) => (
-                <span key={protocol}>{productCapabilityLabel(protocol)}</span>
-              ))}
-              {agent.interfaces.slice(0, 2).map((item) => (
-                <span key={item}>{productCapabilityLabel(item)}</span>
-              ))}
-            </div>
-            <dl className="agent-card-metrics">
+            <dl className="agent-card-metrics agent-result-metrics">
               <div>
-                <dt>Completion</dt>
+                <dt>Completed jobs</dt>
                 <dd>
                   {agent.completionRatePercent === null
                     ? "No job history yet"
-                    : `${agent.completionRatePercent}% Completion · ${agent.completedCommerceJobCount} of ${agent.eligibleAcceptedJobCount} jobs`}
+                    : `${agent.completedCommerceJobCount} completed · ${agent.completionRatePercent}%`}
                 </dd>
               </div>
               <div>
-                <dt>Last active</dt>
+                <dt>Verified</dt>
                 <dd>{relativeTime(agent.lastVerifiedAt)}</dd>
               </div>
               <div>
-                <dt>Service</dt>
+                <dt>Offer</dt>
                 <dd>{marketplacePriceLabel(agent.activeOfferPrice)}</dd>
               </div>
               <div>
                 <dt>Reviews</dt>
                 <dd>
                   {agent.reviewCount > 0
-                    ? `${agent.reviewCount} ${agent.reviewCount === 1 ? "review" : "reviews"} · ${agent.reviewGoodCount} good`
+                    ? `${agent.reviewGoodCount} good · ${agent.reviewBadCount} bad`
                     : "No verified reviews yet"}
                 </dd>
               </div>
             </dl>
-            <div className="card-footer">
-              <Link href={`/agents/${agent.id}`} className="secondary-button">
-                View agent
-              </Link>
+            <div className="agent-result-actions">
               {agent.hireable ? (
-                <HireLink
-                  href={`/agents/${agent.id}/hire`}
-                  className="primary-button"
-                >
-                  Hire
-                </HireLink>
+                <>
+                  <label className="compare-check">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(agent.id)}
+                      onChange={() => toggle(agent.id)}
+                    />
+                    Compare
+                  </label>
+                  <Link href={`/agents/${agent.id}`} className="secondary-button">
+                    Details
+                  </Link>
+                  <HireLink
+                    href={`/agents/${agent.id}/hire`}
+                    className="primary-button"
+                  >
+                    Hire
+                  </HireLink>
+                </>
               ) : (
-                <span className="unavailable-copy">Not currently hireable</span>
+                <>
+                  <span className="unavailable-copy">Not currently hireable</span>
+                  <Link href={`/agents/${agent.id}`} className="secondary-button">
+                    Details
+                  </Link>
+                </>
               )}
             </div>
           </article>
@@ -138,6 +174,36 @@ export function AgentGrid({ agents }: { agents: PublicMarketplaceAgent[] }) {
           </button>
         </div>
       ) : null}
+      <Dialog
+        open={expandedDescription !== null}
+        onOpenChange={(open) => {
+          if (!open) setExpandedDescription(null);
+        }}
+      >
+        {expandedDescription === null ? null : (
+          <DialogContent className="marketplace-description-dialog">
+            <DialogHeader>
+              <span className="overline">Service description</span>
+              <DialogTitle>
+                {productCapabilityLabel(
+                  expandedDescription.serviceCapability ?? expandedDescription.category,
+                )}
+              </DialogTitle>
+              <p className="agent-result-provider">
+                Provided by {expandedDescription.name}
+              </p>
+            </DialogHeader>
+            <DialogDescription>
+              {expandedDescription.description}
+            </DialogDescription>
+            <DialogFooter>
+              <Button type="button" onClick={() => setExpandedDescription(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </>
   );
 }

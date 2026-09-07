@@ -84,6 +84,12 @@ export interface PublicMarketplaceQuery {
   readonly interface?: string | undefined;
   readonly pricingKnown?: boolean | undefined;
   readonly hasReputation?: boolean | undefined;
+  readonly sort?:
+    | "relevance"
+    | "recently-verified"
+    | "completed-jobs"
+    | "completion-rate"
+    | undefined;
 }
 
 export interface PublicMarketplaceAgent {
@@ -99,6 +105,8 @@ export interface PublicMarketplaceAgent {
   registryAddress: string;
   externalAgentId: string;
   supplyType: "third_party" | "partner" | "relic_reference";
+  serviceName?: string;
+  serviceCapability?: string;
   capabilities: string[];
   protocols: string[];
   interfaces: string[];
@@ -111,6 +119,7 @@ export interface PublicMarketplaceAgent {
   } | null;
   hireable: boolean;
   verifiedInvocationCount: number;
+  weeklyHireCount?: number;
   eligibleAcceptedJobCount: number;
   completedCommerceJobCount: number;
   completionRatePercent: number | null;
