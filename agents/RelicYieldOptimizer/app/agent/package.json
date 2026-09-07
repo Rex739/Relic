@@ -11,7 +11,8 @@
     "verify-deployment": "pnpm build && node dist/verifyDeployment.js"
   },
   "dependencies": {
-    "@bnbagent/studio-runtime": "0.0.13"
+    "@bnbagent/studio-runtime": "0.0.13",
+    "viem": "^2.56.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

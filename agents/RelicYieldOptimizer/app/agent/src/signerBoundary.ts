@@ -4,6 +4,14 @@ import {
   validateYieldIntent,
 } from "./executionPolicy.js";
 import type { Address, VenusTestnetConfig } from "./networkConfig.js";
+import type { Abi } from "viem";
+
+export type PreparedContractCall = Readonly<{
+  address: Address;
+  abi: Abi;
+  functionName: string;
+  args: readonly unknown[];
+}>;
 
 export type PreparedTransaction = Readonly<{
   to: Address;
@@ -11,6 +19,11 @@ export type PreparedTransaction = Readonly<{
   value: bigint;
   /** Conservative maximum native-token fee supplied by the protocol adapter. */
   maximumFeeWei: bigint;
+  /**
+   * The ABI representation consumed by the bounded Studio wallet adapter.
+   * Test doubles may omit it, but the production adapter refuses raw calldata.
+   */
+  call?: PreparedContractCall;
 }>;
 
 export interface SessionTransactionSigner {

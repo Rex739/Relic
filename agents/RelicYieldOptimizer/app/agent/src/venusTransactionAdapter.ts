@@ -1,18 +1,36 @@
 import type { PreparedTransaction } from "./signerBoundary.js";
-import type { Address, VenusTestnetConfig } from "./networkConfig.js";
+import type { VenusTestnetConfig } from "./networkConfig.js";
+import { encodeFunctionData, type Abi } from "viem";
 
-const selector = {
-  approve: "095ea7b3",
-  mint: "a0712d68",
-  redeemUnderlying: "852a12e3",
-} as const;
+const erc20Abi = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const satisfies Abi;
 
-const word = (value: bigint): string => {
-  if (value < 0n || value >= 1n << 256n) throw new Error("Venus transaction amount is invalid");
-  return value.toString(16).padStart(64, "0");
-};
-
-const addressWord = (value: Address): string => value.slice(2).toLowerCase().padStart(64, "0");
+const vTokenAbi = [
+  {
+    type: "function",
+    name: "mint",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "mintAmount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "redeemUnderlying",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "redeemAmount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const satisfies Abi;
 
 function amount(amountBaseUnits: bigint): bigint {
   if (amountBaseUnits <= 0n) throw new Error("Venus transaction amount must be positive");
@@ -28,29 +46,35 @@ export class VenusTransactionAdapter {
   public constructor(private readonly config: VenusTestnetConfig) {}
 
   approveExact(amountBaseUnits: bigint, maximumFeeWei: bigint): PreparedTransaction {
+    const args = [this.config.venusUsdtVToken, amount(amountBaseUnits)] as const;
     return {
       to: this.config.usdt,
-      data: `0x${selector.approve}${addressWord(this.config.venusUsdtVToken)}${word(amount(amountBaseUnits))}`,
+      data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args }),
       value: 0n,
       maximumFeeWei,
+      call: { address: this.config.usdt, abi: erc20Abi, functionName: "approve", args },
     };
   }
 
   supply(amountBaseUnits: bigint, maximumFeeWei: bigint): PreparedTransaction {
+    const args = [amount(amountBaseUnits)] as const;
     return {
       to: this.config.venusUsdtVToken,
-      data: `0x${selector.mint}${word(amount(amountBaseUnits))}`,
+      data: encodeFunctionData({ abi: vTokenAbi, functionName: "mint", args }),
       value: 0n,
       maximumFeeWei,
+      call: { address: this.config.venusUsdtVToken, abi: vTokenAbi, functionName: "mint", args },
     };
   }
 
   withdraw(amountBaseUnits: bigint, maximumFeeWei: bigint): PreparedTransaction {
+    const args = [amount(amountBaseUnits)] as const;
     return {
       to: this.config.venusUsdtVToken,
-      data: `0x${selector.redeemUnderlying}${word(amount(amountBaseUnits))}`,
+      data: encodeFunctionData({ abi: vTokenAbi, functionName: "redeemUnderlying", args }),
       value: 0n,
       maximumFeeWei,
+      call: { address: this.config.venusUsdtVToken, abi: vTokenAbi, functionName: "redeemUnderlying", args },
     };
   }
 }
