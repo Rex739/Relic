@@ -9,7 +9,7 @@ an earlier phase is incomplete.
 | 1 | Network configuration and deterministic policy | No address defaults; invalid intent cannot reach signing | Complete |
 | 2 | Live deployment verification | `verify-deployment` validates chain, bytecode, token, vToken and Comptroller relation against the injected runtime configuration | Ready for operator validation |
 | 3 | Durable job state | Idempotency state machine and atomic Postgres repository/migration are implemented; Layer A must inject this store before it may enable readiness | Ready for runtime wiring |
-| 4 | Bounded-session signer integration | Signer cannot exceed Relic buyer mandate | Not started |
+| 4 | Bounded-session signer integration | Code-only signing boundary validates mandate, session account, chain, target, gas reserve, and simulation before broadcast; runtime adapter remains to be connected to the scoped session | In progress |
 | 5 | Venus transaction adapter | Simulate, approve exact amount, supply, withdraw, reconcile | Not started |
 | 6 | Private Layer A runtime | Bearer-only routes, `/health`, `/readiness`, readiness runs phases 1–2 | Not started |
 | 7 | Public Layer B gateway | `/apex`, agent card, skill allowlist, internal forwarding | Complete |
