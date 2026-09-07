@@ -10,7 +10,19 @@ import {
   assertActivationLifecycleTransition,
   assertSubmissionTransition,
 } from "@relic/domain";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type { RelicDatabase } from "./client.js";
 import {
@@ -181,7 +193,11 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
   async setSubmissionMarketplaceCategory(input: {
     submissionId: string;
     principalId: string;
-    category: "rebalancing" | "grid-trading" | "yield-optimisation" | "health-factor-monitoring";
+    category:
+      | "rebalancing"
+      | "grid-trading"
+      | "yield-optimisation"
+      | "health-factor-monitoring";
     selectedAt: Date;
   }) {
     return this.database.transaction(async (transaction) => {
@@ -564,6 +580,9 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
         availability: "unknown",
         verificationLevel: "DECLARED",
         lastVerifiedAt: null,
+        // Endpoint changes are automatically prioritised by the reconciler;
+        // sellers should never need to request a second check manually.
+        verificationRequestedAt: input.updatedAt,
         updatedAt: input.updatedAt,
       })
       .where(
@@ -586,12 +605,20 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     const retryAt = new Date(input.requestedAt.getTime() - 5 * 60 * 1_000);
     const [service] = await this.database
       .update(marketplaceServices)
-      .set({ verificationRequestedAt: input.requestedAt, updatedAt: input.requestedAt })
-      .where(and(
-        eq(marketplaceServices.id, input.serviceId),
-        eq(marketplaceServices.agentId, input.agentId),
-        or(isNull(marketplaceServices.verificationRequestedAt), lt(marketplaceServices.verificationRequestedAt, retryAt)),
-      ))
+      .set({
+        verificationRequestedAt: input.requestedAt,
+        updatedAt: input.requestedAt,
+      })
+      .where(
+        and(
+          eq(marketplaceServices.id, input.serviceId),
+          eq(marketplaceServices.agentId, input.agentId),
+          or(
+            isNull(marketplaceServices.verificationRequestedAt),
+            lt(marketplaceServices.verificationRequestedAt, retryAt),
+          ),
+        ),
+      )
       .returning({ id: marketplaceServices.id });
     return { queued: service !== undefined };
   }
@@ -603,11 +630,19 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     const retryAt = new Date(input.requestedAt.getTime() - 5 * 60 * 1_000);
     const [service] = await this.database
       .update(marketplaceServices)
-      .set({ verificationRequestedAt: input.requestedAt, updatedAt: input.requestedAt })
-      .where(and(
-        eq(marketplaceServices.id, input.serviceId),
-        or(isNull(marketplaceServices.verificationRequestedAt), lt(marketplaceServices.verificationRequestedAt, retryAt)),
-      ))
+      .set({
+        verificationRequestedAt: input.requestedAt,
+        updatedAt: input.requestedAt,
+      })
+      .where(
+        and(
+          eq(marketplaceServices.id, input.serviceId),
+          or(
+            isNull(marketplaceServices.verificationRequestedAt),
+            lt(marketplaceServices.verificationRequestedAt, retryAt),
+          ),
+        ),
+      )
       .returning({ id: marketplaceServices.id });
     return { queued: service !== undefined };
   }
@@ -640,13 +675,17 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
               error: serviceVerificationObservations.error,
             })
             .from(serviceVerificationObservations)
-            .where(inArray(serviceVerificationObservations.serviceId, serviceIds))
+            .where(
+              inArray(serviceVerificationObservations.serviceId, serviceIds),
+            )
             .orderBy(desc(serviceVerificationObservations.observedAt));
     const latestByService = new Map<string, (typeof observations)[number]>();
     for (const observation of observations)
       if (!latestByService.has(observation.serviceId))
         latestByService.set(observation.serviceId, observation);
-    const operationResult = (value: string): ServiceVerificationOperation["latestResult"] =>
+    const operationResult = (
+      value: string,
+    ): ServiceVerificationOperation["latestResult"] =>
       value === "passed" || value === "failed" || value === "blocked"
         ? value
         : null;
@@ -660,19 +699,20 @@ export class DrizzleOnboardingStore implements OnboardingRepository {
     return rows.map((row): ServiceVerificationOperation => {
       const latest = latestByService.get(row.service.id);
       return {
-      serviceId: row.service.id,
-      agentId: row.agent.id,
-      agentName: row.agent.name ?? `Agent #${row.identity.externalAgentId}`,
-      externalAgentId: row.identity.externalAgentId,
-      endpoint: row.service.endpoint,
-      availability: row.service.availability,
-      verificationLevel: row.service.verificationLevel,
-      lastVerifiedAt: row.service.lastVerifiedAt,
-      verificationRequestedAt: row.service.verificationRequestedAt,
-      latestResult: latest === undefined ? null : operationResult(latest.result),
-      latestObservedAt: latest?.observedAt ?? null,
-      latestErrorMessage: errorMessage(latest?.error),
-    };
+        serviceId: row.service.id,
+        agentId: row.agent.id,
+        agentName: row.agent.name ?? `Agent #${row.identity.externalAgentId}`,
+        externalAgentId: row.identity.externalAgentId,
+        endpoint: row.service.endpoint,
+        availability: row.service.availability,
+        verificationLevel: row.service.verificationLevel,
+        lastVerifiedAt: row.service.lastVerifiedAt,
+        verificationRequestedAt: row.service.verificationRequestedAt,
+        latestResult:
+          latest === undefined ? null : operationResult(latest.result),
+        latestObservedAt: latest?.observedAt ?? null,
+        latestErrorMessage: errorMessage(latest?.error),
+      };
     });
   }
 

@@ -16,7 +16,6 @@ import {
   transitionOperatorOffer,
   updateOperatorAgentProfile,
   updateOperatorServiceEndpoint,
-  requestOperatorServiceVerification,
   requestInternalServiceVerification,
   selectOperatorSubmissionCategory,
 } from "../lib/commerce";
@@ -125,24 +124,6 @@ export async function updateSellerServiceEndpointAction(
         error instanceof Error
           ? error.message
           : "Unable to update the service endpoint. Try again.",
-    };
-  }
-}
-
-export async function requestSellerServiceVerificationAction(
-  agentId: string,
-  serviceId: string,
-): Promise<CreateOfferActionResult & { queued?: boolean }> {
-  try {
-    const result = await requestOperatorServiceVerification(agentId, serviceId);
-    revalidatePath("/account/my-listings");
-    return { error: null, queued: result.queued };
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unable to request verification. Try again.",
     };
   }
 }

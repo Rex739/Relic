@@ -29,7 +29,6 @@ import {
   reviseOfferAction,
   transitionOfferAction,
   updateSellerProfileAction,
-  requestSellerServiceVerificationAction,
   selectSellerCategoryAction,
   updateSellerServiceEndpointAction,
 } from "../../operator-actions";
@@ -366,17 +365,6 @@ export default async function OffersPage({
                     selectedAgent.serviceId === null
                       ? undefined
                       : updateSellerServiceEndpointAction.bind(
-                          null,
-                          selectedAgent.agentId,
-                          selectedAgent.serviceId,
-                        )
-                  }
-                  verificationAction={
-                    selectedAgent.serviceId === null ||
-                    selectedAgent.requirements.service.state === "complete" ||
-                    selectedAgent.requirements.verification.state === "complete"
-                      ? undefined
-                      : requestSellerServiceVerificationAction.bind(
                           null,
                           selectedAgent.agentId,
                           selectedAgent.serviceId,
