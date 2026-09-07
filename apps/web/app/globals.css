@@ -2150,6 +2150,28 @@ summary:focus-visible {
 .relationship-actions .danger-link {
   color: #e9acac;
 }
+.activation-control {
+  display: grid;
+  gap: 8px;
+}
+.activation-failure {
+  display: grid;
+  gap: 3px;
+  max-width: 560px;
+  padding: 9px 10px;
+  border: 1px solid #7b423d;
+  border-radius: 5px;
+  color: #f1c7c2;
+  font-size: 12px;
+}
+.activation-failure span,
+.activation-failure small {
+  color: var(--faint);
+}
+.activation-failure summary {
+  cursor: pointer;
+  color: var(--faint);
+}
 .order-contract {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

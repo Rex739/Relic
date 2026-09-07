@@ -38,10 +38,17 @@ export class ServicePublicationVerifier {
       throw new Error("The public service endpoint is not currently available");
 
     const protocol = selected.service.interfaceProtocol.toLowerCase();
+    // The marketplace stores the resolved A2A invocation URL for execution,
+    // while publication negotiation must begin at the public card URL. The
+    // card then supplies the invocation URL and proves it is same-host HTTPS.
+    const negotiationEndpoint =
+      protocol === "a2a" && selected.service.verificationUrl !== null
+        ? selected.service.verificationUrl
+        : selected.service.endpoint;
     const preflightId = randomUUID();
     try {
       const negotiated = await negotiateOfferBoundService({
-        endpoint: selected.service.endpoint,
+        endpoint: negotiationEndpoint,
         interfaceProtocol: protocol,
         // There is no buyer agreement during publication. This stable UUID is
         // only retained for provider compatibility; the explicit purpose flag
