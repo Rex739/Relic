@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   completionRateStats,
   sellerReadinessProjection,
+  sellerMarketplaceProfileInputSchema,
+  sellerProfileImageMaxBytes,
   type SellerReadinessFacts,
 } from "../src/marketplace.js";
 
@@ -74,6 +76,19 @@ const readyFacts: SellerReadinessFacts = {
 };
 
 describe("seller marketplace readiness", () => {
+  it("rejects seller-selected profile images larger than 2 MiB", () => {
+    const tooLargeImage = `data:image/jpeg;base64,${Buffer.alloc(
+      sellerProfileImageMaxBytes + 1,
+    ).toString("base64")}`;
+
+    expect(() =>
+      sellerMarketplaceProfileInputSchema.parse({
+        description: "A complete marketplace profile description.",
+        imageUrl: tooLargeImage,
+      }),
+    ).toThrow("Profile image must be 2 MB or smaller");
+  });
+
   it("projects a fully eligible agent as public and hireable", () => {
     expect(sellerReadinessProjection(readyFacts)).toMatchObject({
       marketplaceStatus: "PUBLIC",

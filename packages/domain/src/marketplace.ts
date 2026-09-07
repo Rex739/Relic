@@ -226,6 +226,17 @@ export interface PublicCategoryCount {
 
 export type SellerReadinessState = "complete" | "attention" | "blocked";
 
+/** Maximum decoded bytes accepted for a seller-selected profile image. */
+export const sellerProfileImageMaxBytes = 2 * 1024 * 1024;
+
+const jpegDataUrlPrefix = "data:image/jpeg;base64,";
+
+const base64DecodedByteLength = (value: string) => {
+  const encoded = value.slice(jpegDataUrlPrefix.length);
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
+};
+
 export const sellerMarketplaceProfileInputSchema = z
   .object({
     description: z.string().trim().min(20).max(2_000),
@@ -238,7 +249,11 @@ export const sellerMarketplaceProfileInputSchema = z
             /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/,
             "Profile image must be a JPEG upload",
           )
-          .max(2_800_000),
+          .refine(
+            (value) =>
+              base64DecodedByteLength(value) <= sellerProfileImageMaxBytes,
+            "Profile image must be 2 MB or smaller",
+          ),
         z.literal(""),
       ])
       .transform((value) => (value === "" ? null : value)),

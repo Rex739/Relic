@@ -4,6 +4,8 @@ import { ImageIcon, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState, useTransition } from "react";
 
+import { sellerProfileImageMaxBytes } from "@relic/domain";
+
 import { Button } from "../../components/ui/button";
 import { labelForCategory } from "../../lib/marketplace";
 
@@ -17,8 +19,14 @@ type SellerProfileAgent = {
   category: string;
 };
 
-const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 const PROFILE_IMAGE_SIZE = 1024;
+const JPEG_DATA_URL_PREFIX = "data:image/jpeg;base64,";
+
+const dataUrlByteLength = (value: string) => {
+  const encoded = value.slice(JPEG_DATA_URL_PREFIX.length);
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
+};
 
 const cropProfileImage = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -69,11 +77,9 @@ export function SellerProfileEditor({
   action: (formData: FormData) => Promise<{ error: string | null }>;
   offerAction?: ReactNode;
   serviceAction?:
-    | ((formData: FormData) => Promise<{ error: string | null }>)
-    | undefined;
+    ((formData: FormData) => Promise<{ error: string | null }>) | undefined;
   verificationAction?:
-    | (() => Promise<{ error: string | null; queued?: boolean }>)
-    | undefined;
+    (() => Promise<{ error: string | null; queued?: boolean }>) | undefined;
 }) {
   const [pending, startTransition] = useTransition();
   const [imageUrl, setImageUrl] = useState(agent.imageUrl ?? "");
@@ -89,7 +95,9 @@ export function SellerProfileEditor({
   const [error, setError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
+  const [verificationMessage, setVerificationMessage] = useState<string | null>(
+    null,
+  );
   const hasChanges =
     imageUrl !== savedImageUrl ||
     description !== savedDescription ||
@@ -125,7 +133,10 @@ export function SellerProfileEditor({
                 return;
               }
             }
-            if (imageUrl !== savedImageUrl || description !== savedDescription) {
+            if (
+              imageUrl !== savedImageUrl ||
+              description !== savedDescription
+            ) {
               const result = await action(formData);
               if (result.error !== null) {
                 setError(result.error);
@@ -158,13 +169,20 @@ export function SellerProfileEditor({
                 const file = event.target.files?.[0];
                 setImageError(null);
                 if (file === undefined) return;
-                if (file.size > MAX_IMAGE_SIZE) {
+                if (file.size > sellerProfileImageMaxBytes) {
                   setImageError("Choose an image smaller than 2 MB.");
                   event.target.value = "";
                   return;
                 }
                 void cropProfileImage(file)
-                  .then((croppedImage) => setImageUrl(croppedImage))
+                  .then((croppedImage) => {
+                    if (
+                      dataUrlByteLength(croppedImage) >
+                      sellerProfileImageMaxBytes
+                    )
+                      throw new Error("Choose an image smaller than 2 MB.");
+                    setImageUrl(croppedImage);
+                  })
                   .catch((caught) =>
                     setImageError(
                       caught instanceof Error
