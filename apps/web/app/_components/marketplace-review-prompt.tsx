@@ -4,7 +4,7 @@ import type {
   MarketplaceReviewRole,
   MarketplaceReviewSentiment,
 } from "@relic/domain";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const tagLabel = (tag: string) =>
   tag === "didnt-follow-instructions"
@@ -31,8 +31,9 @@ export function MarketplaceReviewPrompt({
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     void fetch(
@@ -49,7 +50,14 @@ export function MarketplaceReviewPrompt({
       .finally(() => setChecked(true));
   }, [activationId, reviewerRole]);
 
-  if (!checked || dismissed || (!eligible && !submitted)) return null;
+  useEffect(() => {
+    const element = dialog.current;
+    if (element === null) return;
+    if (open && !element.open) element.showModal();
+    if (!open && element.open) element.close();
+  }, [open]);
+
+  if (!checked || (!eligible && !submitted)) return null;
   if (submitted)
     return (
       <section className="review-prompt success" aria-live="polite">
@@ -85,6 +93,7 @@ export function MarketplaceReviewPrompt({
             ? payload.error
             : (payload.error?.message ?? "Review could not be submitted"),
         );
+      setOpen(false);
       setSubmitted(true);
       setEligible(false);
     } catch (cause) {
@@ -99,82 +108,116 @@ export function MarketplaceReviewPrompt({
   };
 
   return (
-    <section className="review-prompt">
-      <span className="overline">Verified review</span>
-      <h2>
-        {reviewerRole === "BUYER"
-          ? "How was your experience with this agent?"
-          : "How was your experience with this buyer?"}
-      </h2>
-      <p>
-        This review will be linked to the completed job. No wallet signature is
-        required.
-      </p>
-      <div
-        className="review-sentiment"
-        role="group"
-        aria-label="Review sentiment"
-      >
-        {(["GOOD", "BAD"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            className={sentiment === value ? "selected" : ""}
-            onClick={() => {
-              setSentiment(value);
-              setTags([]);
-            }}
-          >
-            {value === "GOOD" ? "Good" : "Bad"}
-          </button>
-        ))}
+    <section className="review-prompt review-prompt-cta">
+      <div>
+        <span className="overline">Verified review</span>
+        <h2>
+          {reviewerRole === "BUYER"
+            ? "How did it go?"
+            : "How did it go with this buyer?"}
+        </h2>
+        <p>
+          This review will be linked to the completed job. No wallet signature
+          is required.
+        </p>
       </div>
-      {sentiment === null ? null : (
-        <div className="review-tags">
-          {availableTags.map((tag) => (
-            <label key={tag}>
-              <input
-                type="checkbox"
-                checked={tags.includes(tag)}
-                onChange={() =>
-                  setTags((current) =>
-                    current.includes(tag)
-                      ? current.filter((item) => item !== tag)
-                      : [...current, tag],
-                  )
-                }
-              />
-              {tagLabel(tag)}
-            </label>
+      <button type="button" onClick={() => setOpen(true)}>
+        Leave a verified review
+      </button>
+      <dialog
+        ref={dialog}
+        className="review-dialog"
+        aria-labelledby="review-dialog-heading"
+        onClose={() => setOpen(false)}
+      >
+        <div className="review-dialog-header">
+          <div>
+            <span className="overline">Verified review</span>
+            <h2 id="review-dialog-heading">
+              {reviewerRole === "BUYER"
+                ? "How did it go?"
+                : "How did it go with this buyer?"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            className="secondary-button"
+            aria-label="Close review"
+            onClick={() => setOpen(false)}
+          >
+            Close
+          </button>
+        </div>
+        <p>
+          This review will be linked to the completed job. No wallet signature
+          is required.
+        </p>
+        <div
+          className="review-sentiment"
+          role="group"
+          aria-label="Review sentiment"
+        >
+          {(["GOOD", "BAD"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={sentiment === value ? "selected" : ""}
+              onClick={() => {
+                setSentiment(value);
+                setTags([]);
+              }}
+            >
+              {value === "GOOD" ? "Good" : "Bad"}
+            </button>
           ))}
         </div>
-      )}
-      <label className="review-message">
-        Write a review (optional)
-        <textarea
-          value={message}
-          maxLength={1_000}
-          placeholder="Share more about your experience..."
-          onChange={(event) => setMessage(event.target.value)}
-        />
-      </label>
-      <div className="review-actions">
-        <button
-          type="button"
-          disabled={pending || sentiment === null}
-          onClick={submit}
-        >
-          {pending ? "Submitting review…" : "Submit review"}
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => setDismissed(true)}
-        >
-          Not now
-        </button>
-      </div>
-      {error === null ? null : <p className="review-error">{error}</p>}
+        {sentiment === null ? null : (
+          <div className="review-tags">
+            {availableTags.map((tag) => (
+              <label key={tag}>
+                <input
+                  type="checkbox"
+                  checked={tags.includes(tag)}
+                  onChange={() =>
+                    setTags((current) =>
+                      current.includes(tag)
+                        ? current.filter((item) => item !== tag)
+                        : [...current, tag],
+                    )
+                  }
+                />
+                {tagLabel(tag)}
+              </label>
+            ))}
+          </div>
+        )}
+        <label className="review-message">
+          Add details (optional)
+          <textarea
+            value={message}
+            maxLength={1_000}
+            placeholder="Share more about your experience..."
+            onChange={(event) => setMessage(event.target.value)}
+          />
+        </label>
+        <div className="review-actions">
+          <button
+            type="button"
+            disabled={pending || sentiment === null}
+            onClick={submit}
+          >
+            {pending ? "Submitting review…" : "Submit review"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setOpen(false)}
+          >
+            Not now
+          </button>
+        </div>
+        {error === null ? null : <p className="review-error">{error}</p>}
+      </dialog>
     </section>
   );
 }

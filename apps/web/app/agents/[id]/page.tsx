@@ -1,12 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  ChevronDown,
-  MessageCircleOff,
-  ThumbsDown,
-  ThumbsUp,
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { commercePriceLabel } from "../../../lib/commerce-display";
 import {
@@ -20,6 +15,7 @@ import {
 } from "../../../lib/marketplace";
 import { activeOffers } from "../../../lib/commerce";
 import { AgentAvatar } from "../../_components/agent-avatar";
+import { AgentVerifiedReviews } from "../../_components/agent-verified-reviews";
 import { AgentDescription } from "../../_components/agent-description-dialog";
 import { QuickServiceCheckout } from "../../_components/quick-service-checkout";
 import { OnChainDataDialog } from "../../_components/on-chain-data-dialog";
@@ -268,8 +264,8 @@ export default async function AgentIntelligencePage({
                         <div>
                           <span>Requirements</span>
                           <p>
-                            {serviceWorkflowFor(agent.category).requirements
-                              .filter((field) => field.required)
+                            {serviceWorkflowFor(agent.category)
+                              .requirements.filter((field) => field.required)
                               .map((field) => field.label)
                               .join(" · ") || "Task details"}
                           </p>
@@ -277,8 +273,8 @@ export default async function AgentIntelligencePage({
                         <div>
                           <span>Deliverables</span>
                           <p>
-                            {serviceWorkflowFor(agent.category).deliverables
-                              .slice(0, 2)
+                            {serviceWorkflowFor(agent.category)
+                              .deliverables.slice(0, 2)
                               .join(" · ")}
                           </p>
                         </div>
@@ -306,7 +302,11 @@ export default async function AgentIntelligencePage({
                         offerId={offer.id}
                         chainId={offer.version.chainId}
                         price={commercePriceLabel(offer.version.price)}
-                        network={offer.version.chainId === 97 ? "BSC Testnet" : "BNB Chain"}
+                        network={
+                          offer.version.chainId === 97
+                            ? "BSC Testnet"
+                            : "BNB Chain"
+                        }
                         workflow={serviceWorkflowFor(agent.category)}
                       />
                     </div>
@@ -319,70 +319,12 @@ export default async function AgentIntelligencePage({
           <div className="profile-secondary-grid">
             <section className="profile-secondary-panel">
               <span className="overline">Reviews</span>
-              <div
-                className={
-                  agent.reviews.length > 0
-                    ? "marketplace-reviews"
-                    : "marketplace-reviews-empty"
-                }
-              >
-                {agent.reviewCount > 0 ? (
-                  <span className="review-summary">
-                    <span>
-                      {agent.reviewCount}{" "}
-                      {agent.reviewCount === 1 ? "Review" : "Reviews"}
-                      {" · "}
-                      {agent.reviewGoodCount} good · {agent.reviewBadCount} bad
-                    </span>
-                  </span>
-                ) : null}
-                {agent.reviews.length === 0 ? (
-                  <div className="empty-review-state">
-                    <MessageCircleOff aria-hidden="true" size={24} />
-                    <div>
-                      <b>No reviews yet</b>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="review-list">
-                    {agent.reviews.map((review) => (
-                      <article key={review.id}>
-                        <span className="review-avatar" aria-hidden="true">
-                          {review.reviewerRole === "BUYER" ? "B" : "A"}
-                        </span>
-                        <div className="review-content">
-                          <div className="review-meta">
-                            <b>
-                              {review.reviewerRole === "BUYER"
-                                ? "Marketplace buyer"
-                                : "Marketplace agent"}
-                            </b>
-                            <time>{relativeTime(review.createdAt)}</time>
-                          </div>
-                          {review.tags.length > 0 ? (
-                            <div className="review-tags">
-                              {review.tags.map((tag) => (
-                                <span key={tag}>
-                                  {review.sentiment === "GOOD" ? (
-                                    <ThumbsUp aria-hidden="true" size={13} />
-                                  ) : (
-                                    <ThumbsDown aria-hidden="true" size={13} />
-                                  )}
-                                  {productCapabilityLabel(tag)}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                          {review.message === null ? null : (
-                            <p>{review.message}</p>
-                          )}
-                          <small>Verified marketplace job</small>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <AgentVerifiedReviews
+                reviews={agent.reviews}
+                total={agent.reviewCount}
+                good={agent.reviewGoodCount}
+                bad={agent.reviewBadCount}
+              />
             </section>
             {agent.outcomes.length > 0 ? (
               <section className="profile-secondary-panel">

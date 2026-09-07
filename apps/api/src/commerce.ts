@@ -503,7 +503,7 @@ export class CommerceApplicationService {
         `review_${eligibility.reason}`,
         eligibility.reason === "already_reviewed"
           ? "This marketplace job has already been reviewed by this party"
-          : "Only a completed genuine marketplace job can be reviewed by its buyer or agent",
+          : "Only a successfully completed marketplace job can be reviewed by its buyer or agent",
       );
     return this.store.createMarketplaceReview({
       activationId: eligibility.activationId,
@@ -521,7 +521,7 @@ export class CommerceApplicationService {
       tags: [...new Set(input.tags)],
       message: input.message?.trim() || null,
       eligibilityProvenance: {
-        rule: "completed_user_commerce_v1",
+        rule: "successful_completed_user_commerce_v2",
         activationId: eligibility.activationId,
         agreementId: eligibility.agreementId,
         marketplaceHistoryEligible: true,

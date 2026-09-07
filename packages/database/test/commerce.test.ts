@@ -1516,7 +1516,7 @@ describe("production commerce persistence", () => {
     ).resolves.toMatchObject({ eligible: false, reason: "already_reviewed" });
   });
 
-  it("rejects internal, incomplete, unrelated, and already-reviewed review eligibility", async () => {
+  it("rejects internal, incomplete, unrelated, and terminal review eligibility", async () => {
     const fixture = await completedMarketplaceActivation();
     await expect(
       store.marketplaceReviewEligibility({
@@ -1541,7 +1541,21 @@ describe("production commerce persistence", () => {
       reason: "reviewer_not_a_party",
     });
     await database.exec(
-      `update activations set marketplace_history_eligible = false where id = '${fixture.activation.id}'`,
+      `update activations set purpose = 'VERIFICATION' where id = '${fixture.activation.id}'`,
+    );
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: buyer,
+        walletAddress: buyerAddress,
+        reviewerRole: "BUYER",
+      }),
+    ).resolves.toMatchObject({
+      eligible: false,
+      reason: "not_marketplace_work",
+    });
+    await database.exec(
+      `update activations set purpose = 'USER_COMMERCE', marketplace_history_eligible = false where id = '${fixture.activation.id}'`,
     );
     await expect(
       store.marketplaceReviewEligibility({
@@ -1565,6 +1579,76 @@ describe("production commerce persistence", () => {
         reviewerRole: "BUYER",
       }),
     ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+
+    // Funding, running work, and an intermediate delivery are not the end of
+    // a hire. A review unlocks only after durable successful completion.
+    for (const [lifecycleState, status] of [
+      ["ONCHAIN_CREATED", "JOB_CREATED"],
+      ["ACTIVE", "FUNDED"],
+      ["DELIVERED", "SUBMITTED"],
+    ] as const) {
+      await database.exec(`
+        update activations set lifecycle_state = '${lifecycleState}', status = '${status}'
+        where id = '${fixture.activation.id}';
+        update marketplace_outcomes set commerce_successful = true
+        where activation_id = '${fixture.activation.id}';
+      `);
+      await expect(
+        store.marketplaceReviewEligibility({
+          activationId: fixture.activation.id,
+          principalId: buyer,
+          walletAddress: buyerAddress,
+          reviewerRole: "BUYER",
+        }),
+      ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+    }
+
+    for (const [lifecycleState, status] of [
+      ["FAILED", "FAILED"],
+      ["REJECTED", "REJECTED"],
+      ["REFUNDED", "REJECTED"],
+    ] as const) {
+      await database.exec(
+        `update activations set lifecycle_state = '${lifecycleState}', status = '${status}' where id = '${fixture.activation.id}'`,
+      );
+      await expect(
+        store.marketplaceReviewEligibility({
+          activationId: fixture.activation.id,
+          principalId: buyer,
+          walletAddress: buyerAddress,
+          reviewerRole: "BUYER",
+        }),
+      ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+    }
+
+    await database.exec(`
+      update activations set lifecycle_state = 'COMPLETED', status = 'COMPLETED'
+      where id = '${fixture.activation.id}';
+      update commerce_agreements set status = 'CANCELLED'
+      where id = '${fixture.agreement.id}';
+    `);
+    await expect(
+      store.marketplaceReviewEligibility({
+        activationId: fixture.activation.id,
+        principalId: buyer,
+        walletAddress: buyerAddress,
+        reviewerRole: "BUYER",
+      }),
+    ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+
+    for (const status of ["EXPIRED", "FAILED"] as const) {
+      await database.exec(
+        `update commerce_agreements set status = '${status}' where id = '${fixture.agreement.id}'`,
+      );
+      await expect(
+        store.marketplaceReviewEligibility({
+          activationId: fixture.activation.id,
+          principalId: buyer,
+          walletAddress: buyerAddress,
+          reviewerRole: "BUYER",
+        }),
+      ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+    }
     await database.exec(
       `update activations set lifecycle_state = 'COMPLETED', status = 'COMPLETED' where id = '${fixture.activation.id}';
        update marketplace_outcomes set commerce_successful = false where activation_id = '${fixture.activation.id}'`,
