@@ -5,6 +5,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
+    "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "test": "pnpm build && node --test dist/*.test.js",
     "verify-deployment": "pnpm build && node dist/verifyDeployment.js"
