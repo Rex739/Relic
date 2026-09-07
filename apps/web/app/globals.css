@@ -2151,7 +2151,9 @@ summary:focus-visible {
   color: #e9acac;
 }
 .activation-control {
-  display: contents;
+  display: grid;
+  gap: 8px;
+  align-self: start;
 }
 .offer-editor-actions {
   display: flex;
@@ -5883,6 +5885,26 @@ summary:focus-visible {
   color: var(--muted);
   font-size: 10px;
 }
+.offer-discard .danger-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 42%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 160ms ease, text-decoration-color 160ms ease;
+}
+.offer-discard .danger-link:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+.offer-discard .danger-link:focus-visible {
+  outline: 2px solid #f0b6aa;
+  outline-offset: 3px;
+}
 .offer-card > details > summary {
   width: fit-content;
   color: var(--ink);
@@ -6363,6 +6385,12 @@ summary:focus-visible {
   }
   .seller-profile-form {
     grid-template-columns: 1fr;
+  }
+  .offer-profile-form {
+    gap: 20px;
+  }
+  .offer-profile-form .seller-profile-fields {
+    gap: 16px;
   }
   .seller-profile-image-preview {
     width: 88px;

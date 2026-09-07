@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { Button } from "../../components/ui/button";
 const failureCopy = (error: string) => {
   if (error.includes("Provider card request failed"))
     return {
@@ -33,15 +34,16 @@ export function ActivateOfferButton({
 
   return (
     <div className="activation-control">
-      <button
+      <Button
         disabled={pending}
         onClick={() =>
           startTransition(async () => setError((await action()).error))
         }
         type="button"
+        variant="outline"
       >
         {pending ? "Checking…" : "Activate"}
-      </button>
+      </Button>
       {failure === null ? null : (
         <div className="activation-failure" role="alert">
           <strong>{failure.title}</strong>
