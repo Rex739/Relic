@@ -3,6 +3,7 @@
 import { Tag } from "lucide-react";
 import { useState, useTransition } from "react";
 
+import { ActivateOfferButton } from "./activate-offer-button";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 
@@ -25,9 +26,11 @@ type EditableOffer = {
 
 export function OfferDetailsEditor({
   action,
+  activateAction,
   offer,
 }: {
   action: (formData: FormData) => Promise<void>;
+  activateAction: (() => Promise<{ error: string | null }>) | undefined;
   offer: EditableOffer;
 }) {
   const [pending, startTransition] = useTransition();
@@ -121,9 +124,14 @@ export function OfferDetailsEditor({
             />
             <small>Include any important boundaries or exclusions.</small>
           </label>
-          <Button disabled={pending || !hasChanges} type="submit">
-            {pending ? "Saving…" : "Save changes"}
-          </Button>
+          <div className="offer-editor-actions">
+            <Button disabled={pending || !hasChanges} type="submit">
+              {pending ? "Saving…" : "Save changes"}
+            </Button>
+            {activateAction === undefined ? null : (
+              <ActivateOfferButton action={activateAction} />
+            )}
+          </div>
           {error === null ? null : <small role="alert">{error}</small>}
         </div>
       </form>

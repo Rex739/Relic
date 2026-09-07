@@ -35,7 +35,6 @@ import {
 } from "../../operator-actions";
 import { CreateOfferDialog } from "../../_components/create-offer-dialog";
 import { AccountSidebar } from "../../_components/account-sidebar";
-import { ActivateOfferButton } from "../../_components/activate-offer-button";
 import { OfferDetailsEditor } from "../../_components/offer-details-editor";
 import { SellerProfileEditor } from "../../_components/seller-profile-editor";
 
@@ -448,6 +447,11 @@ export default async function OffersPage({
                     <div className="offer-card-body">
                       <OfferDetailsEditor
                         action={reviseOfferAction.bind(null, offer.id)}
+                        activateAction={
+                          offer.status === "DRAFT" || offer.status === "PAUSED"
+                            ? activateOfferAction.bind(null, offer.id)
+                            : undefined
+                        }
                         offer={{
                           agentId: offer.agentId,
                           billingModel: offer.version.billingModel,
@@ -470,13 +474,8 @@ export default async function OffersPage({
                           terms: offer.version.terms,
                         }}
                       />
-                      <div className="relationship-actions">
-                        {offer.status === "DRAFT" || offer.status === "PAUSED" ? (
-                          <ActivateOfferButton
-                            action={activateOfferAction.bind(null, offer.id)}
-                          />
-                        ) : null}
-                        {offer.status === "ACTIVE" ? (
+                      {offer.status === "ACTIVE" ? (
+                        <div className="relationship-actions">
                           <form
                             action={transitionOfferAction.bind(
                               null,
@@ -486,8 +485,8 @@ export default async function OffersPage({
                           >
                             <button>Pause</button>
                           </form>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                     </div>
                     {offer.status !== "DEACTIVATED" ? (
                       <div className="offer-discard">

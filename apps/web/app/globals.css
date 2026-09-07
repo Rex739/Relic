@@ -2151,9 +2151,13 @@ summary:focus-visible {
   color: #e9acac;
 }
 .activation-control {
-  display: grid;
-  gap: 8px;
-  min-width: min(100%, 560px);
+  display: contents;
+}
+.offer-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: start;
 }
 .activation-failure {
   display: grid;
