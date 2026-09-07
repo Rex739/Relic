@@ -125,7 +125,13 @@ async function main() {
         "No bounded invocation template exists for this category",
       );
 
-    const cardResponse = await safeHttpRequest(endpoint, {
+    const endpointUrl = new URL(endpoint);
+    const discoveryEndpoint = endpointUrl.pathname
+      .toLowerCase()
+      .endsWith("/agent-card.json")
+      ? endpoint
+      : (selected.service.verificationUrl ?? endpoint);
+    const cardResponse = await safeHttpRequest(discoveryEndpoint, {
       method: "GET",
       timeoutMs: 5_000,
       maxRedirects: 2,
@@ -136,13 +142,22 @@ async function main() {
     const card = cardSchema.parse(JSON.parse(cardResponse.body));
     if (!card.skills.some(({ id }) => id === "negotiate"))
       throw new Error("A2A card does not declare a negotiate skill");
-    const cardUrl = new URL(endpoint);
+    const cardUrl = new URL(discoveryEndpoint);
     const invocationUrl = new URL(card.url);
     if (
       invocationUrl.protocol !== "https:" ||
       invocationUrl.hostname !== cardUrl.hostname
     )
       throw new Error("A2A invocation URL must be same-host HTTPS");
+    const configuredInvocationUrl = endpointUrl.pathname
+      .toLowerCase()
+      .endsWith("/agent-card.json")
+      ? invocationUrl
+      : endpointUrl;
+    if (configuredInvocationUrl.toString() !== invocationUrl.toString())
+      throw new Error(
+        "A2A card invocation URL no longer matches the verified marketplace endpoint",
+      );
 
     const messageId = randomUUID();
     const request = {
@@ -157,7 +172,7 @@ async function main() {
         },
       },
     };
-    const response = await safeHttpRequest(invocationUrl.toString(), {
+    const response = await safeHttpRequest(configuredInvocationUrl.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),

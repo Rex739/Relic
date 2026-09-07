@@ -1,10 +1,31 @@
 import type { DrizzleSupplyStore } from "@relic/database";
 
+import { resolveA2aInvocationEndpoint } from "./a2a-service-discovery.js";
 import {
   assertCandidateTransition,
   normalizeCuratedInterface,
   normalizedProtocolSupport,
 } from "./launch-supply.js";
+
+async function materializedEndpoint(
+  interfaceProtocol: string,
+  declaredEndpoint: string | null,
+) {
+  if (interfaceProtocol !== "a2a" || declaredEndpoint === null)
+    return {
+      endpoint: declaredEndpoint,
+      verificationUrl: null,
+      resolution: null,
+    };
+  const resolution = await resolveA2aInvocationEndpoint(declaredEndpoint);
+  return resolution.status === "resolved"
+    ? {
+        endpoint: resolution.invocationUrl,
+        verificationUrl: resolution.discoveryUrl,
+        resolution,
+      }
+    : { endpoint: null, verificationUrl: resolution.discoveryUrl, resolution };
+}
 
 export async function materializeLaunchServices(
   store: DrizzleSupplyStore,
@@ -43,6 +64,10 @@ export async function materializeLaunchServices(
       const interfaceProtocol = normalizeCuratedInterface(
         service.capability ?? service.name,
       );
+      const endpoint = await materializedEndpoint(
+        interfaceProtocol,
+        service.endpoint,
+      );
       await store.upsertMarketplaceService({
         agentId: row.agent.id,
         sourceServiceId: `canonical:${service.id}`,
@@ -51,8 +76,8 @@ export async function materializeLaunchServices(
         capability: service.capability,
         categorySlug: row.candidate.categorySlug,
         interfaceProtocol,
-        endpoint: service.endpoint,
-        verificationUrl: service.verificationUrl,
+        endpoint: endpoint.endpoint,
+        verificationUrl: endpoint.verificationUrl ?? service.verificationUrl,
         inputSchema: service.inputSchema,
         outputSchema: service.outputSchema,
         pricing: service.pricing,
@@ -62,13 +87,17 @@ export async function materializeLaunchServices(
         protocolSupport: normalizedProtocolSupport(interfaceProtocol),
         source: "direct-registration-file",
         provenance: "developer_declared",
-        raw: service,
+        raw: { registration: service, a2aEndpointResolution: endpoint.resolution },
       });
       materialized += 1;
     }
     for (const declaration of source.declarations) {
       const interfaceProtocol = normalizeCuratedInterface(
         declaration.normalizedType,
+      );
+      const endpoint = await materializedEndpoint(
+        interfaceProtocol,
+        declaration.endpoint,
       );
       await store.upsertMarketplaceService({
         agentId: row.agent.id,
@@ -77,12 +106,16 @@ export async function materializeLaunchServices(
         name: declaration.rawName,
         categorySlug: row.candidate.categorySlug,
         interfaceProtocol,
-        endpoint: declaration.endpoint,
+        endpoint: endpoint.endpoint,
+        verificationUrl: endpoint.verificationUrl,
         networkChainId: null,
         protocolSupport: normalizedProtocolSupport(interfaceProtocol),
         source: declaration.source,
         provenance: declaration.provenance,
-        raw: declaration.raw,
+        raw: {
+          registration: declaration.raw,
+          a2aEndpointResolution: endpoint.resolution,
+        },
       });
       materialized += 1;
     }

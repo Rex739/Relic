@@ -12,6 +12,7 @@ import {
 export interface InspectableService {
   id: string;
   endpoint: string | null;
+  verificationUrl?: string | null;
   interfaceProtocol: string;
   verificationLevel: ServiceVerificationLevel;
 }
@@ -147,7 +148,12 @@ export async function inspectMarketplaceService(
 
   let endpoint: string;
   try {
-    endpoint = protocolEndpoint(service.endpoint, protocol);
+    endpoint = protocolEndpoint(
+      protocol === "a2a" && service.verificationUrl
+        ? service.verificationUrl
+        : service.endpoint,
+      protocol,
+    );
   } catch {
     return {
       fromLevel: service.verificationLevel,
