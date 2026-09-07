@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
 import { Button } from "../../components/ui/button";
 const failureCopy = (error: string) => {
@@ -37,7 +38,14 @@ export function ActivateOfferButton({
       <Button
         disabled={pending}
         onClick={() =>
-          startTransition(async () => setError((await action()).error))
+          startTransition(async () => {
+            const result = await action();
+            setError(result.error);
+            if (result.error === null)
+              toast.success("Offer activated", {
+                description: "The offer is live and ready for buyers.",
+              });
+          })
         }
         type="button"
         variant="outline"

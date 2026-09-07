@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Toaster } from "sonner";
 
 import "./globals.css";
 import { RelicWalletProvider } from "./_components/relic-wallet-provider";
@@ -27,6 +28,20 @@ export default function RootLayout({
             <span>Relic · The BNB Agent Studio marketplace</span>
             <span>Find · Compare · Hire · Running</span>
           </footer>
+          <Toaster
+            closeButton
+            position="bottom-right"
+            theme="dark"
+            toastOptions={{
+              classNames: {
+                closeButton: "relic-toast-close",
+                description: "relic-toast-description",
+                success: "relic-toast-success",
+                title: "relic-toast-title",
+                toast: "relic-toast",
+              },
+            }}
+          />
         </RelicWalletProvider>
       </body>
     </html>

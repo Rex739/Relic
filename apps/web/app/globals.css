@@ -5905,6 +5905,32 @@ summary:focus-visible {
   outline: 2px solid #f0b6aa;
   outline-offset: 3px;
 }
+.relic-toast {
+  border: 1px solid var(--line) !important;
+  border-radius: 9px !important;
+  background: #171311 !important;
+  box-shadow: 0 14px 38px rgb(0 0 0 / 34%) !important;
+  color: var(--ink) !important;
+}
+.relic-toast-success {
+  border-color: #3f7653 !important;
+}
+.relic-toast-title {
+  color: var(--ink) !important;
+  font-weight: 750 !important;
+}
+.relic-toast-description {
+  color: var(--muted) !important;
+}
+.relic-toast-close {
+  border-color: var(--line) !important;
+  background: #211c1a !important;
+  color: var(--muted) !important;
+}
+.relic-toast-close:hover {
+  background: #302624 !important;
+  color: var(--ink) !important;
+}
 .offer-card > details > summary {
   width: fit-content;
   color: var(--ink);
