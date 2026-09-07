@@ -9,9 +9,9 @@ export interface VenusReadClient {
   getChainId(): Promise<number>;
   getCode(address: Address): Promise<`0x${string}`>;
   getTokenMetadata(address: Address): Promise<{ symbol: string; decimals: number }>;
+  getTokenBalance(token: Address, account: Address): Promise<bigint>;
   getVTokenUnderlying(vToken: Address): Promise<Address>;
   getVTokenComptroller(vToken: Address): Promise<Address>;
-  getVTokenCash(vToken: Address): Promise<bigint>;
 }
 
 export type VerifiedVenusDeployment = Readonly<{
@@ -49,18 +49,18 @@ export async function verifyVenusDeployment(
     if ((await client.getCode(address)) === "0x") fail(`${label} has no deployed code`);
   }
 
-  const [metadata, underlying, comptroller, cash] = await Promise.all([
+  const [metadata, cash, underlying, comptroller] = await Promise.all([
     client.getTokenMetadata(config.usdt),
+    client.getTokenBalance(config.usdt, config.venusUsdtVToken),
     client.getVTokenUnderlying(config.venusUsdtVToken),
     client.getVTokenComptroller(config.venusUsdtVToken),
-    client.getVTokenCash(config.venusUsdtVToken),
   ]);
   if (metadata.decimals !== config.usdtDecimals)
     fail("configured USDT decimals do not match the contract");
   if (!metadata.symbol.trim()) fail("USDT contract returned an empty symbol");
   if (!sameAddress(underlying, config.usdt)) fail("Venus market underlying is not configured USDT");
   if (!sameAddress(comptroller, config.venusComptroller)) fail("Venus market Comptroller mismatch");
-  if (cash < 0n) fail("Venus market returned invalid cash");
+  if (cash < 0n) fail("USDT market balance is invalid");
 
   return Object.freeze({
     verifiedAt: now,

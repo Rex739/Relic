@@ -6,7 +6,8 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "pnpm build && node --test dist/*.test.js"
+    "test": "pnpm build && node --test dist/*.test.js",
+    "verify-deployment": "pnpm build && node dist/verifyDeployment.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -16,9 +16,9 @@ const client = (overrides: Partial<VenusReadClient> = {}): VenusReadClient => ({
   getChainId: async () => 97,
   getCode: async () => "0x1234",
   getTokenMetadata: async () => ({ symbol: "USDT", decimals: 18 }),
+  getTokenBalance: async () => 500n,
   getVTokenUnderlying: async () => usdt,
   getVTokenComptroller: async () => comptroller,
-  getVTokenCash: async () => 500n,
   ...overrides,
 });
 
