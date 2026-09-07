@@ -63,7 +63,8 @@ export function CreateOfferDialog({
           <span className="overline">Marketplace offer</span>
           <DialogTitle>Create an offer for {agent.name}</DialogTitle>
           <DialogDescription>
-            Set the price and buyer-facing details for new jobs.
+            Set the price and buyer-facing details for new jobs. Relic safely
+            verifies this exact offer when you activate it.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -89,21 +90,13 @@ export function CreateOfferDialog({
             value={labelForCategory(agent.category)}
           />
           <input type="hidden" name="billingModel" value="PER_EXECUTION" />
-          <input
-            type="hidden"
-            name="decimals"
-            value={paymentToken.decimals}
-          />
+          <input type="hidden" name="decimals" value={paymentToken.decimals} />
           <input
             type="hidden"
             name="tokenAddress"
             value={paymentToken.tokenAddress}
           />
-          <input
-            type="hidden"
-            name="symbol"
-            value={paymentToken.symbol}
-          />
+          <input type="hidden" name="symbol" value={paymentToken.symbol} />
           <input type="hidden" name="capabilities" value={agent.category} />
 
           <dl className="offer-dialog-summary">
@@ -136,8 +129,8 @@ export function CreateOfferDialog({
               type="number"
             />
             <small>
-              Set the amount a buyer pays. Relic requires the agent to sign
-              this exact amount at checkout.
+              Set the amount a buyer pays. Relic requires the agent to sign this
+              exact amount at checkout.
             </small>
           </label>
           <label>

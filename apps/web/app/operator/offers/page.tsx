@@ -52,7 +52,6 @@ const canCreateOffer = (
   !agent.testDeployment &&
   agent.requirements.identity.state === "complete" &&
   agent.requirements.service.state === "complete" &&
-  agent.requirements.verification.state === "complete" &&
   agent.requirements.offer.state !== "complete";
 
 const setupBlockers = (agent: SellerAgentReadiness) => {
@@ -101,7 +100,9 @@ export default async function OffersPage({
       operatorReadiness(),
       // The overview does not display agreement history. Avoid loading an
       // unbounded, nested settlement record until a seller opens one listing.
-      selectedAgentKey === undefined ? Promise.resolve([]) : operatorAgreements(),
+      selectedAgentKey === undefined
+        ? Promise.resolve([])
+        : operatorAgreements(),
     ]);
   } catch (caught) {
     error =
@@ -277,11 +278,11 @@ export default async function OffersPage({
                             <div>
                               <dt>Service</dt>
                               <dd>
-                                {agent.requirements.service.state ===
-                                  "complete" &&
-                                agent.requirements.verification.state ===
-                                  "complete"
-                                  ? "Verified"
+                                {agent.requirements.service.state === "complete"
+                                  ? agent.requirements.verification.state ===
+                                    "complete"
+                                    ? "Verified"
+                                    : "Ready to configure"
                                   : "Needs attention"}
                               </dd>
                             </div>
@@ -320,7 +321,9 @@ export default async function OffersPage({
                 <section className="profile-section seller-category-card">
                   <span className="overline">Catalog setup</span>
                   <h2>Choose a category</h2>
-                  <p>Relic couldn’t determine this from the agent’s metadata.</p>
+                  <p>
+                    Relic couldn’t determine this from the agent’s metadata.
+                  </p>
                   {selectedAgent.submissionId === undefined ? null : (
                     <form
                       action={selectSellerCategoryAction.bind(
@@ -334,8 +337,12 @@ export default async function OffersPage({
                           <SelectValue placeholder="Choose a category" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="rebalancing">Rebalancing</SelectItem>
-                          <SelectItem value="grid-trading">Grid Trading</SelectItem>
+                          <SelectItem value="rebalancing">
+                            Rebalancing
+                          </SelectItem>
+                          <SelectItem value="grid-trading">
+                            Grid Trading
+                          </SelectItem>
                           <SelectItem value="yield-optimisation">
                             Yield Optimisation
                           </SelectItem>
@@ -412,7 +419,7 @@ export default async function OffersPage({
                     : selectedAgent?.listingStatus === "OWNERSHIP_CHANGED"
                       ? "A previous seller’s offer is no longer valid for this owner. Create and activate a replacement offer to list this agent."
                       : offerableAgents.length > 0
-                        ? "Save the marketplace profile, then create the first offer when you are ready."
+                        ? "Create a draft with the buyer-facing terms and price. Relic verifies that exact offer before it can go live."
                         : selectedAgentHasCurrentOffer
                           ? "Edit the buyer-facing details for this agent’s marketplace offer."
                           : (selectedSetupBlockers[0]?.explanation ??
