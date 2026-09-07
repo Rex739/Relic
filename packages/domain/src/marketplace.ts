@@ -423,10 +423,7 @@ export function sellerReadinessProjection(
         explanation:
           "The registered owner must publish current price and terms before buyers can hire this agent.",
         nextAction:
-          facts.identityVerified &&
-          facts.serviceAvailable &&
-          facts.verificationPassed &&
-          !testDeployment
+          facts.identityVerified && facts.serviceAvailable && !testDeployment
             ? "Create marketplace offer"
             : "Waiting for readiness checks",
       };

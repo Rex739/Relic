@@ -141,13 +141,13 @@ describe("seller marketplace readiness", () => {
     });
     expect(result.requirements.verification).toMatchObject({
       label: "Relic has not checked the service yet",
-      nextAction: "Waiting for Relic’s check",
+      nextAction: "Waiting for a successful Relic check",
     });
     expect(result.requirements.service.explanation).not.toMatch(/document/i);
     expect(result.requirements.service.nextAction).not.toMatch(/publish/i);
   });
 
-  it("fails closed when no verified seller price is available", () => {
+  it("allows a seller to draft their first price before publication", () => {
     const result = sellerReadinessProjection({
       ...readyFacts,
       verifiedPrice: null,
@@ -160,10 +160,25 @@ describe("seller marketplace readiness", () => {
       requirements: {
         offer: {
           state: "blocked",
-          nextAction: "Waiting for verified seller quote",
+          nextAction: "Create marketplace offer",
         },
       },
     });
+  });
+
+  it("allows a draft once the endpoint is available, before its exact offer is verified", () => {
+    const result = sellerReadinessProjection({
+      ...readyFacts,
+      activeOffer: false,
+      verificationPassed: false,
+      publicEligible: false,
+    });
+
+    expect(result.requirements.offer).toMatchObject({
+      state: "blocked",
+      nextAction: "Create marketplace offer",
+    });
+    expect(result.hireable).toBe(false);
   });
 
   it("never promotes an explicitly labelled test deployment", () => {
