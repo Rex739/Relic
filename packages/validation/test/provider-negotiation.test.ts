@@ -111,6 +111,46 @@ describe("offer-bound provider negotiation", () => {
     });
   });
 
+  it("discovers an A2A card from a persisted execution endpoint", async () => {
+    const requesterMock = vi
+      .fn<ProviderRequester>()
+      .mockResolvedValueOnce({
+        endpoint: "https://agent.example/.well-known/agent-card.json",
+        ok: true,
+        status: 200,
+        latencyMs: 1,
+        redirectCount: 0,
+        headers: {},
+        body: JSON.stringify({
+          url: "https://agent.example/apex",
+          skills: [{ id: "negotiate" }],
+        }),
+        errorCode: null,
+      })
+      .mockResolvedValueOnce({
+        endpoint: "https://agent.example/apex",
+        ok: true,
+        status: 200,
+        latencyMs: 1,
+        redirectCount: 0,
+        headers: {},
+        body: JSON.stringify(result),
+        errorCode: null,
+      });
+
+    await negotiateOfferBoundService(
+      { ...input, endpoint: "https://agent.example/apex" },
+      { requester: requesterMock },
+    );
+
+    expect(requesterMock.mock.calls[0]?.[0]).toBe(
+      "https://agent.example/.well-known/agent-card.json",
+    );
+    expect(requesterMock.mock.calls[1]?.[0]).toBe(
+      "https://agent.example/apex",
+    );
+  });
+
   it("fails closed when the provider changes the offer price", async () => {
     const changed = structuredClone(result);
     changed.result.parts[0]!.data.response.terms.price = "1000000001";

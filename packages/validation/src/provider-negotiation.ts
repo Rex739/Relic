@@ -81,6 +81,13 @@ export interface OfferNegotiationInput {
   preflightId?: string;
 }
 
+function a2aDiscoveryEndpoint(endpoint: string) {
+  const url = new URL(endpoint);
+  return url.pathname.toLowerCase().endsWith("/agent-card.json")
+    ? url.toString()
+    : new URL("/.well-known/agent-card.json", url).toString();
+}
+
 export async function negotiateOfferBoundService(
   input: OfferNegotiationInput,
   options: { requester?: ProviderRequester; messageId?: string } = {},
@@ -174,7 +181,11 @@ export async function negotiateOfferBoundService(
       responseSha256: createHash("sha256").update(response.body).digest("hex"),
     };
   }
-  const cardResponse = await requester(input.endpoint, {
+  // A marketplace service stores its executable A2A URL. Discovery is always
+  // performed through the public agent card, so both newly indexed services
+  // and older rows without a persisted verification URL work identically.
+  const discoveryEndpoint = a2aDiscoveryEndpoint(input.endpoint);
+  const cardResponse = await requester(discoveryEndpoint, {
     method: "GET",
     timeoutMs: 5_000,
     maxRedirects: 2,
@@ -187,7 +198,7 @@ export async function negotiateOfferBoundService(
   const card = cardSchema.parse(JSON.parse(cardResponse.body));
   if (!card.skills.some(({ id }) => id === "negotiate"))
     throw new Error("Provider does not advertise offer negotiation");
-  const reference = new URL(input.endpoint);
+  const reference = new URL(discoveryEndpoint);
   const invocation = new URL(card.url);
   if (
     invocation.protocol !== "https:" ||
