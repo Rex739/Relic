@@ -10,7 +10,7 @@ an earlier phase is incomplete.
 | 2 | Live deployment verification | `verify-deployment` validates chain, bytecode, token, vToken and Comptroller relation against the injected runtime configuration | Ready for operator validation |
 | 3 | Durable job state | Idempotency state machine and atomic Postgres repository/migration are implemented; Layer A must inject this store before it may enable readiness | Ready for runtime wiring |
 | 4 | Bounded-session signer integration | Code-only signing boundary, private session materialization, Studio runtime session loading, and a fee-capped structured-call adapter are implemented; durable execution routing remains to be connected | In progress |
-| 5 | Venus transaction adapter | Fixed calldata builders and deterministic supply/withdraw execution bridge are implemented; live receipt/balance adapter remains to be wired to the scoped runtime | In progress |
+| 5 | Venus transaction adapter | Fixed calldata builders, receipt polling, allowance reads, and USDT/vToken balance reconciliation are implemented; the trusted durable-job ingress remains to be wired to the scoped runtime | In progress |
 | 6 | Private Layer A runtime | Bearer-only HTTP service, `/health`, `/readiness`, Dockerfile, and fail-closed Venus readiness check are implemented; execution route stays disabled until the session and durable-store bridge is connected | In progress |
 | 7 | Public Layer B gateway | `/apex`, agent card, skill allowlist, internal forwarding | Complete |
 | 8 | Northflank deployment | Two-service deployment, secrets, external card and readiness checks | Not started |
@@ -25,3 +25,4 @@ an earlier phase is incomplete.
 - A failed or stale protocol verification makes Layer A not ready.
 - A job may only use the exact USDT and Venus vToken verified at startup.
 - A transaction receipt and balance reconciliation are required before a job advances.
+- Layer A accepts only Relic's canonical funded-job relay; it must never infer funding from a public A2A request.

@@ -14,7 +14,12 @@ const signer: SessionTransactionSigner = { getAddress: async () => account, getC
 
 test("persists every confirmed step and completes only after withdrawal", async () => {
   const store = new InMemoryYieldJobStore();
-  const reader: VenusExecutionReader = { allowance: async () => 0n, confirm: async () => ({ confirmed: true }) };
+  const snapshots = [{ usdt: 100n, vToken: 0n }, { usdt: 95n, vToken: 5n }, { usdt: 100n, vToken: 0n }];
+  const reader: VenusExecutionReader = {
+    allowance: async () => 0n,
+    snapshot: async () => snapshots.shift() ?? { usdt: 100n, vToken: 0n },
+    confirm: async () => ({ confirmed: true }),
+  };
   const job = await executeSupplyWithdrawal({ id: "job", idempotencyKey: "job:1", commerceJobId: "8183-1", config, mandate, amountBaseUnits: 5n, maximumFeeWei: 1n, signer, reader, store, now: new Date("2026-09-07T15:00:00.000Z") });
   assert.equal(job.state, "COMPLETED");
   assert.ok(job.approvalTxHash && job.supplyTxHash && job.withdrawTxHash);
@@ -22,8 +27,25 @@ test("persists every confirmed step and completes only after withdrawal", async 
 
 test("moves an unconfirmed receipt to recovery rather than retrying", async () => {
   const store = new InMemoryYieldJobStore();
-  const reader: VenusExecutionReader = { allowance: async () => 5n, confirm: async () => ({ confirmed: false, detail: "RPC timeout" }) };
+  const reader: VenusExecutionReader = {
+    allowance: async () => 5n,
+    snapshot: async () => ({ usdt: 100n, vToken: 0n }),
+    confirm: async () => ({ confirmed: false, detail: "RPC timeout" }),
+  };
   const job = await executeSupplyWithdrawal({ id: "job", idempotencyKey: "job:2", commerceJobId: "8183-2", config, mandate, amountBaseUnits: 5n, maximumFeeWei: 1n, signer, reader, store, now: new Date("2026-09-07T15:00:00.000Z") });
   assert.equal(job.state, "RECOVERY_REQUIRED");
   assert.equal(job.recoveryReason, "RPC timeout");
+});
+
+test("moves a confirmed but unreconciled supply into recovery", async () => {
+  const store = new InMemoryYieldJobStore();
+  const snapshots = [{ usdt: 100n, vToken: 0n }, { usdt: 95n, vToken: 0n }];
+  const reader: VenusExecutionReader = {
+    allowance: async () => 5n,
+    snapshot: async () => snapshots.shift() ?? { usdt: 100n, vToken: 0n },
+    confirm: async () => ({ confirmed: true }),
+  };
+  const job = await executeSupplyWithdrawal({ id: "job", idempotencyKey: "job:3", commerceJobId: "8183-3", config, mandate, amountBaseUnits: 5n, maximumFeeWei: 1n, signer, reader, store, now: new Date("2026-09-07T15:00:00.000Z") });
+  assert.equal(job.state, "RECOVERY_REQUIRED");
+  assert.match(job.recoveryReason ?? "", /expected USDT and vToken/);
 });

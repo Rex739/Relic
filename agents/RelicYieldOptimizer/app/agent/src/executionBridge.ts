@@ -6,6 +6,8 @@ import { VenusTransactionAdapter } from "./venusTransactionAdapter.js";
 
 export interface VenusExecutionReader {
   allowance(owner: YieldMandate["account"]): Promise<bigint>;
+  /** Balances are reconciled around the supply and redemption receipts. */
+  snapshot(owner: YieldMandate["account"]): Promise<{ usdt: bigint; vToken: bigint }>;
   confirm(transactionHash: `0x${string}`, operation: "approval" | "supply" | "withdraw"): Promise<{ confirmed: boolean; detail?: string }>;
 }
 
@@ -36,6 +38,7 @@ export async function executeSupplyWithdrawal(input: {
   const created = await input.store.createOrFind({ id: input.id, commerceJobId: input.commerceJobId, idempotencyKey: input.idempotencyKey, now });
   if (!created.created) return created.job;
   const adapter = new VenusTransactionAdapter(input.config);
+  const before = await input.reader.snapshot(input.mandate.account);
   let job = await next(input.store, { id: input.id, expectedRevision: 0, to: "POLICY_ACCEPTED", now });
   const intent = (operation: YieldIntent["operation"]): YieldIntent => ({
     operation, chainId: input.config.chainId, account: input.mandate.account,
@@ -57,11 +60,32 @@ export async function executeSupplyWithdrawal(input: {
   job = await next(input.store, { id: job.id, expectedRevision: job.revision, to: "SUPPLY_SUBMITTED", transactionHash: supplyHash, now });
   const supplyReceipt = await input.reader.confirm(supplyHash, "supply");
   if (!supplyReceipt.confirmed) return next(input.store, { id: job.id, expectedRevision: job.revision, to: "RECOVERY_REQUIRED", recoveryReason: supplyReceipt.detail ?? "supply receipt was not confirmed", now });
+  const afterSupply = await input.reader.snapshot(input.mandate.account);
+  if (afterSupply.usdt > before.usdt - input.amountBaseUnits || afterSupply.vToken <= before.vToken) {
+    return next(input.store, {
+      id: job.id,
+      expectedRevision: job.revision,
+      to: "RECOVERY_REQUIRED",
+      recoveryReason: "supply receipt did not produce the expected USDT and vToken balance change",
+      now,
+    });
+  }
   job = await next(input.store, { id: job.id, expectedRevision: job.revision, to: "SUPPLIED", now });
   const withdrawHash = await sendBoundedYieldTransaction({ config: input.config, mandate: input.mandate, intent: intent("withdraw"), transaction: adapter.withdraw(input.amountBaseUnits, input.maximumFeeWei), signer: input.signer, now });
   job = await next(input.store, { id: job.id, expectedRevision: job.revision, to: "WITHDRAW_SUBMITTED", transactionHash: withdrawHash, now });
   const withdrawalReceipt = await input.reader.confirm(withdrawHash, "withdraw");
-  return withdrawalReceipt.confirmed
-    ? next(input.store, { id: job.id, expectedRevision: job.revision, to: "COMPLETED", now })
-    : next(input.store, { id: job.id, expectedRevision: job.revision, to: "RECOVERY_REQUIRED", recoveryReason: withdrawalReceipt.detail ?? "withdrawal receipt was not confirmed", now });
+  if (!withdrawalReceipt.confirmed) {
+    return next(input.store, { id: job.id, expectedRevision: job.revision, to: "RECOVERY_REQUIRED", recoveryReason: withdrawalReceipt.detail ?? "withdrawal receipt was not confirmed", now });
+  }
+  const afterWithdraw = await input.reader.snapshot(input.mandate.account);
+  if (afterWithdraw.usdt < before.usdt || afterWithdraw.vToken >= afterSupply.vToken) {
+    return next(input.store, {
+      id: job.id,
+      expectedRevision: job.revision,
+      to: "RECOVERY_REQUIRED",
+      recoveryReason: "withdrawal receipt did not restore USDT or reduce the Venus position",
+      now,
+    });
+  }
+  return next(input.store, { id: job.id, expectedRevision: job.revision, to: "COMPLETED", now });
 }

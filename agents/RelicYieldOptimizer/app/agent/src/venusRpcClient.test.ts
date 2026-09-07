@@ -7,7 +7,7 @@ const addressWord = (address: string) => `0x${address.slice(2).padStart(64, "0")
 const usdt = "0x1111111111111111111111111111111111111111";
 const comptroller = "0x2222222222222222222222222222222222222222";
 
-function rpc(resultFor: (method: string, data?: string) => string): typeof fetch {
+function rpc(resultFor: (method: string, data?: string) => unknown): typeof fetch {
   return (async (_url, init) => {
     const request = JSON.parse(String(init?.body)) as { method: string; params: Array<{ data?: string }> };
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: resultFor(request.method, request.params[0]?.data) }), { status: 200 });
@@ -23,6 +23,8 @@ test("reads chain, token metadata, and Venus market relations", async () => {
     if (data === "0x6f307dc3") return addressWord(usdt);
     if (data === "0x5fe3b567") return addressWord(comptroller);
     if (data === `0x70a08231${comptroller.slice(2).padStart(64, "0")}`) return `0x${word(123n)}`;
+    if (data === `0xdd62ed3e${comptroller.slice(2).padStart(64, "0")}${usdt.slice(2).padStart(64, "0")}`) return `0x${word(99n)}`;
+    if (method === "eth_getTransactionReceipt") return { status: "0x1" };
     throw new Error(`Unexpected request ${method} ${String(data)}`);
   }));
   assert.equal(await client.getChainId(), 97);
@@ -30,6 +32,8 @@ test("reads chain, token metadata, and Venus market relations", async () => {
   assert.equal(await client.getVTokenUnderlying(comptroller as `0x${string}`), usdt);
   assert.equal(await client.getVTokenComptroller(usdt as `0x${string}`), comptroller);
   assert.equal(await client.getTokenBalance(usdt as `0x${string}`, comptroller as `0x${string}`), 123n);
+  assert.equal(await client.getTokenAllowance(usdt as `0x${string}`, comptroller as `0x${string}`, usdt as `0x${string}`), 99n);
+  assert.deepEqual(await client.getTransactionReceipt(`0x${"1".repeat(64)}`), { confirmed: true });
 });
 
 test("rejects malformed RPC values", async () => {
