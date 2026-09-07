@@ -2155,42 +2155,6 @@ summary:focus-visible {
   gap: 8px;
   min-width: min(100%, 560px);
 }
-.activation-rail {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-}
-.activation-rail span {
-  position: relative;
-  color: var(--faint);
-  font-size: 10px;
-  font-weight: 700;
-  text-align: center;
-}
-.activation-rail span::before {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 5px;
-  border-radius: 50%;
-  background: var(--line);
-  content: "";
-}
-.activation-rail span.complete::before,
-.activation-rail span.current::before {
-  background: #52d782;
-}
-.activation-rail span.current {
-  color: var(--foreground);
-}
-.activation-rail span.current:nth-child(3) {
-  color: #ef7064;
-}
-.activation-rail span.current:nth-child(3)::before {
-  background: #ef7064;
-}
 .activation-failure {
   display: grid;
   gap: 3px;
@@ -5862,7 +5826,11 @@ summary:focus-visible {
 }
 .offer-card {
   display: grid;
-  gap: 12px;
+  gap: 18px;
+  padding: 20px 22px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .offer-card-header {
   display: flex;
@@ -5870,9 +5838,46 @@ summary:focus-visible {
   justify-content: space-between;
   gap: 12px;
 }
-.offer-card > p {
+.offer-card-header p {
   margin: 0;
   color: var(--muted);
+}
+.offer-status {
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.offer-status-draft,
+.offer-status-paused {
+  background: #2a2621;
+  color: #d4b878;
+}
+.offer-status-active {
+  background: #163224;
+  color: #63d995;
+}
+.offer-status-deactivated {
+  background: #292728;
+  color: var(--muted);
+}
+.offer-card-body,
+.offer-discard {
+  display: grid;
+  gap: 12px;
+  max-width: 845px;
+}
+.offer-discard {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.offer-discard small {
+  color: var(--muted);
+  font-size: 10px;
 }
 .offer-card > details > summary {
   width: fit-content;

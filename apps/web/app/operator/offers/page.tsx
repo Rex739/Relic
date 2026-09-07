@@ -430,59 +430,67 @@ export default async function OffersPage({
                 visibleCurrentOffers.map((offer) => (
                   <article key={offer.id} className="offer-card">
                     <div className="offer-card-header">
-                      <h3>{offer.version.capability}</h3>
-                      <span>{offer.status}</span>
-                    </div>
-                    <p>
-                      {formatBaseUnits(
-                        offer.version.price.amountBaseUnits,
-                        offer.version.price.decimals,
-                      )}{" "}
-                      {offer.version.price.symbol} · v{offer.currentVersion}
-                    </p>
-                    <OfferDetailsEditor
-                      action={reviseOfferAction.bind(null, offer.id)}
-                      offer={{
-                        agentId: offer.agentId,
-                        billingModel: offer.version.billingModel,
-                        capabilities:
-                          offer.version.capabilitySnapshot.join(", "),
-                        capability: offer.version.capability,
-                        chainId: offer.version.chainId,
-                        limitations:
-                          offer.version.limitationsSnapshot.join("\n"),
-                        price: {
-                          amount: formatBaseUnits(
+                      <div>
+                        <h3>{offer.version.capability}</h3>
+                        <p>
+                          {formatBaseUnits(
                             offer.version.price.amountBaseUnits,
                             offer.version.price.decimals,
-                          ),
-                          decimals: offer.version.price.decimals,
-                          symbol: offer.version.price.symbol,
-                          tokenAddress: offer.version.price.tokenAddress,
-                        },
-                        serviceId: offer.serviceId,
-                        terms: offer.version.terms,
-                      }}
-                    />
-                    <div className="relationship-actions">
-                      {offer.status === "DRAFT" || offer.status === "PAUSED" ? (
-                        <ActivateOfferButton
-                          action={activateOfferAction.bind(null, offer.id)}
-                          status={offer.status}
-                        />
-                      ) : null}
-                      {offer.status === "ACTIVE" ? (
-                        <form
-                          action={transitionOfferAction.bind(
-                            null,
-                            offer.id,
-                            "pause",
-                          )}
-                        >
-                          <button>Pause</button>
-                        </form>
-                      ) : null}
-                      {offer.status !== "DEACTIVATED" ? (
+                          )} {offer.version.price.symbol} · v{offer.currentVersion}
+                        </p>
+                      </div>
+                      <span
+                        className={`offer-status offer-status-${offer.status.toLowerCase()}`}
+                      >
+                        {offer.status}
+                      </span>
+                    </div>
+                    <div className="offer-card-body">
+                      <OfferDetailsEditor
+                        action={reviseOfferAction.bind(null, offer.id)}
+                        offer={{
+                          agentId: offer.agentId,
+                          billingModel: offer.version.billingModel,
+                          capabilities:
+                            offer.version.capabilitySnapshot.join(", "),
+                          capability: offer.version.capability,
+                          chainId: offer.version.chainId,
+                          limitations:
+                            offer.version.limitationsSnapshot.join("\n"),
+                          price: {
+                            amount: formatBaseUnits(
+                              offer.version.price.amountBaseUnits,
+                              offer.version.price.decimals,
+                            ),
+                            decimals: offer.version.price.decimals,
+                            symbol: offer.version.price.symbol,
+                            tokenAddress: offer.version.price.tokenAddress,
+                          },
+                          serviceId: offer.serviceId,
+                          terms: offer.version.terms,
+                        }}
+                      />
+                      <div className="relationship-actions">
+                        {offer.status === "DRAFT" || offer.status === "PAUSED" ? (
+                          <ActivateOfferButton
+                            action={activateOfferAction.bind(null, offer.id)}
+                          />
+                        ) : null}
+                        {offer.status === "ACTIVE" ? (
+                          <form
+                            action={transitionOfferAction.bind(
+                              null,
+                              offer.id,
+                              "pause",
+                            )}
+                          >
+                            <button>Pause</button>
+                          </form>
+                        ) : null}
+                      </div>
+                    </div>
+                    {offer.status !== "DEACTIVATED" ? (
+                      <div className="offer-discard">
                         <form
                           action={transitionOfferAction.bind(
                             null,
@@ -496,13 +504,13 @@ export default async function OffersPage({
                               : "Deactivate"}
                           </button>
                         </form>
-                      ) : null}
-                    </div>
-                    {offer.status === "DRAFT" ? (
-                      <small>
-                        Discarding removes this draft from current offers while
-                        preserving its audit record.
-                      </small>
+                        {offer.status === "DRAFT" ? (
+                          <small>
+                            Discarding removes this draft while preserving its
+                            audit record.
+                          </small>
+                        ) : null}
+                      </div>
                     ) : null}
                   </article>
                 ))

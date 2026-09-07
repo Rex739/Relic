@@ -23,46 +23,16 @@ const failureCopy = (error: string) => {
 
 export function ActivateOfferButton({
   action,
-  status,
 }: {
   action: () => Promise<{ error: string | null }>;
-  status: "DRAFT" | "PAUSED" | "ACTIVE";
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const failure = error === null ? null : failureCopy(error);
-  const phase = pending
-    ? "checking"
-    : failure !== null
-      ? "failed"
-      : status === "ACTIVE"
-        ? "live"
-        : "draft";
 
   return (
     <div className="activation-control">
-      <div aria-label={`Offer status: ${phase}`} className="activation-rail">
-        {[
-          ["draft", "Draft"],
-          ["checking", "Checking"],
-          ["failed", "Fix needed"],
-          ["live", "Live"],
-        ].map(([id, label]) => (
-          <span
-            className={
-              id === phase
-                ? "current"
-                : id === "draft" && phase !== "draft"
-                  ? "complete"
-                  : ""
-            }
-            key={id}
-          >
-            {label}
-          </span>
-        ))}
-      </div>
       <button
         disabled={pending}
         onClick={() =>
