@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import {
   prepareWalletAuthorization,
+  preflightHealthGuard,
   startHireCheckout,
   startHireCheckoutForAuthorizedMandate,
 } from "../mandate-actions";
@@ -29,6 +30,7 @@ import {
 } from "../../components/ui/tooltip";
 import { checkoutInputSchemaFor } from "../../lib/checkout-input-validation";
 import type { ServiceWorkflow } from "../../lib/service-workflow";
+import type { HealthGuardPreflight } from "../../lib/mandates";
 import { Check, CircleHelp, ShieldCheck } from "lucide-react";
 import { AltanaSessionAuthorization } from "./altana-session-authorization";
 
@@ -83,6 +85,7 @@ export function QuickServiceCheckout({
   );
   const [authorizationInputs, setAuthorizationInputs] = useState<Record<string, string>>({});
   const [authorizationMandateId, setAuthorizationMandateId] = useState<string | null>(null);
+  const [healthGuardPreflight, setHealthGuardPreflight] = useState<HealthGuardPreflight | null>(null);
   const requiresWalletAuthorization =
     agentCategory === "rebalancing" || agentCategory === "yield-optimisation" ||
     (agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt"));
@@ -130,6 +133,21 @@ export function QuickServiceCheckout({
       }
     }
     if (requiresWalletAuthorization && authorizationStep === "configure") {
+      if (isHealthGuard) {
+        try {
+          const preflight = await preflightHealthGuard(formData);
+          if (!preflight.eligible) {
+            setError(preflight.reason === "no_usdt_debt"
+              ? "This wallet has no Venus Core Pool USDT debt to protect."
+              : "This wallet has no eligible collateral position in the selected Venus pool.");
+            return;
+          }
+          setHealthGuardPreflight(preflight);
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : "Could not verify this Venus position.");
+          return;
+        }
+      }
       setAuthorizationInputs(
         workflow.requirements.reduce<Record<string, string>>((inputs, field) => {
           inputs[field.name] = String(formData.get(field.name) ?? "");
@@ -363,6 +381,11 @@ export function QuickServiceCheckout({
                   </dl>
                 ) : isHealthGuard ? (
                   <dl className="secure-permission-limits">
+                    <div><dt>Pool</dt><dd>Venus Core Pool</dd></div>
+                    {healthGuardPreflight === null ? null : <>
+                      <div><dt>Current health factor</dt><dd>{healthGuardPreflight.healthFactorWad === null ? "Unavailable" : (Number(BigInt(healthGuardPreflight.healthFactorWad)) / 1e18).toFixed(4)}</dd></div>
+                      <div><dt>Collateral markets</dt><dd>{healthGuardPreflight.collateralMarkets.length}</dd></div>
+                    </>}
                     <div><dt>Repay trigger</dt><dd>{authorizationInputs.threshold}</dd></div>
                     <div><dt>Target health factor</dt><dd>{authorizationInputs.target}</dd></div>
                     <div><dt>Per action</dt><dd>{authorizationInputs.maximumRepay} USDT</dd></div>
@@ -379,9 +402,9 @@ export function QuickServiceCheckout({
                   </dl>
                 )}
                 <ul>
-                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "BNB/USDT only" : "BSC Testnet USDT only"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "BNB/USDT only" : isHealthGuard ? "Venus Core Pool USDT debt only" : "BSC Testnet USDT only"}</li>
                   <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "PancakeSwap V3 contracts only" : "Configured Venus contracts only"}</li>
-                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "At most one rebalance per hour" : "Exactly one supply-and-withdraw test run"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "At most one rebalance per hour" : isHealthGuard ? "A repayment only after a fresh health check" : "Exactly one supply-and-withdraw test run"}</li>
                   <li><Check aria-hidden="true" size={14} /> Revoke any time</li>
                 </ul>
                 <details>

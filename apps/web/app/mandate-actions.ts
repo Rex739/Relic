@@ -11,6 +11,7 @@ import {
   getMandate,
   transitionMandate,
   activationProfile,
+  getHealthGuardPreflight,
 } from "../lib/mandates";
 import { acceptTerms, hireOffer } from "../lib/commerce";
 import {
@@ -52,6 +53,14 @@ function configuredHealthGuardUsdtDecimals() {
   if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
     throw new Error("Health Guard is unavailable until its verified Mainnet USDT decimal configuration is set.");
   return Number(value);
+}
+
+export async function preflightHealthGuard(formData: FormData) {
+  const poolId = fieldString(formData, "healthGuardPoolId");
+  const borrower = fieldString(formData, "publicAccount");
+  if (!isHealthGuardPoolId(poolId)) throw new Error("Choose a verified Venus pool");
+  if (!/^0x[0-9a-fA-F]{40}$/u.test(borrower)) throw new Error("Enter the Venus borrower wallet to check its position");
+  return getHealthGuardPreflight({ poolId, borrower });
 }
 
 async function serviceConfiguration(formData: FormData): Promise<CreateMandateRequest> {

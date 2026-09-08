@@ -97,6 +97,23 @@ export const activationProfile = (agentId: string) =>
     { authenticated: false },
   );
 
+export type HealthGuardPreflight = {
+  poolId: "venus-core-pool";
+  eligible: boolean;
+  reason: "position_ready" | "no_usdt_debt" | "no_collateral";
+  healthFactorWad: string | null;
+  usdtDebtBaseUnits: string;
+  collateralMarkets: readonly `0x${string}`[];
+  observedAt: string;
+};
+
+export const getHealthGuardPreflight = (input: { poolId: string; borrower: string }) =>
+  request<HealthGuardPreflight>("/v1/health-guard/preflight", {
+    method: "POST",
+    body: input,
+    authenticated: false,
+  });
+
 export const createMandate = (configuration: CreateMandateRequest) =>
   request<Mandate>("/v1/mandates", { method: "POST", body: configuration });
 

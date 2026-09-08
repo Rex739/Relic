@@ -52,6 +52,7 @@ import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-s
 import type { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import type { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 import type { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
+import type { HealthGuardPreflight } from "./health-guard-preflight.js";
 import type {
   CommerceApplicationService,
   WalletAuthenticationService,
@@ -1181,6 +1182,7 @@ export function createApp(
     healthGuardInternalToken?: string;
     healthGuardFundedSessionRelease?: HealthGuardFundedSessionRelease;
     healthGuardCycleStore?: HealthGuardCycleStore;
+    healthGuardPreflight?: HealthGuardPreflight;
     walletAuthService?: WalletAuthenticationService;
     privyAppId?: string;
     privyJwtVerificationKey?: string;
@@ -1544,6 +1546,15 @@ export function createApp(
       );
     return options.healthGuardCycleStore;
   };
+  app.post("/v1/health-guard/preflight", async (context) => {
+    if (options.healthGuardPreflight === undefined)
+      return context.json({ error: { code: "health_guard_unavailable", message: "Health Guard Mainnet preflight is not configured." } }, 503);
+    const input = z.object({
+      poolId: z.string(),
+      borrower: z.string().regex(/^0x[a-fA-F0-9]{40}$/u),
+    }).parse(await context.req.json());
+    return context.json({ data: await options.healthGuardPreflight.inspect({ poolId: input.poolId, borrower: getAddress(input.borrower) }) }, 200);
+  });
   const hasInternalToken = (context: { req: { header(name: string): string | undefined } }, expected: string | undefined) => {
     const token = context.req.header("authorization")?.replace(/^Bearer\s+/u, "");
     return expected !== undefined && token !== undefined && token.length === expected.length && timingSafeEqual(Buffer.from(token), Buffer.from(expected));

@@ -36,6 +36,7 @@ import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.
 import { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
+import { HealthGuardPreflight } from "./health-guard-preflight.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -200,6 +201,9 @@ const app = createApp(repository, onboarding, mandates, {
         yieldOptimizerInternalToken: environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN,
         ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY === undefined ? {} : { yieldFundedSessionRelease: new YieldFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_YIELD_OPTIMIZER_AGENT_ID, environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY) }),
       }),
+  ...(environment.VENUS_MAINNET_USDT_VTOKEN === undefined || environment.VENUS_MAINNET_COMPTROLLER === undefined
+    ? {}
+    : { healthGuardPreflight: new HealthGuardPreflight({ rpcUrl: environment.BSC_MAINNET_RPC_URL, usdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}`, comptroller: environment.VENUS_MAINNET_COMPTROLLER as `0x${string}` }) }),
   ...(connection === null || environment.RELIC_HEALTH_GUARD_INTERNAL_TOKEN === undefined || environment.RELIC_HEALTH_GUARD_AGENT_ID === undefined
     ? {}
     : {
