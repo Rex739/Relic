@@ -26,6 +26,10 @@ const evmAddress = (value: unknown, name: string): Address => {
   if (!address.test(raw)) invalid(`${name} must be an EVM address`);
   return raw as Address;
 };
+const poolId = (value: unknown): "venus-core-pool" => {
+  if (value !== "venus-core-pool") invalid("mandate.poolId is not configured");
+  return value as "venus-core-pool";
+};
 
 /** Accepts only Relic's trusted canonical funded-job envelope, never browser input. */
 export function parseFundedHealthGuardJob(value: unknown, now = new Date()): FundedHealthGuardJob {
@@ -46,6 +50,7 @@ export function parseFundedHealthGuardJob(value: unknown, now = new Date()): Fun
     maximumFeeWei: amount(input.maximumFeeWei, "maximumFeeWei"),
     mandate: Object.freeze({
       jobId: string(mandate.jobId, "mandate.jobId"),
+      poolId: poolId(mandate.poolId),
       borrower: evmAddress(mandate.borrower, "mandate.borrower"),
       rescueWallet: evmAddress(mandate.rescueWallet, "mandate.rescueWallet"),
       triggerHealthFactorWad: amount(mandate.triggerHealthFactorWad, "mandate.triggerHealthFactorWad"),

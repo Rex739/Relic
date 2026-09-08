@@ -9,6 +9,8 @@ const row = {
     expiresAt: now,
     executionFrequency: { windowSeconds: 300 },
     riskConstraints: {
+      executionKind: "VENUS_USDT_HEALTH_GUARD_V1",
+      healthGuardPoolId: "venus-core-pool",
       triggerHealthFactorWad: "1200000000000000000",
       targetHealthFactorWad: "1500000000000000000",
       maximumRepayBaseUnits: "1000000",
@@ -36,7 +38,7 @@ describe("HealthGuardFundedSessionRelease", () => {
     );
     const result = await release.canonicalExecution("8183");
     expect(result.kind).toBe("relic.funded_health_guard_job.v1");
-    expect(result.mandate).toMatchObject({ jobId: "8183", borrower: row.session.walletAddress, maximumRepayBaseUnits: "1000000" });
+    expect(result.mandate).toMatchObject({ jobId: "8183", poolId: "venus-core-pool", borrower: row.session.walletAddress, maximumRepayBaseUnits: "1000000" });
     expect(result.idempotencyKey).toBe("health-guard:activation-1:8183");
   });
 

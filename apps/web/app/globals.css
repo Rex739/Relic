@@ -7126,6 +7126,15 @@ summary:focus-visible {
   font-size: 11px;
   line-height: 1.4;
 }
+.checkout-pool-field { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.checkout-pool-field > small { color: var(--faint); font-size: 11px; line-height: 1.4; }
+.checkout-pool-options { display: grid; gap: 8px; }
+.quick-checkout-form .checkout-pool-option { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); cursor: pointer; }
+.quick-checkout-form .checkout-pool-option:has(input:checked) { border-color: var(--accent); }
+.quick-checkout-form .checkout-pool-option input { width: auto; margin: 3px 0 0; padding: 0; accent-color: var(--accent); }
+.checkout-pool-option > span { display: grid; gap: 3px; }
+.checkout-pool-option b { color: var(--ink); font-size: 13px; }
+.checkout-pool-option em { color: var(--accent); font-size: 11px; font-style: normal; }
 .quick-checkout-summary {
   display: grid;
   grid-template-columns: 1.35fr .65fr .9fr;

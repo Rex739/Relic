@@ -10,3 +10,4 @@ export * from "./mandate.js";
 export * from "./execution.js";
 export * from "./money.js";
 export * from "./agent-commerce.js";
+export * from "./health-guard-pools.js";

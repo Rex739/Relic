@@ -10,7 +10,7 @@ const config: HealthGuardConfig = {
 };
 const now = new Date("2026-09-08T00:00:00.000Z");
 const mandate: HealthGuardMandate = {
-  jobId: "42", borrower: "0x0000000000000000000000000000000000000004", rescueWallet: "0x0000000000000000000000000000000000000005",
+  jobId: "42", poolId: "venus-core-pool", borrower: "0x0000000000000000000000000000000000000004", rescueWallet: "0x0000000000000000000000000000000000000005",
   triggerHealthFactorWad: 120n * WAD / 100n, targetHealthFactorWad: 150n * WAD / 100n,
   maximumRepayBaseUnits: 40n, aggregateRepayLimitBaseUnits: 100n, minimumSecondsBetweenRepays: 300,
   expiresAt: new Date("2026-09-09T00:00:00.000Z"),

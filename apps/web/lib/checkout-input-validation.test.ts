@@ -28,6 +28,7 @@ describe("Yield Optimizer checkout limits", () => {
 
 describe("Health Guard checkout limits", () => {
   const valid = {
+    healthGuardPoolId: "venus-core-pool",
     threshold: "1.20", target: "1.50", maximumRepay: "25", aggregateRepayLimit: "100",
     maxFeeBnb: "0.002", durationHours: "168",
   };
@@ -40,5 +41,9 @@ describe("Health Guard checkout limits", () => {
   it("rejects a target below the trigger and an aggregate cap below one action", () => {
     const result = healthGuardCheckoutSchema.safeParse({ ...valid, target: "1.20", aggregateRepayLimit: "24" });
     expect(result.success).toBe(false);
+  });
+
+  it("rejects a pool identifier that is not in Relic's verified registry", () => {
+    expect(healthGuardCheckoutSchema.safeParse({ ...valid, healthGuardPoolId: "user-supplied-pool" }).success).toBe(false);
   });
 });

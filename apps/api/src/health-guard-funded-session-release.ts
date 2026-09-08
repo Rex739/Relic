@@ -2,6 +2,7 @@ import type { DrizzleCommerceStore } from "@relic/database";
 import { randomUUID } from "node:crypto";
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import { sealFundedSession } from "./funded-session-envelope.js";
+import { isHealthGuardPoolId } from "@relic/domain";
 
 const record = (value: unknown, label: string) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Health Guard mandate has invalid ${label}`);
@@ -43,6 +44,8 @@ export class HealthGuardFundedSessionRelease {
     const constraints = record(row.version.riskConstraints, "risk constraints");
     const frequency = record(row.version.executionFrequency, "execution frequency");
     const triggerHealthFactorWad = wad(constraints.triggerHealthFactorWad, "riskConstraints.triggerHealthFactorWad");
+    const pool = constraints.healthGuardPoolId;
+    if (!isHealthGuardPoolId(pool)) throw new Error("Health Guard mandate requires a verified pool selection");
     const targetHealthFactorWad = wad(constraints.targetHealthFactorWad, "riskConstraints.targetHealthFactorWad");
     const maximumRepayBaseUnits = positive(constraints.maximumRepayBaseUnits, "riskConstraints.maximumRepayBaseUnits");
     const aggregateRepayLimitBaseUnits = positive(constraints.aggregateRepayLimitBaseUnits, "riskConstraints.aggregateRepayLimitBaseUnits");
@@ -59,6 +62,7 @@ export class HealthGuardFundedSessionRelease {
       maximumFeeWei,
       mandate: {
         jobId, borrower: row.session.walletAddress, rescueWallet: row.session.walletAddress,
+        poolId: pool,
         triggerHealthFactorWad, targetHealthFactorWad, maximumRepayBaseUnits, aggregateRepayLimitBaseUnits,
         minimumSecondsBetweenRepays: String(cooldown), expiresAt: expiresAt.toISOString(),
       },

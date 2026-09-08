@@ -42,7 +42,7 @@ test("runs only a canonical funded Mainnet job and records its receipt", async (
       idempotencyKey: "health-guard:8183:1",
       maximumFeeWei: "1",
       mandate: {
-        jobId: "8183", borrower: "0x4444444444444444444444444444444444444444", rescueWallet: "0x4444444444444444444444444444444444444444",
+        jobId: "8183", poolId: "venus-core-pool", borrower: "0x4444444444444444444444444444444444444444", rescueWallet: "0x4444444444444444444444444444444444444444",
         triggerHealthFactorWad: "2", targetHealthFactorWad: "3", maximumRepayBaseUnits: "5", aggregateRepayLimitBaseUnits: "10",
         minimumSecondsBetweenRepays: "60", expiresAt: "2027-01-01T00:00:00.000Z",
       },

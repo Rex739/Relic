@@ -6,7 +6,7 @@ import type {
   AltanaSessionAuthorizationRecord,
   DrizzleAltanaSessionAuthorizationStore,
 } from "@relic/database";
-import { MandateValidationError } from "@relic/domain";
+import { isHealthGuardPoolId, MandateValidationError } from "@relic/domain";
 
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import type { MandateApplicationService } from "./mandates.js";
@@ -141,19 +141,21 @@ function yieldSettings(riskConstraints: Record<string, unknown>) {
 }
 
 function healthGuardSettings(riskConstraints: Record<string, unknown>) {
+  const healthGuardPoolId = riskConstraints.healthGuardPoolId;
   const maximumRepayBaseUnits = asText(riskConstraints.maximumRepayBaseUnits);
   const aggregateRepayLimitBaseUnits = asText(riskConstraints.aggregateRepayLimitBaseUnits);
   const maximumFeeWei = asText(riskConstraints.maximumFeeWei);
   const durationHours = riskConstraints.sessionDurationHours;
   if (
     riskConstraints.executionKind !== "VENUS_USDT_HEALTH_GUARD_V1" ||
+    !isHealthGuardPoolId(healthGuardPoolId) ||
     maximumRepayBaseUnits === null || !/^[1-9]\d*$/u.test(maximumRepayBaseUnits) ||
     aggregateRepayLimitBaseUnits === null || !/^[1-9]\d*$/u.test(aggregateRepayLimitBaseUnits) ||
     maximumFeeWei === null || !/^[1-9]\d*$/u.test(maximumFeeWei) ||
     typeof durationHours !== "number" || !Number.isInteger(durationHours) || durationHours < 1 || durationHours > 720 ||
     BigInt(aggregateRepayLimitBaseUnits) < BigInt(maximumRepayBaseUnits)
   ) return null;
-  return { maximumRepayBaseUnits, durationHours };
+  return { maximumRepayBaseUnits, durationHours, poolId: healthGuardPoolId };
 }
 
 /**

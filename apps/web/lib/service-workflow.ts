@@ -1,3 +1,5 @@
+import { healthGuardPools } from "@relic/domain";
+
 export type MarketplaceCategory =
   | "rebalancing"
   | "grid-trading"
@@ -15,6 +17,7 @@ export type ServiceField = {
   min?: number;
   max?: number;
   step?: number | "any";
+  options?: ReadonlyArray<{ value: string; title: string; description: string; meta?: string }>;
 };
 
 export type ServiceWorkflow = {
@@ -249,6 +252,19 @@ const healthGuardWorkflow: ServiceWorkflow = {
   taskDescription: "Monitor your Venus position and repay only its configured USDT debt from your authorized rescue-wallet balance when the health factor reaches your trigger.",
   confirmLabel: "Review Health Guard limits",
   requirements: [
+    {
+      name: "healthGuardPoolId",
+      label: "Venus pool",
+      placeholder: "",
+      helper: "Choose the verified pool this one Health Guard job may monitor. A job never spans multiple pools.",
+      required: true,
+      options: healthGuardPools.map((pool) => ({
+        value: pool.id,
+        title: pool.name,
+        description: pool.description,
+        meta: `${pool.protocol} · ${pool.network} · ${pool.debtAsset} debt`,
+      })),
+    },
     { ...addressField, helper: "The Venus borrower account. For V1 it must be the same buyer wallet that authorizes the isolated rescue session." },
     { name: "threshold", label: "Repay trigger", placeholder: "1.20", helper: "The guard considers a repayment only below this health factor.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
     { name: "target", label: "Target health factor", placeholder: "1.50", helper: "Must be higher than the trigger. The guard reevaluates after each bounded repayment.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
@@ -264,8 +280,7 @@ const healthGuardWorkflow: ServiceWorkflow = {
 export const serviceWorkflowFor = (category: string, capabilities: readonly string[] = []): ServiceWorkflow => {
   const isHealthGuard = category === "health-factor-monitoring" && capabilities.some((item) => item.trim().toLowerCase().replaceAll(/[\s_-]+/g, "_") === "repay_debt");
   if (isHealthGuard) return healthGuardWorkflow;
-  return
-  workflows[category as MarketplaceCategory] ?? {
+  return workflows[category as MarketplaceCategory] ?? {
     taskLabel: "Agent service",
     taskDescription: "Provide the details this service needs, then review the price and confirm your task.",
     confirmLabel: "Confirm & create task",

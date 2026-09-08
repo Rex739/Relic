@@ -1,6 +1,6 @@
 "use server";
 
-import type { CreateMandateRequest } from "@relic/domain";
+import { isHealthGuardPoolId, type CreateMandateRequest } from "@relic/domain";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { parseUnits } from "viem";
@@ -120,6 +120,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const validatedHealth = healthValidation?.success ? healthValidation.data : null;
   const healthGuardValidation = isHealthGuard
     ? healthGuardCheckoutSchema.safeParse({
+        healthGuardPoolId: fieldString(formData, "healthGuardPoolId"),
         threshold,
         target: fieldString(formData, "target"),
         maximumRepay: fieldString(formData, "maximumRepay"),
@@ -217,6 +218,10 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         ? {}
         : {
             executionKind: "VENUS_USDT_HEALTH_GUARD_V1",
+            healthGuardPoolId: (() => {
+              if (!isHealthGuardPoolId(validatedHealthGuard.healthGuardPoolId)) throw new Error("Choose a verified Venus pool");
+              return validatedHealthGuard.healthGuardPoolId;
+            })(),
             triggerHealthFactorWad: parseUnits(validatedHealthGuard.threshold, 18).toString(),
             targetHealthFactorWad: parseUnits(validatedHealthGuard.target, 18).toString(),
             maximumRepayBaseUnits: parseUnits(validatedHealthGuard.maximumRepay, configuredHealthGuardUsdtDecimals()).toString(),

@@ -273,7 +273,7 @@ export function QuickServiceCheckout({
             : null}
           {(!requiresWalletAuthorization || authorizationStep === "configure") ? (
             <TooltipProvider delayDuration={180}>
-            {workflow.requirements.map((field) => (
+            {workflow.requirements.map((field) => field.options === undefined ? (
             <label key={field.name}>
               <span className="checkout-field-label">
                 {field.label}
@@ -323,6 +323,24 @@ export function QuickServiceCheckout({
                 </small>
               )}
             </label>
+          ) : (
+            <fieldset className="checkout-pool-field" key={field.name}>
+              <legend className="checkout-field-label">{field.label}</legend>
+              <small>{field.helper}</small>
+              <div className="checkout-pool-options">
+                {field.options.map((option, index) => (
+                  <label className="checkout-pool-option" key={option.value}>
+                    <input name={field.name} type="radio" value={option.value} required={field.required} defaultChecked={index === 0} />
+                    <span>
+                      <b>{option.title}</b>
+                      {option.meta === undefined ? null : <em>{option.meta}</em>}
+                      <small>{option.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {fieldErrors[field.name] === undefined ? null : <small className="form-error" role="alert">{fieldErrors[field.name]}</small>}
+            </fieldset>
           ))}
           </TooltipProvider>
           ) : (
