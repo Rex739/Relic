@@ -29,6 +29,7 @@ import { WalletSession } from "../../../_components/wallet-session";
 import { acceptTermsAction, hireOfferAction } from "../../../commerce-actions";
 import { createActivateMandateForHire } from "../../../mandate-actions";
 import { serviceWorkflowFor } from "../../../../lib/service-workflow";
+import { publicHealthGuardPoolOptions } from "../../../../lib/health-guard-pools";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Hire agent" };
@@ -76,7 +77,7 @@ export default async function HireAgentPage({
   ]);
   if (agentResponse.data === null) notFound();
   const agent = agentResponse.data;
-  const workflow = serviceWorkflowFor(agent.category, agent.capabilities);
+  const workflow = serviceWorkflowFor(agent.category, agent.capabilities, publicHealthGuardPoolOptions());
   const offer = offers.find((item) => item.id === search.offer) ?? offers[0];
   if (agent.tier !== "Actionable" || offer === undefined)
     return (

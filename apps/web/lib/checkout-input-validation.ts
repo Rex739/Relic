@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { isHealthGuardPoolId } from "@relic/domain/health-guard-pools";
 
 const decimal = (label: string) =>
   z
@@ -49,7 +48,7 @@ export const healthMonitoringCheckoutSchema = z.object({
 
 export const healthGuardCheckoutSchema = z
   .object({
-    healthGuardPoolId: z.string().refine(isHealthGuardPoolId, "Choose a verified Venus pool"),
+    healthGuardPoolId: z.string().trim().regex(/^[a-z0-9][a-z0-9-]{1,79}$/u, "Choose a verified Venus pool"),
     threshold: decimal("Repay trigger"),
     target: decimal("Post-repayment target"),
     maximumRepay: decimal("Maximum repayment per action"),

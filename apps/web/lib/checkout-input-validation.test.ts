@@ -43,7 +43,8 @@ describe("Health Guard checkout limits", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a pool identifier that is not in Relic's verified registry", () => {
-    expect(healthGuardCheckoutSchema.safeParse({ ...valid, healthGuardPoolId: "user-supplied-pool" }).success).toBe(false);
+  it("only accepts a syntactically safe pool identifier; server-side registry membership is authoritative", () => {
+    expect(healthGuardCheckoutSchema.safeParse({ ...valid, healthGuardPoolId: "user-supplied-pool" }).success).toBe(true);
+    expect(healthGuardCheckoutSchema.safeParse({ ...valid, healthGuardPoolId: "not a pool" }).success).toBe(false);
   });
 });

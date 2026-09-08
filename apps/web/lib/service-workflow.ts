@@ -1,4 +1,4 @@
-import { healthGuardPools } from "@relic/domain/health-guard-pools";
+import type { HealthGuardPoolOption } from "./health-guard-pools";
 
 export type MarketplaceCategory =
   | "rebalancing"
@@ -273,7 +273,7 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
   },
 };
 
-const healthGuardWorkflow: ServiceWorkflow = {
+const healthGuardWorkflow = (pools: readonly HealthGuardPoolOption[]): ServiceWorkflow => ({
   taskLabel: "Venus Health Guard",
   taskDescription: "Monitor your Venus position and repay only its configured USDT debt from your authorized rescue-wallet balance when the health factor reaches your trigger.",
   confirmLabel: "Review Health Guard limits",
@@ -284,7 +284,7 @@ const healthGuardWorkflow: ServiceWorkflow = {
       placeholder: "",
       helper: "Choose the verified pool this one Health Guard job may monitor. A job never spans multiple pools.",
       required: true,
-      options: healthGuardPools.map((pool) => ({
+      options: pools.map((pool) => ({
         value: pool.id,
         title: pool.name,
         description: pool.description,
@@ -294,18 +294,18 @@ const healthGuardWorkflow: ServiceWorkflow = {
     { ...addressField, helper: "The Venus borrower account. For V1 it must be the same buyer wallet that authorizes the isolated rescue session." },
     { name: "threshold", label: "Repay trigger", placeholder: "1.20", helper: "The guard considers a repayment only below this health factor.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
     { name: "target", label: "Target health factor", placeholder: "1.50", helper: "Must be higher than the trigger. The guard reevaluates after each bounded repayment.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
-    { name: "maximumRepay", label: "Maximum repayment per action (USDT)", placeholder: "e.g. 25", helper: "The guard cannot repay more than this amount in one confirmed action.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
-    { name: "aggregateRepayLimit", label: "Maximum total repayment (USDT)", placeholder: "e.g. 100", helper: "The guard stops once this total cap is reached.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
+    { name: "maximumRepay", label: "Maximum repayment per action", placeholder: "e.g. 25", helper: "The guard cannot repay more than this amount in one confirmed action.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
+    { name: "aggregateRepayLimit", label: "Maximum total repayment", placeholder: "e.g. 100", helper: "The guard stops once this total cap is reached.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
     { name: "maxFeeBnb", label: "Maximum BNB network fee", placeholder: "e.g. 0.002", helper: "A transaction is rejected when its estimated BNB fee exceeds this cap.", required: true, type: "number", min: 0.000000000000000001, step: "any" },
     { name: "durationHours", label: "Guard duration (hours)", placeholder: "e.g. 168", helper: "The wallet session and mandate expire automatically.", required: true, type: "number", min: 1, max: 720, step: 1 },
   ],
   deliverables: ["Current Venus health-factor evidence", "Every confirmed USDT repayment with transaction evidence", "Explicit no-action, cap, cooldown, or expiry reason"],
   permissionSummary: "The guard may only approve configured USDT to the configured Venus market and repay your own configured Venus debt, within your per-action, total, fee, and expiry limits. It cannot swap, withdraw collateral, borrow, or transfer funds.",
-};
+});
 
-export const serviceWorkflowFor = (category: string, capabilities: readonly string[] = []): ServiceWorkflow => {
+export const serviceWorkflowFor = (category: string, capabilities: readonly string[] = [], healthGuardPools: readonly HealthGuardPoolOption[] = []): ServiceWorkflow => {
   const isHealthGuard = category === "health-factor-monitoring" && capabilities.some((item) => item.trim().toLowerCase().replaceAll(/[\s_-]+/g, "_") === "repay_debt");
-  if (isHealthGuard) return healthGuardWorkflow;
+  if (isHealthGuard) return healthGuardWorkflow(healthGuardPools);
   return workflows[category as MarketplaceCategory] ?? {
     taskLabel: "Agent service",
     taskDescription: "Provide the details this service needs, then review the price and confirm your task.",

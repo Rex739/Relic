@@ -1,6 +1,6 @@
 "use server";
 
-import { isHealthGuardPoolId, type CreateMandateRequest } from "@relic/domain";
+import type { CreateMandateRequest } from "@relic/domain";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { parseUnits } from "viem";
@@ -21,6 +21,7 @@ import {
   lpRangeRebalancingCheckoutSchema,
   yieldOptimizerCheckoutSchema,
 } from "../lib/checkout-input-validation";
+import { configuredHealthGuardPool } from "../lib/health-guard-pools";
 
 const capabilities = [
   "monitor_positions",
@@ -41,6 +42,12 @@ const fieldString = (formData: FormData, name: string, fallback = "") => {
   return typeof value === "string" ? value : fallback;
 };
 
+async function isHealthGuardCheckout(formData: FormData) {
+  if (fieldString(formData, "category") !== "health-factor-monitoring") return false;
+  const profile = await activationProfile(fieldString(formData, "agentId"));
+  return profile.profile.capabilitySet.includes("repay_debt");
+}
+
 function configuredYieldUsdtDecimals() {
   const value = process.env.VENUS_TESTNET_USDT_DECIMALS?.trim();
   if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
@@ -55,17 +62,10 @@ function configuredGridUsdtDecimals() {
   return Number(value);
 }
 
-function configuredHealthGuardUsdtDecimals() {
-  const value = process.env.VENUS_MAINNET_USDT_DECIMALS?.trim();
-  if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
-    throw new Error("Health Guard is unavailable until its verified Mainnet USDT decimal configuration is set.");
-  return Number(value);
-}
-
 export async function preflightHealthGuard(formData: FormData) {
   const poolId = fieldString(formData, "healthGuardPoolId");
   const borrower = fieldString(formData, "publicAccount");
-  if (!isHealthGuardPoolId(poolId)) throw new Error("Choose a verified Venus pool");
+  configuredHealthGuardPool(poolId);
   if (!/^0x[0-9a-fA-F]{40}$/u.test(borrower)) throw new Error("Enter the Venus borrower wallet to check its position");
   return getHealthGuardPreflight({ poolId, borrower });
 }
@@ -150,6 +150,11 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   if (healthGuardValidation !== null && !healthGuardValidation.success)
     throw new Error(healthGuardValidation.error.issues[0]?.message ?? "Invalid Health Guard settings");
   const validatedHealthGuard = healthGuardValidation?.success ? healthGuardValidation.data : null;
+  // The pool is resolved once on the server. Its addresses and decimal precision
+  // never cross the checkout boundary, and membership is not trusted from the UI.
+  const healthGuardPool = validatedHealthGuard === null
+    ? null
+    : configuredHealthGuardPool(validatedHealthGuard.healthGuardPoolId);
   const enabledCapabilities =
     profile.profile.capabilitySet.length > 0
       ? profile.profile.capabilitySet
@@ -189,7 +194,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
       validatedGrid === null && validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null
         ? null
         : {
-            asset: "TEST_USDT",
+            asset: healthGuardPool?.debtAsset ?? "TEST_USDT",
             amount:
               validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield?.capitalCap ?? validatedHealthGuard!.maximumRepay,
           },
@@ -197,7 +202,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
       validatedGrid === null && validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null
         ? null
         : {
-            asset: "TEST_USDT",
+            asset: healthGuardPool?.debtAsset ?? "TEST_USDT",
             amount:
               validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield?.capitalCap ?? validatedHealthGuard!.aggregateRepayLimit,
           },
@@ -236,14 +241,11 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         ? {}
         : {
             executionKind: "VENUS_USDT_HEALTH_GUARD_V1",
-            healthGuardPoolId: (() => {
-              if (!isHealthGuardPoolId(validatedHealthGuard.healthGuardPoolId)) throw new Error("Choose a verified Venus pool");
-              return validatedHealthGuard.healthGuardPoolId;
-            })(),
+            healthGuardPoolId: validatedHealthGuard.healthGuardPoolId,
             triggerHealthFactorWad: parseUnits(validatedHealthGuard.threshold, 18).toString(),
             targetHealthFactorWad: parseUnits(validatedHealthGuard.target, 18).toString(),
-            maximumRepayBaseUnits: parseUnits(validatedHealthGuard.maximumRepay, configuredHealthGuardUsdtDecimals()).toString(),
-            aggregateRepayLimitBaseUnits: parseUnits(validatedHealthGuard.aggregateRepayLimit, configuredHealthGuardUsdtDecimals()).toString(),
+            maximumRepayBaseUnits: parseUnits(validatedHealthGuard.maximumRepay, healthGuardPool!.debtAssetDecimals).toString(),
+            aggregateRepayLimitBaseUnits: parseUnits(validatedHealthGuard.aggregateRepayLimit, healthGuardPool!.debtAssetDecimals).toString(),
             maximumFeeWei: parseUnits(validatedHealthGuard.maxFeeBnb, 18).toString(),
             sessionDurationHours: validatedHealthGuard.durationHours,
           }),
@@ -312,7 +314,8 @@ export type StartedHireCheckout = {
  * paid agreement. The buyer's bounded Altana grant must be verified first. */
 export async function prepareWalletAuthorization(formData: FormData) {
   const category = fieldString(formData, "category");
-  if (category !== "rebalancing" && category !== "yield-optimisation" && category !== "grid-trading")
+  const requiresHealthGuardAuthorization = await isHealthGuardCheckout(formData);
+  if (category !== "rebalancing" && category !== "yield-optimisation" && category !== "grid-trading" && !requiresHealthGuardAuthorization)
     throw new Error("This service does not require a bounded wallet session.");
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
@@ -347,7 +350,10 @@ export async function startHireCheckout(
 ): Promise<StartedHireCheckout> {
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
-  if (["rebalancing", "yield-optimisation", "grid-trading"].includes(fieldString(formData, "category")))
+  if (
+    ["rebalancing", "yield-optimisation", "grid-trading"].includes(fieldString(formData, "category")) ||
+    await isHealthGuardCheckout(formData)
+  )
     throw new Error("Authorize the buyer-owned bounded session before starting this executable service checkout.");
   const draft = await createMandate(await serviceConfiguration(formData));
   await transitionMandate(draft.id, "review");

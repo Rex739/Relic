@@ -92,6 +92,11 @@ export function QuickServiceCheckout({
   const isRebalancing = agentCategory === "rebalancing";
   const isGridTrader = agentCategory === "grid-trading";
   const isHealthGuard = agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt");
+  const healthGuardPoolOptions = workflow.requirements.find((field) => field.name === "healthGuardPoolId")?.options ?? [];
+  const healthGuardPool = healthGuardPoolOptions.find(
+    (pool) => pool.value === authorizationInputs.healthGuardPoolId,
+  );
+  const checkoutUnavailable = isHealthGuard && healthGuardPoolOptions.length === 0;
 
   const start = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -186,7 +191,13 @@ export function QuickServiceCheckout({
         if (!nextOpen && requiresWalletAuthorization) setAuthorizationStep("configure");
       }}
     >
-      <Button className={className} type="button" onClick={start}>
+      <Button
+        className={className}
+        type="button"
+        onClick={start}
+        disabled={checkoutUnavailable}
+        title={checkoutUnavailable ? "This Health Guard has no verified pool configuration yet." : undefined}
+      >
         {label}
       </Button>
       <DialogContent className="quick-checkout-dialog">
@@ -382,15 +393,16 @@ export function QuickServiceCheckout({
                   </dl>
                 ) : isHealthGuard ? (
                   <dl className="secure-permission-limits">
-                    <div><dt>Pool</dt><dd>Venus Core Pool</dd></div>
+                    <div><dt>Pool</dt><dd>{healthGuardPool?.title ?? "Selected verified pool"}</dd></div>
+                    {healthGuardPool?.meta === undefined ? null : <div><dt>Scope</dt><dd>{healthGuardPool.meta}</dd></div>}
                     {healthGuardPreflight === null ? null : <>
                       <div><dt>Current health factor</dt><dd>{healthGuardPreflight.healthFactorWad === null ? "Unavailable" : (Number(BigInt(healthGuardPreflight.healthFactorWad)) / 1e18).toFixed(4)}</dd></div>
                       <div><dt>Collateral markets</dt><dd>{healthGuardPreflight.collateralMarkets.length}</dd></div>
                     </>}
                     <div><dt>Repay trigger</dt><dd>{authorizationInputs.threshold}</dd></div>
                     <div><dt>Target health factor</dt><dd>{authorizationInputs.target}</dd></div>
-                    <div><dt>Per action</dt><dd>{authorizationInputs.maximumRepay} USDT</dd></div>
-                    <div><dt>Total cap</dt><dd>{authorizationInputs.aggregateRepayLimit} USDT</dd></div>
+                    <div><dt>Per action</dt><dd>{authorizationInputs.maximumRepay} {healthGuardPool?.meta?.split(" · ").at(-1)?.replace(" debt", "") ?? "debt asset"}</dd></div>
+                    <div><dt>Total cap</dt><dd>{authorizationInputs.aggregateRepayLimit} {healthGuardPool?.meta?.split(" · ").at(-1)?.replace(" debt", "") ?? "debt asset"}</dd></div>
                     {(isGridTrader || !isRebalancing) && <div><dt>Network fee cap</dt><dd>{authorizationInputs.maxFeeBnb} BNB</dd></div>}
                     <div><dt>Expires after</dt><dd>{authorizationInputs.durationHours} hours</dd></div>
                   </dl>
@@ -403,7 +415,7 @@ export function QuickServiceCheckout({
                   </dl>
                 )}
                 <ul>
-                  <li><Check aria-hidden="true" size={14} /> {isGridTrader || isRebalancing ? "BNB/USDT only" : isHealthGuard ? "Venus Core Pool USDT debt only" : "BSC Testnet USDT only"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isGridTrader || isRebalancing ? "BNB/USDT only" : isHealthGuard ? `${healthGuardPool?.title ?? "Selected verified pool"} debt only` : "BSC Testnet USDT only"}</li>
                   <li><Check aria-hidden="true" size={14} /> {isGridTrader || isRebalancing ? "Configured PancakeSwap V3 contracts only" : "Configured Venus contracts only"}</li>
                   <li><Check aria-hidden="true" size={14} /> {isGridTrader ? "Only within the price range and capital cap you set" : isRebalancing ? "At most one rebalance per hour" : isHealthGuard ? "A repayment only after a fresh health check" : "Exactly one supply-and-withdraw test run"}</li>
                   <li><Check aria-hidden="true" size={14} /> Revoke any time</li>

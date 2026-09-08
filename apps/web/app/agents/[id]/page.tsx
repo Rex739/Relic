@@ -22,6 +22,7 @@ import { OnChainDataDialog } from "../../_components/on-chain-data-dialog";
 import { ServiceDescription } from "../../_components/service-description-dialog";
 import { VerificationTier } from "../../_components/verification-tier";
 import { serviceWorkflowFor } from "../../../lib/service-workflow";
+import { publicHealthGuardPoolOptions } from "../../../lib/health-guard-pools";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export default async function AgentIntelligencePage({
       </main>
     );
   const agent = response.data;
+  const healthGuardPools = publicHealthGuardPoolOptions();
   const offers = await activeOffers(id);
   const restrictions = offers.flatMap(
     (offer) => offer.version.limitationsSnapshot,
@@ -264,7 +266,7 @@ export default async function AgentIntelligencePage({
                         <div>
                           <span>Requirements</span>
                           <p>
-                            {serviceWorkflowFor(agent.category, agent.capabilities)
+                            {serviceWorkflowFor(agent.category, agent.capabilities, healthGuardPools)
                               .requirements.filter((field) => field.required)
                               .map((field) => field.label)
                               .join(" · ") || "Task details"}
@@ -273,7 +275,7 @@ export default async function AgentIntelligencePage({
                         <div>
                           <span>Deliverables</span>
                           <p>
-                            {serviceWorkflowFor(agent.category, agent.capabilities)
+                            {serviceWorkflowFor(agent.category, agent.capabilities, healthGuardPools)
                               .deliverables.slice(0, 2)
                               .join(" · ")}
                           </p>
@@ -308,7 +310,7 @@ export default async function AgentIntelligencePage({
                             ? "BSC Testnet"
                             : "BNB Chain"
                         }
-                        workflow={serviceWorkflowFor(agent.category, agent.capabilities)}
+                        workflow={serviceWorkflowFor(agent.category, agent.capabilities, healthGuardPools)}
                       />
                     </div>
                   </article>
@@ -419,7 +421,7 @@ export default async function AgentIntelligencePage({
                   chainId={agent.chainId}
                   price={marketplacePriceLabel(agent.activeOfferPrice)}
                   network={agent.chainId === 97 ? "BSC Testnet" : "BNB Chain"}
-                  workflow={serviceWorkflowFor(agent.category, agent.capabilities)}
+                  workflow={serviceWorkflowFor(agent.category, agent.capabilities, healthGuardPools)}
                   className="activate-link"
                   label="Hire agent"
                 />
