@@ -1,0 +1,15 @@
+{
+  "name": "relic-health-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm build && node --test dist/*.test.js",
+    "start:private": "node dist/private-server.js",
+    "start:public": "node dist/public-server.js"
+  },
+  "dependencies": { "viem": "^2.56.3" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.5.0" }
+}
