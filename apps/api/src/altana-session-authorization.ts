@@ -106,6 +106,9 @@ type YieldSessionConfig = Readonly<{
   maximumJobAmountBaseUnits: bigint;
 }>;
 type HealthGuardSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
+type HealthGuardPositionPreflight = Readonly<{
+  inspect(input: { poolId: unknown; borrower: Address }): Promise<Readonly<{ eligible: boolean; reason: string }>>;
+}>;
 
 const asText = (value: unknown) => (typeof value === "string" ? value : null);
 
@@ -173,6 +176,7 @@ export class AltanaSessionAuthorizationService {
     private readonly yieldConfig?: YieldSessionConfig,
     private readonly mainnetRpcUrl?: string,
     private readonly healthGuardConfig?: HealthGuardSessionConfig,
+    private readonly healthGuardPreflight?: HealthGuardPositionPreflight,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -200,13 +204,21 @@ export class AltanaSessionAuthorizationService {
         "altana_session_amount_exceeds_limit",
         "This Yield Optimizer mandate exceeds the currently verified testnet safety limit.",
       );
-    if (healthGuard !== null && (this.mainnetRpcUrl === undefined || this.healthGuardConfig === undefined))
+    if (healthGuard !== null && (this.mainnetRpcUrl === undefined || this.healthGuardConfig === undefined || this.healthGuardPreflight === undefined))
       throw new MandateValidationError("altana_session_not_configured", "Health Guard Mainnet session configuration is unavailable.");
     if (mandate.status !== "REVIEWED")
       throw new MandateValidationError(
         "altana_session_invalid_state",
         "Review the service settings before authorizing its bounded session.",
       );
+    if (healthGuard !== null) {
+      const monitoredAccount = asText(mandate.version.riskConstraints.monitoredAccount);
+      if (monitoredAccount === null || !/^0x[0-9a-fA-F]{40}$/u.test(monitoredAccount))
+        throw new MandateValidationError("health_guard_position_invalid", "Health Guard requires a valid Venus borrower wallet.");
+      const position = await this.healthGuardPreflight!.inspect({ poolId: healthGuard.poolId, borrower: getAddress(monitoredAccount) });
+      if (!position.eligible)
+        throw new MandateValidationError("health_guard_position_ineligible", `Health Guard cannot authorize this Venus position: ${position.reason}.`);
+    }
     const purpose = healthGuard !== null ? "HEALTH_GUARD" : rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
 
     const existing = await this.store.find(mandateId, principalId);

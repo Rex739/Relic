@@ -71,8 +71,16 @@ const mandates =
     ? undefined
     : new MandateApplicationService(
         repository,
-        new DrizzleMandateStore(connection.db),
+      new DrizzleMandateStore(connection.db),
       );
+const healthGuardPreflight =
+  environment.VENUS_MAINNET_USDT_VTOKEN === undefined || environment.VENUS_MAINNET_COMPTROLLER === undefined
+    ? undefined
+    : new HealthGuardPreflight({
+        rpcUrl: environment.BSC_MAINNET_RPC_URL,
+        usdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}`,
+        comptroller: environment.VENUS_MAINNET_COMPTROLLER as `0x${string}`,
+      });
 const altanaSessions =
   connection === null || mandates === undefined || environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined
     ? undefined
@@ -89,9 +97,10 @@ const altanaSessions =
               maximumJobAmountBaseUnits: BigInt(environment.MAX_JOB_AMOUNT_BASE_UNITS),
             },
         environment.BSC_MAINNET_RPC_URL,
-        environment.VENUS_MAINNET_USDT === undefined || environment.VENUS_MAINNET_USDT_VTOKEN === undefined
+        environment.VENUS_MAINNET_USDT === undefined || environment.VENUS_MAINNET_USDT_VTOKEN === undefined || healthGuardPreflight === undefined
           ? undefined
           : { usdt: environment.VENUS_MAINNET_USDT as `0x${string}`, venusUsdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}` },
+        healthGuardPreflight,
       );
 const executions =
   connection === null
@@ -201,9 +210,7 @@ const app = createApp(repository, onboarding, mandates, {
         yieldOptimizerInternalToken: environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN,
         ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY === undefined ? {} : { yieldFundedSessionRelease: new YieldFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_YIELD_OPTIMIZER_AGENT_ID, environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY) }),
       }),
-  ...(environment.VENUS_MAINNET_USDT_VTOKEN === undefined || environment.VENUS_MAINNET_COMPTROLLER === undefined
-    ? {}
-    : { healthGuardPreflight: new HealthGuardPreflight({ rpcUrl: environment.BSC_MAINNET_RPC_URL, usdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}`, comptroller: environment.VENUS_MAINNET_COMPTROLLER as `0x${string}` }) }),
+  ...(healthGuardPreflight === undefined ? {} : { healthGuardPreflight }),
   ...(connection === null || environment.RELIC_HEALTH_GUARD_INTERNAL_TOKEN === undefined || environment.RELIC_HEALTH_GUARD_AGENT_ID === undefined
     ? {}
     : {
