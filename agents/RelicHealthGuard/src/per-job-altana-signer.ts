@@ -1,7 +1,7 @@
 import { BNB, createClient, signerFromPrivateKey, type Session } from "@altananetwork/sdk";
 import { createPublicClient, encodeFunctionData, getAddress, http, type PublicClient } from "viem";
 import { bsc } from "viem/chains";
-import type { Address, HealthGuardConfig } from "./config.js";
+import type { Address, HealthGuardConfig, HealthGuardPoolConfig } from "./config.js";
 import type { FundedHealthGuardSession } from "./funded-session-client.js";
 import type { BoundedSessionSigner } from "./signer.js";
 import type { PreparedTransaction } from "./transaction.js";
@@ -18,13 +18,13 @@ export class PerJobAltanaHealthGuardSigner implements BoundedSessionSigner {
   private readonly altana = createClient({ chains: [BNB] });
   private readonly session: Session;
 
-  public constructor(private readonly config: HealthGuardConfig, release: FundedHealthGuardSession, client?: PublicClient) {
+  public constructor(private readonly config: HealthGuardConfig, pool: HealthGuardPoolConfig, release: FundedHealthGuardSession, client?: PublicClient) {
     if (release.expiresAt <= new Date()) throw new Error("Health Guard signing denied: session has expired");
     this.session = {
       walletAddress: getAddress(release.walletAddress),
       signer: signerFromPrivateKey(release.sessionPrivateKey),
       publicKey: release.sessionPublicKey,
-      permissions: parsePermissions(release.permissions, config),
+      permissions: parsePermissions(release.permissions, pool),
       expiry: Math.floor(release.expiresAt.getTime() / 1_000),
     };
     this.client = client ?? createPublicClient({ chain: bsc, transport: http(config.rpcUrl) });
@@ -61,18 +61,18 @@ export class PerJobAltanaHealthGuardSigner implements BoundedSessionSigner {
   }
 }
 
-function parsePermissions(value: Record<string, unknown>, config: HealthGuardConfig): Session["permissions"] {
+function parsePermissions(value: Record<string, unknown>, pool: HealthGuardPoolConfig): Session["permissions"] {
   const raw = value as SessionPermissions;
   if (!Array.isArray(raw.calls) || !Array.isArray(raw.spend) || raw.calls.length === 0 || raw.spend.length === 0)
     throw new Error("Health Guard signing denied: missing bounded session permissions");
   return {
     calls: raw.calls.map(({ to }) => {
-      if (typeof to !== "string" || (!sameAddress(to, config.usdt) && !sameAddress(to, config.venusUsdtVToken)))
+      if (typeof to !== "string" || (!sameAddress(to, pool.usdt) && !sameAddress(to, pool.venusUsdtVToken)))
         throw new Error("Health Guard signing denied: unexpected call target");
       return { to: getAddress(to) };
     }),
     spend: raw.spend.map(({ token, limit, period }) => {
-      if (token === undefined || !sameAddress(token, config.usdt) || !/^\d+$/u.test(limit) || BigInt(limit) <= 0n || period !== "day")
+      if (token === undefined || !sameAddress(token, pool.usdt) || !/^\d+$/u.test(limit) || BigInt(limit) <= 0n || period !== "day")
         throw new Error("Health Guard signing denied: invalid USDT daily spend permission");
       return { token: getAddress(token), limit: BigInt(limit), period };
     }),

@@ -1,5 +1,5 @@
 import { encodeFunctionData, type Abi } from "viem";
-import type { Address, HealthGuardConfig } from "./config.js";
+import type { Address, HealthGuardPoolConfig } from "./config.js";
 
 export type PreparedTransaction = Readonly<{
   to: Address;
@@ -29,27 +29,27 @@ const positive = (value: bigint) => {
 
 /** Only exact USDT approvals and Venus repayment calldata can be constructed. */
 export class VenusHealthTransactionAdapter {
-  public constructor(private readonly config: HealthGuardConfig) {}
+  public constructor(private readonly pool: HealthGuardPoolConfig) {}
 
   approveExact(amountBaseUnits: bigint, maximumFeeWei: bigint): PreparedTransaction {
-    const args = [this.config.venusUsdtVToken, positive(amountBaseUnits)] as const;
+    const args = [this.pool.venusUsdtVToken, positive(amountBaseUnits)] as const;
     return {
-      to: this.config.usdt,
+      to: this.pool.usdt,
       data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args }),
       value: 0n,
       maximumFeeWei,
-      call: { address: this.config.usdt, abi: erc20Abi, functionName: "approve", args },
+      call: { address: this.pool.usdt, abi: erc20Abi, functionName: "approve", args },
     };
   }
 
   repayBorrowBehalf(borrower: Address, amountBaseUnits: bigint, maximumFeeWei: bigint): PreparedTransaction {
     const args = [borrower, positive(amountBaseUnits)] as const;
     return {
-      to: this.config.venusUsdtVToken,
+      to: this.pool.venusUsdtVToken,
       data: encodeFunctionData({ abi: vTokenAbi, functionName: "repayBorrowBehalf", args }),
       value: 0n,
       maximumFeeWei,
-      call: { address: this.config.venusUsdtVToken, abi: vTokenAbi, functionName: "repayBorrowBehalf", args },
+      call: { address: this.pool.venusUsdtVToken, abi: vTokenAbi, functionName: "repayBorrowBehalf", args },
     };
   }
 }

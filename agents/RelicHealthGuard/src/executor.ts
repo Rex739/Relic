@@ -1,4 +1,4 @@
-import type { HealthGuardConfig } from "./config.js";
+import { configuredHealthGuardPool, type HealthGuardConfig } from "./config.js";
 import { decideRepayment, type HealthGuardMandate, type HealthObservation, type RepayHistory } from "./policy.js";
 import { sendHealthGuardTransaction, type BoundedSessionSigner } from "./signer.js";
 import { VenusHealthTransactionAdapter } from "./transaction.js";
@@ -79,7 +79,7 @@ export async function executeHealthGuardCycle(input: {
     decisionReason: decision.reason,
     repayAmountBaseUnits: decision.amountBaseUnits,
   });
-  const adapter = new VenusHealthTransactionAdapter(input.config);
+  const adapter = new VenusHealthTransactionAdapter(configuredHealthGuardPool(input.config, input.job.mandate.poolId));
   let approvalTxHash: `0x${string}` | undefined;
   if (await input.reader.allowance(input.job.mandate.rescueWallet) < decision.amountBaseUnits) {
     approvalTxHash = await sendHealthGuardTransaction({ config: input.config, mandate: input.job.mandate, signer: input.signer, transaction: adapter.approveExact(decision.amountBaseUnits, input.job.maximumFeeWei) });

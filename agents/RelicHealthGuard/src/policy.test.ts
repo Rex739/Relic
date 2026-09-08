@@ -4,9 +4,9 @@ import { BSC_MAINNET_CHAIN_ID, type HealthGuardConfig } from "./config.js";
 import { decideRepayment, WAD, type HealthGuardMandate } from "./policy.js";
 
 const config: HealthGuardConfig = {
-  chainId: BSC_MAINNET_CHAIN_ID, rpcUrl: "https://rpc.example", usdt: "0x0000000000000000000000000000000000000001",
-  venusUsdtVToken: "0x0000000000000000000000000000000000000002", venusComptroller: "0x0000000000000000000000000000000000000003",
-  usdtDecimals: 18, maxRepayBaseUnits: 100n, minimumBnbGasReserveWei: 1n, executionEnabled: true,
+  chainId: BSC_MAINNET_CHAIN_ID, rpcUrl: "https://rpc.example",
+  pools: new Map([["venus-core-pool", { id: "venus-core-pool", name: "Test", protocol: "Venus", network: "BSC", debtAsset: "USDT", usdt: "0x0000000000000000000000000000000000000001", venusUsdtVToken: "0x0000000000000000000000000000000000000002", venusComptroller: "0x0000000000000000000000000000000000000003", usdtDecimals: 18 }]]),
+  maxRepayBaseUnits: 100n, minimumBnbGasReserveWei: 1n, executionEnabled: true,
 };
 const now = new Date("2026-09-08T00:00:00.000Z");
 const mandate: HealthGuardMandate = {

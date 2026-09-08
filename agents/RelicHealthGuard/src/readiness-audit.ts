@@ -1,4 +1,4 @@
-import { loadHealthGuardConfig, type HealthGuardConfig } from "./config.js";
+import { loadHealthGuardConfig, type HealthGuardConfig, type HealthGuardPoolConfig } from "./config.js";
 
 export type ReadinessAudit = Readonly<{
   ready: boolean;
@@ -20,7 +20,7 @@ const requiredRuntimeKeys = [
  */
 export async function auditHealthGuardReadiness(
   env: NodeJS.ProcessEnv,
-  verifyDeployment: (config: HealthGuardConfig) => Promise<void>,
+  verifyDeployment: (config: HealthGuardConfig, pool: HealthGuardPoolConfig) => Promise<void>,
 ): Promise<ReadinessAudit> {
   const checks: Record<string, "pass" | "fail"> = {};
   let config: HealthGuardConfig;
@@ -38,7 +38,7 @@ export async function auditHealthGuardReadiness(
   if (transferKey && !/BEGIN (?:RSA |EC )?PRIVATE KEY/u.test(transferKey))
     checks.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PRIVATE_KEY = "fail";
   try {
-    await verifyDeployment(config);
+    await Promise.all([...config.pools.values()].map((pool) => verifyDeployment(config, pool)));
     checks.venusDeployment = "pass";
   } catch (error) {
     checks.venusDeployment = "fail";

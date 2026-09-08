@@ -8,9 +8,9 @@ import type { BoundedSessionSigner } from "./signer.js";
 const usdt = "0x1111111111111111111111111111111111111111" as const;
 const market = "0x2222222222222222222222222222222222222222" as const;
 const config: HealthGuardConfig = {
-  chainId: 56, rpcUrl: "https://rpc.example", usdt, venusUsdtVToken: market,
-  venusComptroller: "0x3333333333333333333333333333333333333333",
-  usdtDecimals: 6, maxRepayBaseUnits: 10n, minimumBnbGasReserveWei: 1n, executionEnabled: true,
+  chainId: 56, rpcUrl: "https://rpc.example",
+  pools: new Map([["venus-core-pool", { id: "venus-core-pool", name: "Test", protocol: "Venus", network: "BSC", debtAsset: "USDT", usdt, venusUsdtVToken: market, venusComptroller: "0x3333333333333333333333333333333333333333", usdtDecimals: 6 }]]),
+  maxRepayBaseUnits: 10n, minimumBnbGasReserveWei: 1n, executionEnabled: true,
 };
 
 test("runs only a canonical funded Mainnet job and records its receipt", async () => {

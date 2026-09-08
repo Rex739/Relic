@@ -18,20 +18,19 @@ if (!bearerToken || !apiUrl || !internalToken || !transferPrivateKey)
   throw new Error("PRIVATE_AGENT_BEARER_TOKEN, RELIC_API_URL, RELIC_HEALTH_GUARD_INTERNAL_TOKEN, and RELIC_HEALTH_GUARD_SESSION_TRANSFER_PRIVATE_KEY are required");
 
 const config = loadHealthGuardConfig();
-const reader = new VenusMainnetHealthReader(config);
 const sessions = new FundedHealthGuardSessionClient({ apiUrl, bearerToken: internalToken, executorPrivateKeyPem: transferPrivateKey });
 const cycles = new RelicHealthGuardCycleStore({ apiUrl, bearerToken: internalToken });
 const executor = new HealthGuardPrivateExecutor(
   config,
-  () => reader.verifyDeployment(),
+  (pool) => new VenusMainnetHealthReader(config, pool).verifyDeployment(),
   (commerceJobId) => sessions.canonicalExecution(commerceJobId),
-  async ({ commerceJobId, canonicalJob }) => {
+  async ({ commerceJobId, canonicalJob, pool }) => {
     const session = await sessions.release(commerceJobId);
     if (session.commerceJobId !== commerceJobId || session.walletAddress.toLowerCase() !== canonicalJob.mandate.rescueWallet.toLowerCase())
       throw new Error("Health Guard session does not match canonical rescue wallet");
     if (canonicalJob.mandate.expiresAt > session.expiresAt)
       throw new Error("Health Guard canonical mandate outlives the buyer session");
-    return { signer: new PerJobAltanaHealthGuardSigner(config, session), reader, cycles };
+    return { signer: new PerJobAltanaHealthGuardSigner(config, pool, session), reader: new VenusMainnetHealthReader(config, pool), cycles };
   },
 );
 

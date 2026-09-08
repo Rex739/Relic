@@ -26,9 +26,10 @@ const evmAddress = (value: unknown, name: string): Address => {
   if (!address.test(raw)) invalid(`${name} must be an EVM address`);
   return raw as Address;
 };
-const poolId = (value: unknown): "venus-core-pool" => {
-  if (value !== "venus-core-pool") invalid("mandate.poolId is not configured");
-  return value as "venus-core-pool";
+const poolId = (value: unknown): string => {
+  const output = string(value, "mandate.poolId");
+  if (!/^[a-z0-9][a-z0-9-]{1,79}$/u.test(output)) invalid("mandate.poolId is invalid");
+  return output;
 };
 
 /** Accepts only Relic's trusted canonical funded-job envelope, never browser input. */

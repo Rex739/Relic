@@ -1,10 +1,10 @@
-import type { Address, HealthGuardConfig } from "./config.js";
+import { configuredHealthGuardPool, type Address, type HealthGuardConfig } from "./config.js";
 
 export const WAD = 10n ** 18n;
 
 export type HealthGuardMandate = Readonly<{
   jobId: string;
-  poolId: "venus-core-pool";
+  poolId: string;
   borrower: Address;
   rescueWallet: Address;
   triggerHealthFactorWad: bigint;
@@ -36,7 +36,7 @@ const reject = (detail: string): never => { throw new Error(`Health Guard policy
 
 export function validateHealthGuardMandate(config: HealthGuardConfig, mandate: HealthGuardMandate, now = new Date()): void {
   if (!mandate.jobId.trim()) reject("job id is required");
-  if (mandate.poolId !== "venus-core-pool") reject("pool is not configured");
+  try { configuredHealthGuardPool(config, mandate.poolId); } catch { reject("pool is not configured"); }
   if (!/^0x[0-9a-fA-F]{40}$/u.test(mandate.borrower)) reject("borrower is invalid");
   if (!/^0x[0-9a-fA-F]{40}$/u.test(mandate.rescueWallet)) reject("rescue wallet is invalid");
   if (mandate.expiresAt <= now) reject("mandate has expired");

@@ -1,4 +1,4 @@
-import type { Address, HealthGuardConfig } from "./config.js";
+import { configuredHealthGuardPool, type Address, type HealthGuardConfig } from "./config.js";
 import type { HealthGuardMandate } from "./policy.js";
 import type { PreparedTransaction } from "./transaction.js";
 
@@ -23,7 +23,8 @@ export async function sendHealthGuardTransaction(input: {
   if (!input.config.executionEnabled) throw new Error("Health Guard signing denied: execution is disabled");
   if (input.transaction.value !== 0n) throw new Error("Health Guard signing denied: native transfers are forbidden");
   if (input.transaction.maximumFeeWei < 0n) throw new Error("Health Guard signing denied: invalid fee cap");
-  if (![input.config.usdt.toLowerCase(), input.config.venusUsdtVToken.toLowerCase()].includes(input.transaction.to.toLowerCase()))
+  const pool = configuredHealthGuardPool(input.config, input.mandate.poolId);
+  if (![pool.usdt.toLowerCase(), pool.venusUsdtVToken.toLowerCase()].includes(input.transaction.to.toLowerCase()))
     throw new Error("Health Guard signing denied: target is not an approved USDT or Venus market contract");
   const [address, chainId] = await Promise.all([input.signer.getAddress(), input.signer.getChainId()]);
   if (chainId !== input.config.chainId) throw new Error("Health Guard signing denied: wrong chain");
