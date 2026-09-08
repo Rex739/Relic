@@ -52,6 +52,7 @@ import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-s
 import type { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import type { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 import type { GridFundedSessionRelease } from "./grid-funded-session-release.js";
+import type { GridTraderExecutionStore } from "./grid-trader-execution-store.js";
 import type { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import type { HealthGuardPreflight } from "./health-guard-preflight.js";
 import type {
@@ -1182,6 +1183,7 @@ export function createApp(
     yieldFundedSessionRelease?: YieldFundedSessionRelease;
     gridTraderInternalToken?: string;
     gridFundedSessionRelease?: GridFundedSessionRelease;
+    gridTraderExecutionStore?: GridTraderExecutionStore;
     healthGuardInternalToken?: string;
     healthGuardFundedSessionRelease?: HealthGuardFundedSessionRelease;
     healthGuardCycleStore?: HealthGuardCycleStore;
@@ -1600,6 +1602,27 @@ export function createApp(
     if (!hasInternalToken(context, options.gridTraderInternalToken)) return context.json({ error: "unauthorized" }, 401);
     if (options.gridFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
     return context.json(await options.gridFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/grid-trader/execution-jobs", async (context) => {
+    if (!hasInternalToken(context, options.gridTraderInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.gridTraderExecutionStore === undefined) return context.json({ error: "execution_store_unavailable" }, 503);
+    const input = z.object({ id: z.uuid(), commerceJobId: z.string().regex(/^\d+$/u), idempotencyKey: z.string().min(1).max(200) }).parse(await context.req.json());
+    return context.json(await options.gridTraderExecutionStore.createOrFind(input), 200);
+  });
+  app.post("/internal/grid-trader/execution-jobs/:id/transitions", async (context) => {
+    if (!hasInternalToken(context, options.gridTraderInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.gridTraderExecutionStore === undefined) return context.json({ error: "execution_store_unavailable" }, 503);
+    const input = z.object({ expectedRevision: z.number().int().nonnegative(), to: z.enum(["FUNDED", "POLICY_ACCEPTED", "APPROVAL_SUBMITTED", "APPROVED", "SUPPLY_SUBMITTED", "COMPLETED", "REJECTED", "RECOVERY_REQUIRED"]), transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(), recoveryReason: z.string().min(1).max(1_000).optional() }).parse(await context.req.json());
+    return context.json(await options.gridTraderExecutionStore.transition({
+      id: z.uuid().parse(context.req.param("id")), expectedRevision: input.expectedRevision, to: input.to,
+      ...(input.transactionHash === undefined ? {} : { transactionHash: input.transactionHash }),
+      ...(input.recoveryReason === undefined ? {} : { recoveryReason: input.recoveryReason }),
+    }), 200);
+  });
+  app.get("/internal/grid-trader/execution-jobs/:id", async (context) => {
+    if (!hasInternalToken(context, options.gridTraderInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.gridTraderExecutionStore === undefined) return context.json({ error: "execution_store_unavailable" }, 503);
+    return context.json(await options.gridTraderExecutionStore.get(z.uuid().parse(context.req.param("id"))), 200);
   });
   app.post("/internal/health-guard/funded-jobs/:jobId/session", async (context) => {
     if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);

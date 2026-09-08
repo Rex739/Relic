@@ -48,6 +48,7 @@ export class GridFundedSessionClient {
 }
 
 export type GridExecutionRequest = Readonly<{ commerceJobId: string; idempotencyKey: string; mandate: { account: Address; expiresAt: Date; maximumCapitalBaseUnits: bigint; lowerPrice: string; upperPrice: string; gridLevels: number; minimumSecondsBetweenExecutions: number }; maximumFeeWei: bigint }>;
+export type GridExecutionJob = Readonly<{ id: string; state: string; revision: number; approvalTxHash: string | null; swapTxHash: string | null; recoveryReason: string | null }>;
 
 function detail(body: unknown) { return body && typeof body === "object" && !Array.isArray(body) ? String((body as { error?: unknown }).error ?? "request failed") : "request failed"; }
 function parsePositive(value: unknown, label: string) { if (typeof value !== "string" || !/^[1-9]\d*$/u.test(value)) throw new Error(`Grid execution request rejected: ${label}`); return BigInt(value); }
@@ -60,4 +61,38 @@ function parseRequest(body: unknown, jobId: string): GridExecutionRequest {
   const expiresAt = typeof value.expiresAt === "string" ? new Date(value.expiresAt) : null;
   if (typeof value.account !== "string" || !address.test(value.account) || !expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date() || typeof value.lowerPrice !== "string" || typeof value.upperPrice !== "string" || !/^\d+(?:\.\d+)?$/u.test(value.lowerPrice) || !/^\d+(?:\.\d+)?$/u.test(value.upperPrice) || typeof value.gridLevels !== "number" || !Number.isInteger(value.gridLevels) || value.gridLevels < 5 || value.gridLevels > 8 || typeof value.minimumSecondsBetweenExecutions !== "string" || !/^\d+$/u.test(value.minimumSecondsBetweenExecutions)) throw new Error("Grid execution request has invalid mandate fields");
   return Object.freeze({ commerceJobId: jobId, idempotencyKey: input.idempotencyKey, mandate: Object.freeze({ account: value.account as Address, expiresAt, maximumCapitalBaseUnits: parsePositive(value.maximumCapitalBaseUnits, "maximumCapitalBaseUnits"), lowerPrice: value.lowerPrice, upperPrice: value.upperPrice, gridLevels: value.gridLevels, minimumSecondsBetweenExecutions: Number(value.minimumSecondsBetweenExecutions) }), maximumFeeWei: parsePositive(input.maximumFeeWei, "maximumFeeWei") });
+}
+
+declare module "./gridFundedSessionClient.js" {
+  interface GridFundedSessionClient {
+    createOrFindExecution(input: { id: string; commerceJobId: string; idempotencyKey: string }): Promise<{ created: boolean; job: GridExecutionJob }>;
+    transitionExecution(input: { id: string; expectedRevision: number; to: string; transactionHash?: string; recoveryReason?: string }): Promise<GridExecutionJob | null>;
+  }
+}
+
+GridFundedSessionClient.prototype.createOrFindExecution = async function(input) {
+  const body = await internalRequest(this, "POST", "/internal/grid-trader/execution-jobs", input);
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof (body as { created?: unknown }).created !== "boolean") throw new Error("Grid execution store returned an invalid create response");
+  return { created: (body as { created: boolean }).created, job: parseJob((body as { job?: unknown }).job) };
+};
+GridFundedSessionClient.prototype.transitionExecution = async function(input) {
+  const { id, ...payload } = input;
+  const body = await internalRequest(this, "POST", `/internal/grid-trader/execution-jobs/${encodeURIComponent(id)}/transitions`, payload);
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Grid execution store returned an invalid transition response");
+  const job = (body as { job?: unknown }).job;
+  return job === null ? null : parseJob(job);
+};
+
+function parseJob(value: unknown): GridExecutionJob {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Grid execution store returned an invalid job");
+  const job = value as Partial<GridExecutionJob>;
+  if (typeof job.id !== "string" || typeof job.state !== "string" || !Number.isInteger(job.revision) || (typeof job.approvalTxHash !== "string" && job.approvalTxHash !== null) || (typeof job.swapTxHash !== "string" && job.swapTxHash !== null) || (typeof job.recoveryReason !== "string" && job.recoveryReason !== null)) throw new Error("Grid execution store returned malformed job fields");
+  return job as GridExecutionJob;
+}
+async function internalRequest(client: GridFundedSessionClient, method: "POST", path: string, payload: unknown): Promise<unknown> {
+  const config = (client as unknown as { config: { apiUrl: string; bearerToken: string } }).config;
+  const response = await fetch(new URL(path, config.apiUrl), { method, headers: { authorization: `Bearer ${config.bearerToken}`, "content-type": "application/json" }, body: JSON.stringify(payload) });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(`Grid execution store ${method} ${path} failed (${String(response.status)}): ${detail(body)}`);
+  return body;
 }

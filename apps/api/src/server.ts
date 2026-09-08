@@ -35,6 +35,7 @@ import { ServicePublicationVerifier } from "./service-publication.js";
 import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 import { GridFundedSessionRelease } from "./grid-funded-session-release.js";
+import { GridTraderExecutionStore } from "./grid-trader-execution-store.js";
 import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import { HealthGuardPreflight } from "./health-guard-preflight.js";
@@ -224,6 +225,7 @@ const app = createApp(repository, onboarding, mandates, {
     ? {}
     : {
         gridTraderInternalToken: environment.RELIC_GRID_TRADER_INTERNAL_TOKEN,
+        gridTraderExecutionStore: new GridTraderExecutionStore(new DrizzleAgentExecutionJobStore(connection.db), environment.RELIC_GRID_TRADER_AGENT_ID),
         ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_GRID_SESSION_TRANSFER_PUBLIC_KEY === undefined
           ? {}
           : {

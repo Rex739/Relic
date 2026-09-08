@@ -1,7 +1,7 @@
 import { BNB_TESTNET, createClient, signerFromPrivateKey, type Session } from "@altananetwork/sdk";
 import { createPublicClient, encodeFunctionData, getAddress, http, parseUnits, type Address } from "viem";
 import { bscTestnet } from "viem/chains";
-import type { GridExecutionRequest, GridFundedSession } from "./gridFundedSessionClient.js";
+import type { GridExecutionRequest, GridFundedSession, GridFundedSessionClient } from "./gridFundedSessionClient.js";
 import type { GridRuntimeConfig } from "./gridRuntimeConfig.js";
 
 const Q192 = 2n ** 192n;
@@ -39,8 +39,11 @@ const permissions = (value: Record<string, unknown>, config: GridRuntimeConfig):
 /** Executes exactly one first grid entry. It never accepts calldata, addresses,
  * price bounds, or amounts from A2A input: all values come from Relic's
  * canonical funded request and configured BSC Testnet contracts. */
-export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; request: GridExecutionRequest; session: GridFundedSession }) {
-  const { config, request, session } = input;
+export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; request: GridExecutionRequest; session: GridFundedSession; store: GridFundedSessionClient }) {
+  const { config, request, session, store } = input;
+  const claimed = await store.createOrFindExecution({ id: crypto.randomUUID(), commerceJobId: request.commerceJobId, idempotencyKey: request.idempotencyKey });
+  if (!claimed.created) return { status: "already_processed", executionState: claimed.job.state, approvalTx: claimed.job.approvalTxHash, swapTx: claimed.job.swapTxHash };
+  let execution = await mustTransition(store, { id: claimed.job.id, expectedRevision: claimed.job.revision, to: "POLICY_ACCEPTED" });
   if (!same(request.mandate.account, session.walletAddress)) throw new Error("Grid signing denied: funded session owner does not match mandate");
   if (request.mandate.expiresAt > session.expiresAt || request.mandate.expiresAt <= new Date()) throw new Error("Grid signing denied: mandate is expired or exceeds its session");
   if (request.mandate.maximumCapitalBaseUnits > config.maximumJobAmountBaseUnits) throw new Error("Grid signing denied: mandate exceeds the deployment cap");
@@ -60,7 +63,10 @@ export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; re
   const price = priceUsdtPerBnbScaled(slot0[0], same(token0, config.wrappedBnb), config.usdtDecimals);
   const lower = parseUnits(request.mandate.lowerPrice, 18);
   const upper = parseUnits(request.mandate.upperPrice, 18);
-  if (price < lower || price > upper) return { status: "not_executed", reason: "live_price_outside_buyer_range", priceUsdtPerBnb: formatPrice(price) };
+  if (price < lower || price > upper) {
+    await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "REJECTED" });
+    return { status: "not_executed", reason: "live_price_outside_buyer_range", priceUsdtPerBnb: formatPrice(price) };
+  }
   const amountIn = request.mandate.maximumCapitalBaseUnits / BigInt(request.mandate.gridLevels);
   if (amountIn <= 0n || amountIn > usdtBefore) throw new Error("Grid signing denied: buyer wallet lacks the first bounded grid amount");
   const minimumOut = (amountIn * (10n ** BigInt(36 - config.usdtDecimals)) * 98n) / (price * 100n);
@@ -81,15 +87,27 @@ export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; re
   };
   let approvalTx: `0x${string}` | undefined;
   const allowance = await client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "allowance", args: [session.walletAddress, config.router] });
-  if (allowance < amountIn) approvalTx = await send(config.usdt, encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [config.router, amountIn] }));
+  if (allowance < amountIn) {
+    approvalTx = await send(config.usdt, encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [config.router, amountIn] }));
+    execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "APPROVAL_SUBMITTED", transactionHash: approvalTx });
+    execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "APPROVED" });
+  } else execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "APPROVED" });
   const deadline = BigInt(Math.floor(Math.min(request.mandate.expiresAt.getTime(), Date.now() + 10 * 60_000) / 1_000));
   const swapTx = await send(config.router, encodeFunctionData({ abi: routerAbi, functionName: "exactInputSingle", args: [{ tokenIn: config.usdt, tokenOut: config.wrappedBnb, fee: config.fee, recipient: session.walletAddress, amountIn, amountOutMinimum: minimumOut, sqrtPriceLimitX96: 0n }] }));
+  execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "SUPPLY_SUBMITTED", transactionHash: swapTx });
   const [usdtAfter, wbnbAfter] = await Promise.all([
     client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "balanceOf", args: [session.walletAddress] }),
     client.readContract({ address: config.wrappedBnb, abi: erc20Abi, functionName: "balanceOf", args: [session.walletAddress] }),
   ]);
   if (usdtBefore - usdtAfter < amountIn || wbnbAfter - wbnbBefore < minimumOut) throw new Error("Grid signing denied: receipt reconciliation did not show the approved swap outcome");
+  await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "COMPLETED" });
   return { status: "executed", priceUsdtPerBnb: formatPrice(price), amountInBaseUnits: amountIn.toString(), minimumAmountOutBaseUnits: minimumOut.toString(), approvalTx, swapTx };
+}
+
+async function mustTransition(store: GridFundedSessionClient, input: { id: string; expectedRevision: number; to: string; transactionHash?: string }) {
+  const job = await store.transitionExecution(input);
+  if (!job) throw new Error("Grid execution lost its durable job lock");
+  return job;
 }
 
 function priceUsdtPerBnbScaled(sqrtPriceX96: bigint, token0IsWbnb: boolean, usdtDecimals: number) {

@@ -233,7 +233,7 @@ export function buildRunWork(): RunWork {
       const sessions = new GridFundedSessionClient({ apiUrl, bearerToken, executorPrivateKeyPem });
       const request = await sessions.request(sessionId);
       const released = await sessions.release(sessionId);
-      const execution = await executeFirstGridLeg({ config, request, session: released });
+      const execution = await executeFirstGridLeg({ config, request, session: released, store: sessions });
       return JSON.stringify({
         schema: "relic.result.v1",
         status: execution.status === "executed" ? "success" : "waiting",
