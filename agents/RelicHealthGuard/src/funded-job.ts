@@ -11,7 +11,7 @@ const record = (value: unknown, name: string): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 const string = (value: unknown, name: string): string => {
-  if (typeof value !== "string") invalid(`${name} is required`);
+  if (typeof value !== "string") return invalid(`${name} is required`);
   const output = value.trim();
   if (!output) invalid(`${name} is required`);
   return output;
