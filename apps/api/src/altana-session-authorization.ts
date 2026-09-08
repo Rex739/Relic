@@ -211,14 +211,7 @@ export class AltanaSessionAuthorizationService {
         "altana_session_invalid_state",
         "Review the service settings before authorizing its bounded session.",
       );
-    if (healthGuard !== null) {
-      const monitoredAccount = asText(mandate.version.riskConstraints.monitoredAccount);
-      if (monitoredAccount === null || !/^0x[0-9a-fA-F]{40}$/u.test(monitoredAccount))
-        throw new MandateValidationError("health_guard_position_invalid", "Health Guard requires a valid Venus borrower wallet.");
-      const position = await this.healthGuardPreflight!.inspect({ poolId: healthGuard.poolId, borrower: getAddress(monitoredAccount) });
-      if (!position.eligible)
-        throw new MandateValidationError("health_guard_position_ineligible", `Health Guard cannot authorize this Venus position: ${position.reason}.`);
-    }
+    if (healthGuard !== null) await this.#assertHealthGuardPosition(mandate.version.riskConstraints, healthGuard.poolId);
     const purpose = healthGuard !== null ? "HEALTH_GUARD" : rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
 
     const existing = await this.store.find(mandateId, principalId);
@@ -287,13 +280,15 @@ export class AltanaSessionAuthorizationService {
       throw new MandateValidationError("altana_session_expired", "This trading permission has expired. Create a new one.");
     const walletAddress = getAddress(input.walletAddress);
     const mandate = await this.mandates.get(input.principalId, input.mandateId);
-    if (healthGuardSettings(mandate.version.riskConstraints) !== null) {
+    const healthGuard = healthGuardSettings(mandate.version.riskConstraints);
+    if (healthGuard !== null) {
       const monitoredAccount = asText(mandate.version.riskConstraints.monitoredAccount);
       if (monitoredAccount === null || monitoredAccount.toLowerCase() !== walletAddress.toLowerCase())
         throw new MandateValidationError(
           "health_guard_rescue_wallet_mismatch",
           "Health Guard V1 requires the monitored Venus account and authorized rescue wallet to be the same buyer wallet.",
         );
+      await this.#assertHealthGuardPosition(mandate.version.riskConstraints, healthGuard.poolId);
     }
     const publicClient = createPublicClient({ chain: record.chainId === 56 ? bsc : bscTestnet, transport: http(record.chainId === 56 ? this.mainnetRpcUrl! : this.testnetRpcUrl) });
     const [keys] = await publicClient.readContract({
@@ -389,6 +384,17 @@ export class AltanaSessionAuthorizationService {
       calls: [{ to: config.usdt }, { to: config.venusUsdtVToken }],
       spend: [{ token: config.usdt, limit: settings.maximumRepayBaseUnits, period: "day" }],
     };
+  }
+
+  async #assertHealthGuardPosition(riskConstraints: Record<string, unknown>, poolId: "venus-core-pool") {
+    const monitoredAccount = asText(riskConstraints.monitoredAccount);
+    if (monitoredAccount === null || !/^0x[0-9a-fA-F]{40}$/u.test(monitoredAccount))
+      throw new MandateValidationError("health_guard_position_invalid", "Health Guard requires a valid Venus borrower wallet.");
+    if (this.healthGuardPreflight === undefined)
+      throw new MandateValidationError("altana_session_not_configured", "Health Guard Mainnet position verification is unavailable.");
+    const position = await this.healthGuardPreflight.inspect({ poolId, borrower: getAddress(monitoredAccount) });
+    if (!position.eligible)
+      throw new MandateValidationError("health_guard_position_ineligible", `Health Guard cannot authorize this Venus position: ${position.reason}.`);
   }
 
   async #rebalancerPermissions(settings: { positionTokenId: string; capitalCap: string }): Promise<PermissionSnapshot> {
