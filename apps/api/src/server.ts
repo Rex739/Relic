@@ -77,7 +77,7 @@ const altanaSessions =
         new DrizzleAltanaSessionAuthorizationStore(connection.db),
         new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY),
         environment.BSC_TESTNET_RPC_URL,
-        environment.VENUS_TESTNET_USDT === undefined || environment.VENUS_TESTNET_USDT_VTOKEN === undefined
+        environment.VENUS_TESTNET_USDT === undefined || environment.VENUS_TESTNET_USDT_VTOKEN === undefined || environment.VENUS_TESTNET_USDT_DECIMALS === undefined
           ? undefined
           : { usdt: environment.VENUS_TESTNET_USDT as `0x${string}`, venusUsdtVToken: environment.VENUS_TESTNET_USDT_VTOKEN as `0x${string}` },
       );

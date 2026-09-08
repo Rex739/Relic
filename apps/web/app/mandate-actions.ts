@@ -39,6 +39,13 @@ const fieldString = (formData: FormData, name: string, fallback = "") => {
   return typeof value === "string" ? value : fallback;
 };
 
+function configuredYieldUsdtDecimals() {
+  const value = process.env.VENUS_TESTNET_USDT_DECIMALS?.trim();
+  if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
+    throw new Error("Yield Optimizer is unavailable until its verified USDT decimal configuration is set.");
+  return Number(value);
+}
+
 async function serviceConfiguration(formData: FormData): Promise<CreateMandateRequest> {
   const durationDays = Number(formData.get("durationDays") ?? 14);
   const threshold = fieldString(formData, "threshold", "1.30");
@@ -214,8 +221,8 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         ? {}
         : {
             executionKind: "VENUS_CORE_SUPPLY_WITHDRAW_V1",
-            maximumAmountBaseUnits: parseUnits(validatedYield.capitalCap, 18).toString(),
-            executionAmountBaseUnits: parseUnits(validatedYield.executionAmount, 18).toString(),
+            maximumAmountBaseUnits: parseUnits(validatedYield.capitalCap, configuredYieldUsdtDecimals()).toString(),
+            executionAmountBaseUnits: parseUnits(validatedYield.executionAmount, configuredYieldUsdtDecimals()).toString(),
             maximumFeeWei: parseUnits(validatedYield.maxFeeBnb, 18).toString(),
             sessionDurationHours: validatedYield.durationHours,
             minimumSecondsBetweenExecutions: 3_600,

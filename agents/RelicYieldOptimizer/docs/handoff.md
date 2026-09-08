@@ -46,6 +46,9 @@ cross-venue migration.
 | `2149ee5` | Final bounded-session signing boundary |
 | `e8f157f` | Fixed Venus approval/supply/withdrawal calldata adapter |
 | `0f9bf74` | Private Layer A runtime, bearer enforcement, Dockerfile |
+| `36fc22f` | Funded per-job session materialization and in-memory Altana signer |
+| `e0bfb37` | Canonical funded-job relay through Layer B |
+| `1ef8f30` | Buyer checkout, constrained Yield Optimizer session, and Venus approval flow |
 
 The live preflight was run read-only against the official Venus BSC Testnet
 USDT market. It confirmed that its USDT uses **6 decimals**. The runtime still
@@ -54,27 +57,20 @@ time and validates them again.
 
 ## Current state
 
-- Optimizer test suite: **18 passing tests**.
-- The Layer A runtime has `/health` and `/readiness` and is intentionally
-  **not enabled for execution yet**. Its A2A handler returns a fail-closed
-  response until the signer and ledger are connected.
+- Layer A has `/health` and `/readiness`, and runs only canonical, funded
+  requests through the per-job signer and durable ledger.
+- Buyer checkout creates a reviewed mandate, shows the exact USDT cap, one-run
+  amount, fee cap, and expiry, then requests a buyer-owned bounded session.
+- The live runtime remains fail-closed until every injected deployment value
+  has passed the read-only Venus verifier.
 - An unrelated user-owned change remains unstaged and must be preserved:
   `agents/RelicLpRangeRebalancer/app/agent/studio.toml`.
 
 ## Exact next task
 
-Finish the private execution bridge:
-
-1. Adapt the scoped `ALTANA_SESSION` runtime wallet to `SessionTransactionSigner`.
-2. Adapt `DrizzleAgentExecutionJobStore` to the executor job-state interface.
-3. Parse only the authenticated funded-job payload into a buyer mandate and
-   structured `YieldIntent`.
-4. Execute `simulate → approve → receipt/reconcile → supply → receipt/reconcile
-   → withdraw → receipt/reconcile`, advancing the durable state after each
-   confirmed receipt.
-5. Keep failed/unknown receipts in `RECOVERY_REQUIRED`; do not re-send.
-6. Replace the Layer A disabled response with this bridge only when all steps
-   are implemented and tested.
+Deploy the code to Northflank, inject the verified values into both Relic API
+and Layer A, then run the read-only verifier and readiness checks. Only after
+those gates pass should a buyer fund a deliberately tiny testnet job.
 
 ## Later phases — do not skip
 

@@ -8,10 +8,10 @@ an earlier phase is incomplete.
 | 0 | Scope and safety contract | V1 is USDT + Venus, supply/withdraw only | Complete |
 | 1 | Network configuration and deterministic policy | No address defaults; invalid intent cannot reach signing | Complete |
 | 2 | Live deployment verification | `verify-deployment` validates chain, bytecode, token, vToken and Comptroller relation against the injected runtime configuration | Ready for operator validation |
-| 3 | Durable job state | Idempotency state machine, atomic Postgres repository/migration, authenticated Relic API endpoints, and Layer A HTTP adapter are implemented. Per-job scoped-session retrieval and funded-job relay remain to be wired before execution is enabled | In progress |
-| 4 | Bounded-session signer integration | Code-only signing boundary, private session materialization, Studio runtime session loading, and a fee-capped structured-call adapter are implemented; durable execution routing remains to be connected | In progress |
-| 5 | Venus transaction adapter | Fixed calldata builders, receipt polling, allowance reads, and USDT/vToken balance reconciliation are implemented; the trusted durable-job ingress remains to be wired to the scoped runtime | In progress |
-| 6 | Private Layer A runtime | Bearer-only HTTP service, `/health`, `/readiness`, Dockerfile, and fail-closed Venus readiness check are implemented. Its execution seam accepts only canonical funded-job relays when a session signer, on-chain reader, and durable store are injected together; the production server does not inject that durable store yet | In progress |
+| 3 | Durable job state | Idempotency state machine, atomic Postgres repository/migration, authenticated Relic API endpoints, funded-session release, and canonical funded-job relay are implemented | Complete |
+| 4 | Bounded-session signer integration | Layer A fetches an encrypted one-job session after funding, opens it only in memory, and constructs an Altana signer constrained to the mandate's exact contracts and spend cap | Complete |
+| 5 | Venus transaction adapter | Fixed calldata builders, receipt polling, allowance reads, USDT/vToken balance reconciliation, and canonical `approve → supply → withdraw` durable transitions are implemented | Complete in code; live proof pending |
+| 6 | Private Layer A runtime | Bearer-only HTTP service, `/health`, `/readiness`, Dockerfile, canonical relay, per-job signer, reader, and durable store are connected. It remains unavailable until verified deployment configuration is injected | Complete in code; deployment pending |
 | 7 | Public Layer B gateway | `/apex`, agent card, skill allowlist, internal forwarding | Complete |
 | 8 | Northflank deployment | Two-service deployment, secrets, external card and readiness checks | Not started |
 | 9 | Marketplace and real-fund proof | Verified offer, small testnet USDT supply and withdrawal receipts | Not started |

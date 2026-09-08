@@ -58,6 +58,7 @@ const serverEnvironmentSchema = z.object({
   // buyer-session authorizer and Layer A runtime.
   VENUS_TESTNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   VENUS_TESTNET_USDT_VTOKEN: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  VENUS_TESTNET_USDT_DECIMALS: z.string().regex(/^(?:0|[1-9]|[1-2]\d|3[0-6])$/).optional(),
   // A 32-byte Base64 key injected by ECS from Secrets Manager. It encrypts
   // per-order Altana session keys before they can enter Relic storage.
   ALTANA_SESSION_ENCRYPTION_KEY: z
