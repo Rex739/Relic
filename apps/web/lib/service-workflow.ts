@@ -29,6 +29,12 @@ export type ServiceWorkflow = {
   permissionSummary: string;
 };
 
+type TradingPair = {
+  baseAsset: string;
+  quoteAsset: string;
+  capitalAsset: string;
+};
+
 const addressField: ServiceField = {
   name: "publicAccount",
   label: "Wallet or public account",
@@ -36,6 +42,16 @@ const addressField: ServiceField = {
   helper: "Used only to analyse the public position. Relic never receives spending access.",
   required: true,
 };
+
+// This is the one product-level source for a grid market. The form derives
+// capital and price labels from it instead of assuming a particular currency.
+const gridTradingPair: TradingPair = {
+  baseAsset: "BNB",
+  quoteAsset: "USDT",
+  capitalAsset: "USDT",
+};
+const gridPairLabel = `${gridTradingPair.baseAsset}/${gridTradingPair.quoteAsset}`;
+const gridPriceLabel = `${gridTradingPair.quoteAsset} per ${gridTradingPair.baseAsset}`;
 
 const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
   "health-factor-monitoring": {
@@ -130,14 +146,14 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
   "grid-trading": {
     taskLabel: "Grid Trading",
     taskDescription:
-      "Run a rule-bound BNB/USDT grid within the capital, price, and time limits you choose.",
+      `Run a rule-bound ${gridPairLabel} grid within the capital, price, and time limits you choose.`,
     confirmLabel: "Confirm grid settings",
     requirements: [
       {
         name: "capitalCap",
-        label: "Maximum trading capital",
+        label: `Maximum trading capital (${gridTradingPair.capitalAsset})`,
         placeholder: "e.g. 25",
-        helper: "The most this grid can use. It cannot exceed this amount.",
+        helper: `The most ${gridTradingPair.capitalAsset} this grid can use. It cannot exceed this amount.`,
         required: true,
         type: "number",
         min: 0.000000000000000001,
@@ -145,9 +161,9 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
       },
       {
         name: "lowerPrice",
-        label: "Lower price",
+        label: `Lower price (${gridPriceLabel})`,
         placeholder: "e.g. 550",
-        helper: "No new grid buys are placed below this BNB/USDT price.",
+        helper: `No new grid buys are placed below this ${gridPairLabel} price.`,
         required: true,
         type: "number",
         min: 0.000000000000000001,
@@ -155,9 +171,9 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
       },
       {
         name: "upperPrice",
-        label: "Upper price",
+        label: `Upper price (${gridPriceLabel})`,
         placeholder: "e.g. 700",
-        helper: "No new grid sells are placed above this BNB/USDT price.",
+        helper: `No new grid sells are placed above this ${gridPairLabel} price.`,
         required: true,
         type: "number",
         min: 0.000000000000000001,
@@ -193,7 +209,7 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
       "Remaining capital, completed levels, and stop reason",
     ],
     permissionSummary:
-      "The agent can trade only through the approved router, within your capital cap, price range, and run time. Relic shows every on-chain action.",
+      `The agent can trade only the configured ${gridPairLabel} market through the approved router, within your ${gridTradingPair.capitalAsset} capital cap, price range, and run time. Relic shows every on-chain action.`,
   },
   "yield-optimisation": {
     taskLabel: "Yield Optimisation",
