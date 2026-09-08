@@ -49,6 +49,8 @@ cross-venue migration.
 | `36fc22f` | Funded per-job session materialization and in-memory Altana signer |
 | `e0bfb37` | Canonical funded-job relay through Layer B |
 | `1ef8f30` | Buyer checkout, constrained Yield Optimizer session, and Venus approval flow |
+| `f45ec79` | Packages the private executor's production runtime dependencies |
+| `e8ebced` | Enforces the configured per-job USDT cap before a session is released |
 
 The live preflight was run read-only against the official Venus BSC Testnet
 USDT market. It confirmed that its USDT uses **6 decimals**. The runtime still
@@ -57,29 +59,41 @@ time and validates them again.
 
 ## Current state
 
-- Layer A has `/health` and `/readiness`, and runs only canonical, funded
-  requests through the per-job signer and durable ledger.
-- Buyer checkout creates a reviewed mandate, shows the exact USDT cap, one-run
-  amount, fee cap, and expiry, then requests a buyer-owned bounded session.
-- The live runtime remains fail-closed until every injected deployment value
-  has passed the read-only Venus verifier.
-- An unrelated user-owned change remains unstaged and must be preserved:
-  `agents/RelicLpRangeRebalancer/app/agent/studio.toml`.
+- Layer B is public on Northflank and serves a valid agent card whose `url`
+  advertises the executable `https://…/apex` endpoint. Layer A is private on
+  port 9000 and is healthy after Venus readiness verification.
+- The verified BSC Testnet Venus configuration is injected through deployment
+  environment only. Testnet USDT is **6 decimals**, and the initial strict
+  cap is **100000 base units = 0.1 test USDT**. The API enforces that cap
+  before releasing a session and Layer A enforces it again before execution.
+- The Relic API and web ECS deployments are live with the required Yield
+  Optimizer environment values. The API holds only the session-encryption key
+  and transfer public key; Layer A holds the matching transfer private key.
+  No seller owner key or persistent seller Altana session is deployed.
+- A fresh local owner wallet has been imported and funded for ERC-8004
+  registration. Its bounded Studio session is local only.
+- ERC-8004 registration is currently blocked upstream: the 8004scan
+  `GET /api/v1/agents` indexer returns HTTP 500 for both BSC Testnet (97) and
+  BSC Mainnet (56). The Studio CLI calls this indexer before broadcasting, so
+  no registration transaction or gas spend has occurred.
+- Unrelated unstaged work must be preserved, including the LP Rebalancer,
+  Health Guard, API, and web changes outside this agent directory.
 
 ## Exact next task
 
-Deploy the code to Northflank, inject the verified values into both Relic API
-and Layer A, then run the read-only verifier and readiness checks. Only after
-those gates pass should a buyer fund a deliberately tiny testnet job.
+When 8004scan recovers, register the fresh seller owner wallet with the public
+agent-card URL, import the resulting identity into Relic, and set the **Relic
+listing UUID** (not the ERC-8004 token ID) as
+`RELIC_YIELD_OPTIMIZER_AGENT_ID` in the Relic API deployment. Then verify and
+activate the marketplace offer before funding a deliberately tiny 0.1-USDT
+testnet job.
 
 ## Later phases — do not skip
 
-1. Deploy both Layer A and Layer B to Northflank using the documented two-service
-   configuration.
-2. Run Northflank readiness and public agent-card checks.
-3. Register/verify the marketplace offer.
-4. Perform a deliberately small real-testnet USDT supply-and-withdraw proof
+1. Register/import/verify the marketplace identity and offer when the upstream
+   ERC-8004 indexer is available.
+2. Perform a deliberately small real-testnet USDT supply-and-withdraw proof
    and retain transaction receipts.
-5. Add a second independently verified venue for cross-venue migration.
-6. Treat mainnet as a separate release: new identity, wallet/session, verified
+3. Add a second independently verified venue for cross-venue migration.
+4. Treat mainnet as a separate release: new identity, wallet/session, verified
    contract configuration, canary limits, monitoring, and explicit enablement.
