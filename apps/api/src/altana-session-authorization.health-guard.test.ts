@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
+import type { HealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
+
+const pools: HealthGuardPoolRegistry = new Map([["venus-core-pool", { id: "venus-core-pool", name: "Venus Core Pool", protocol: "Venus", network: "BNB Chain", debtAsset: "USDT", debtAssetAddress: "0x0000000000000000000000000000000000000002", debtVTokenAddress: "0x0000000000000000000000000000000000000003", comptrollerAddress: "0x0000000000000000000000000000000000000004", debtAssetDecimals: 18 }]]);
 
 describe("AltanaSessionAuthorizationService Health Guard", () => {
   it("rechecks position eligibility immediately before creating a buyer session", async () => {
@@ -30,7 +33,7 @@ describe("AltanaSessionAuthorizationService Health Guard", () => {
       undefined,
       undefined,
       "https://mainnet.example",
-      { usdt: "0x0000000000000000000000000000000000000002", venusUsdtVToken: "0x0000000000000000000000000000000000000003" },
+      { pools },
       { inspect: async () => ({ eligible: false, reason: "no_usdt_debt" }) },
     );
 

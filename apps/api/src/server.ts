@@ -39,6 +39,7 @@ import { GridTraderExecutionStore } from "./grid-trader-execution-store.js";
 import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import { HealthGuardPreflight } from "./health-guard-preflight.js";
+import { parseHealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -50,6 +51,7 @@ class EmptyAgentRepository implements AgentReadRepository {
 }
 
 const environment = getServerEnvironment();
+const healthGuardPools = parseHealthGuardPoolRegistry(environment.HEALTH_GUARD_POOLS_JSON);
 const connection =
   environment.DATABASE_URL === undefined
     ? null
@@ -76,12 +78,11 @@ const mandates =
       new DrizzleMandateStore(connection.db),
       );
 const healthGuardPreflight =
-  environment.VENUS_MAINNET_USDT_VTOKEN === undefined || environment.VENUS_MAINNET_COMPTROLLER === undefined
+  healthGuardPools === undefined
     ? undefined
     : new HealthGuardPreflight({
         rpcUrl: environment.BSC_MAINNET_RPC_URL,
-        usdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}`,
-        comptroller: environment.VENUS_MAINNET_COMPTROLLER as `0x${string}`,
+        pools: healthGuardPools,
       });
 const altanaSessions =
   connection === null || mandates === undefined || environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined
@@ -108,9 +109,9 @@ const altanaSessions =
               maximumJobAmountBaseUnits: BigInt(environment.MAX_GRID_JOB_AMOUNT_BASE_UNITS),
             },
         environment.BSC_MAINNET_RPC_URL,
-        environment.VENUS_MAINNET_USDT === undefined || environment.VENUS_MAINNET_USDT_VTOKEN === undefined || healthGuardPreflight === undefined
+        healthGuardPools === undefined || healthGuardPreflight === undefined
           ? undefined
-          : { usdt: environment.VENUS_MAINNET_USDT as `0x${string}`, venusUsdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}` },
+          : { pools: healthGuardPools },
         healthGuardPreflight,
       );
 const executions =
@@ -246,9 +247,9 @@ const app = createApp(repository, onboarding, mandates, {
           new DrizzleHealthGuardCycleStore(connection.db),
           environment.RELIC_HEALTH_GUARD_AGENT_ID,
         ),
-        ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY === undefined
+        ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY === undefined || healthGuardPools === undefined
           ? {}
-          : { healthGuardFundedSessionRelease: new HealthGuardFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_HEALTH_GUARD_AGENT_ID, environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY) }),
+          : { healthGuardFundedSessionRelease: new HealthGuardFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_HEALTH_GUARD_AGENT_ID, environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY, healthGuardPools) }),
       }),
   ...(walletAuth === undefined ? {} : { walletAuthService: walletAuth }),
   ...(environment.NEXT_PUBLIC_PRIVY_APP_ID === undefined

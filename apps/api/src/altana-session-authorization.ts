@@ -6,9 +6,10 @@ import type {
   AltanaSessionAuthorizationRecord,
   DrizzleAltanaSessionAuthorizationStore,
 } from "@relic/database";
-import { isHealthGuardPoolId, MandateValidationError } from "@relic/domain";
+import { MandateValidationError } from "@relic/domain";
 
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
+import { healthGuardPool, type HealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
 import type { MandateApplicationService } from "./mandates.js";
 
 const positionManager = "0x427bF5b37357632377eCbEC9de3626C71A5396c1" as const;
@@ -112,7 +113,7 @@ type GridSessionConfig = Readonly<{
   maximumJobAmountBaseUnits: bigint;
   usdtDecimals: number;
 }>;
-type HealthGuardSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
+type HealthGuardSessionConfig = Readonly<{ pools: HealthGuardPoolRegistry }>;
 type HealthGuardPositionPreflight = Readonly<{
   inspect(input: { poolId: unknown; borrower: Address }): Promise<Readonly<{ eligible: boolean; reason: string }>>;
 }>;
@@ -173,7 +174,7 @@ function healthGuardSettings(riskConstraints: Record<string, unknown>) {
   const durationHours = riskConstraints.sessionDurationHours;
   if (
     riskConstraints.executionKind !== "VENUS_USDT_HEALTH_GUARD_V1" ||
-    !isHealthGuardPoolId(healthGuardPoolId) ||
+    typeof healthGuardPoolId !== "string" ||
     maximumRepayBaseUnits === null || !/^[1-9]\d*$/u.test(maximumRepayBaseUnits) ||
     aggregateRepayLimitBaseUnits === null || !/^[1-9]\d*$/u.test(aggregateRepayLimitBaseUnits) ||
     maximumFeeWei === null || !/^[1-9]\d*$/u.test(maximumFeeWei) ||
@@ -411,10 +412,11 @@ export class AltanaSessionAuthorizationService {
     };
   }
 
-  #healthGuardPermissions(settings: { maximumRepayBaseUnits: string }, config: HealthGuardSessionConfig): PermissionSnapshot {
+  #healthGuardPermissions(settings: { maximumRepayBaseUnits: string; poolId: string }, config: HealthGuardSessionConfig): PermissionSnapshot {
+    const pool = healthGuardPool(config.pools, settings.poolId);
     return {
-      calls: [{ to: config.usdt }, { to: config.venusUsdtVToken }],
-      spend: [{ token: config.usdt, limit: settings.maximumRepayBaseUnits, period: "day" }],
+      calls: [{ to: pool.debtAssetAddress }, { to: pool.debtVTokenAddress }],
+      spend: [{ token: pool.debtAssetAddress, limit: settings.maximumRepayBaseUnits, period: "day" }],
     };
   }
 

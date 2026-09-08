@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
+import type { HealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
 
 const now = new Date(Date.now() + 3_600_000);
+const pools: HealthGuardPoolRegistry = new Map([["venus-core-pool", { id: "venus-core-pool", name: "Venus Core Pool", protocol: "Venus", network: "BNB Chain", debtAsset: "USDT", debtAssetAddress: "0x0000000000000000000000000000000000000001", debtVTokenAddress: "0x0000000000000000000000000000000000000002", comptrollerAddress: "0x0000000000000000000000000000000000000003", debtAssetDecimals: 18 }]]);
 const row = {
   activation: { id: "activation-1" },
   mandate: { id: "mandate-1", agentId: "health-agent" },
@@ -35,6 +37,7 @@ describe("HealthGuardFundedSessionRelease", () => {
       { decrypt: () => "0x1234" } as never,
       "health-agent",
       "test-public-key",
+      pools,
     );
     const result = await release.canonicalExecution("8183");
     expect(result.kind).toBe("relic.funded_health_guard_job.v1");
@@ -49,6 +52,7 @@ describe("HealthGuardFundedSessionRelease", () => {
       { decrypt: () => "0x1234" } as never,
       "health-agent",
       "test-public-key",
+      pools,
     );
     await expect(release.canonicalExecution("8183")).rejects.toThrow("limits are inconsistent");
   });

@@ -2,7 +2,7 @@ import type { DrizzleCommerceStore } from "@relic/database";
 import { randomUUID } from "node:crypto";
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import { sealFundedSession } from "./funded-session-envelope.js";
-import { isHealthGuardPoolId } from "@relic/domain";
+import { healthGuardPool, type HealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
 
 const record = (value: unknown, label: string) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Health Guard mandate has invalid ${label}`);
@@ -19,7 +19,7 @@ const wad = (value: unknown, label: string) => {
 
 /** Releases a Mainnet buyer session only for the configured Health Guard agent. */
 export class HealthGuardFundedSessionRelease {
-  constructor(private readonly commerce: DrizzleCommerceStore, private readonly encryption: AltanaSessionEncryption, private readonly agentId: string, private readonly executorPublicKey: string) {}
+  constructor(private readonly commerce: DrizzleCommerceStore, private readonly encryption: AltanaSessionEncryption, private readonly agentId: string, private readonly executorPublicKey: string, private readonly pools: HealthGuardPoolRegistry) {}
 
   async release(jobId: string) {
     const row = await this.commerce.findFundedHealthGuardSession(jobId);
@@ -45,7 +45,7 @@ export class HealthGuardFundedSessionRelease {
     const frequency = record(row.version.executionFrequency, "execution frequency");
     const triggerHealthFactorWad = wad(constraints.triggerHealthFactorWad, "riskConstraints.triggerHealthFactorWad");
     const pool = constraints.healthGuardPoolId;
-    if (!isHealthGuardPoolId(pool)) throw new Error("Health Guard mandate requires a verified pool selection");
+    healthGuardPool(this.pools, pool);
     const targetHealthFactorWad = wad(constraints.targetHealthFactorWad, "riskConstraints.targetHealthFactorWad");
     const maximumRepayBaseUnits = positive(constraints.maximumRepayBaseUnits, "riskConstraints.maximumRepayBaseUnits");
     const aggregateRepayLimitBaseUnits = positive(constraints.aggregateRepayLimitBaseUnits, "riskConstraints.aggregateRepayLimitBaseUnits");

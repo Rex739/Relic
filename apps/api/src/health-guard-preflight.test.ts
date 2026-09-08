@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { HealthGuardPreflight } from "./health-guard-preflight.js";
+import type { HealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
 
 const borrower = "0x0000000000000000000000000000000000000001" as const;
+const pools: HealthGuardPoolRegistry = new Map([["venus-core-pool", { id: "venus-core-pool", name: "Venus Core Pool", protocol: "Venus", network: "BNB Chain", debtAsset: "USDT", debtAssetAddress: "0x0000000000000000000000000000000000000001", debtVTokenAddress: "0x0000000000000000000000000000000000000002", comptrollerAddress: "0x0000000000000000000000000000000000000003", debtAssetDecimals: 18 }]]);
 const preflight = () => new HealthGuardPreflight(
-  { rpcUrl: "https://rpc.example", usdtVToken: "0x0000000000000000000000000000000000000002", comptroller: "0x0000000000000000000000000000000000000003" },
+  { rpcUrl: "https://rpc.example", pools },
   {
     getBlock: async () => ({ number: 1n, timestamp: 1_700_000_000n }),
     readContract: async ({ functionName }: { functionName: string }) => {
@@ -39,7 +41,7 @@ describe("HealthGuardPreflight", () => {
       },
     } as never;
     const guard = new HealthGuardPreflight(
-      { rpcUrl: "https://rpc.example", usdtVToken: "0x0000000000000000000000000000000000000002", comptroller: "0x0000000000000000000000000000000000000003" },
+      { rpcUrl: "https://rpc.example", pools },
       client,
     );
     await expect(guard.inspect({ poolId: "venus-core-pool", borrower })).resolves.toMatchObject({ eligible: false, reason: "no_collateral" });

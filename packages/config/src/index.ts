@@ -70,6 +70,9 @@ const serverEnvironmentSchema = z.object({
   RELIC_HEALTH_GUARD_INTERNAL_TOKEN: z.string().min(32).optional(),
   RELIC_HEALTH_GUARD_AGENT_ID: z.uuid().optional(),
   RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  // Server-only registry of verified Health Guard pools. Addresses remain out
+  // of browser data and are checked again by the private executor.
+  HEALTH_GUARD_POOLS_JSON: z.string().trim().min(2).optional(),
   VENUS_MAINNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   VENUS_MAINNET_USDT_VTOKEN: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   VENUS_MAINNET_COMPTROLLER: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
