@@ -46,6 +46,7 @@ export class HealthGuardPreflight {
     const debtPrice = await this.client.readContract({ address: oracle, abi: oracleAbi, functionName: "getUnderlyingPrice", args: [this.config.usdtVToken], blockNumber: block.number });
     if (debtPrice === 0n) throw new Error("Venus returned no USDT oracle price");
     let collateralValue = 0n;
+    const verifiedCollateralMarkets: Address[] = [];
     for (const asset of assets) {
       const [snapshot, market, price] = await Promise.all([
         this.client.readContract({ address: asset, abi: vTokenAbi, functionName: "getAccountSnapshot", args: [input.borrower], blockNumber: block.number }),
@@ -55,9 +56,13 @@ export class HealthGuardPreflight {
       const [error, vTokenBalance, , exchangeRate] = snapshot;
       const [, collateralFactor] = market;
       if (error !== 0n || price === 0n || collateralFactor === 0n) continue;
+      if (vTokenBalance === 0n || exchangeRate === 0n) continue;
       collateralValue += (((vTokenBalance * exchangeRate) / WAD * price) / WAD * collateralFactor) / WAD;
+      verifiedCollateralMarkets.push(asset);
     }
+    if (verifiedCollateralMarkets.length === 0 || collateralValue === 0n)
+      return { poolId: input.poolId, eligible: false, reason: "no_collateral", healthFactorWad: null, usdtDebtBaseUnits: debt.toString(), collateralMarkets: [], observedAt };
     const debtValue = (debt * debtPrice) / WAD;
-    return { poolId: input.poolId, eligible: true, reason: "position_ready", healthFactorWad: debtValue === 0n ? null : ((collateralValue * WAD) / debtValue).toString(), usdtDebtBaseUnits: debt.toString(), collateralMarkets: assets, observedAt };
+    return { poolId: input.poolId, eligible: true, reason: "position_ready", healthFactorWad: debtValue === 0n ? null : ((collateralValue * WAD) / debtValue).toString(), usdtDebtBaseUnits: debt.toString(), collateralMarkets: verifiedCollateralMarkets, observedAt };
   }
 }
