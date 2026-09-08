@@ -6852,7 +6852,7 @@ summary:focus-visible {
 .seller-category-selection .ui-select-trigger {
   min-width: min(280px, 100%);
 }
-.offer-card {
+.seller-offer-management .offer-card {
   display: grid;
   gap: 18px;
   padding: 20px 22px;
@@ -6860,13 +6860,13 @@ summary:focus-visible {
   border-radius: 0;
   background: transparent;
 }
-.offer-card-header {
+.seller-offer-management .offer-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.offer-card-header p {
+.seller-offer-management .offer-card-header p {
   margin: 0;
   color: var(--muted);
 }
@@ -6891,23 +6891,23 @@ summary:focus-visible {
   background: #292728;
   color: var(--muted);
 }
-.offer-card-body,
-.offer-discard {
+.seller-offer-management .offer-card-body,
+.seller-offer-management .offer-discard {
   display: grid;
   gap: 12px;
   max-width: 845px;
 }
-.offer-discard {
+.seller-offer-management .offer-discard {
   grid-template-columns: auto 1fr;
   align-items: center;
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
-.offer-discard small {
+.seller-offer-management .offer-discard small {
   color: var(--muted);
   font-size: 10px;
 }
-.offer-discard .danger-link {
+.seller-offer-management .offer-discard .danger-link {
   padding: 0;
   border: 0;
   background: transparent;
@@ -6919,11 +6919,11 @@ summary:focus-visible {
   cursor: pointer;
   transition: color 160ms ease, text-decoration-color 160ms ease;
 }
-.offer-discard .danger-link:hover {
+.seller-offer-management .offer-discard .danger-link:hover {
   color: var(--ink);
   text-decoration-color: currentColor;
 }
-.offer-discard .danger-link:focus-visible {
+.seller-offer-management .offer-discard .danger-link:focus-visible {
   outline: 2px solid #f0b6aa;
   outline-offset: 3px;
 }
@@ -6953,7 +6953,7 @@ summary:focus-visible {
   background: #302624 !important;
   color: var(--ink) !important;
 }
-.offer-card > details > summary {
+.seller-offer-management .offer-card > details > summary {
   width: fit-content;
   color: var(--ink);
   cursor: pointer;
