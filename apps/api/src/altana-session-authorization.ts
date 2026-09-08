@@ -260,6 +260,15 @@ export class AltanaSessionAuthorizationService {
     if (record.status !== "PENDING" || record.expiresAt <= this.now())
       throw new MandateValidationError("altana_session_expired", "This trading permission has expired. Create a new one.");
     const walletAddress = getAddress(input.walletAddress);
+    const mandate = await this.mandates.get(input.principalId, input.mandateId);
+    if (healthGuardSettings(mandate.version.riskConstraints) !== null) {
+      const monitoredAccount = asText(mandate.version.riskConstraints.monitoredAccount);
+      if (monitoredAccount === null || monitoredAccount.toLowerCase() !== walletAddress.toLowerCase())
+        throw new MandateValidationError(
+          "health_guard_rescue_wallet_mismatch",
+          "Health Guard V1 requires the monitored Venus account and authorized rescue wallet to be the same buyer wallet.",
+        );
+    }
     const publicClient = createPublicClient({ chain: record.chainId === 56 ? bsc : bscTestnet, transport: http(record.chainId === 56 ? this.mainnetRpcUrl! : this.testnetRpcUrl) });
     const [keys] = await publicClient.readContract({
       address: walletAddress,

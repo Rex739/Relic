@@ -264,7 +264,7 @@ export default async function AgentIntelligencePage({
                         <div>
                           <span>Requirements</span>
                           <p>
-                            {serviceWorkflowFor(agent.category)
+                            {serviceWorkflowFor(agent.category, agent.capabilities)
                               .requirements.filter((field) => field.required)
                               .map((field) => field.label)
                               .join(" · ") || "Task details"}
@@ -273,7 +273,7 @@ export default async function AgentIntelligencePage({
                         <div>
                           <span>Deliverables</span>
                           <p>
-                            {serviceWorkflowFor(agent.category)
+                            {serviceWorkflowFor(agent.category, agent.capabilities)
                               .deliverables.slice(0, 2)
                               .join(" · ")}
                           </p>
@@ -299,6 +299,7 @@ export default async function AgentIntelligencePage({
                         agentId={agent.id}
                         agentName={agent.name}
                         agentCategory={agent.category}
+                        agentCapabilities={agent.capabilities}
                         offerId={offer.id}
                         chainId={offer.version.chainId}
                         price={commercePriceLabel(offer.version.price)}
@@ -307,7 +308,7 @@ export default async function AgentIntelligencePage({
                             ? "BSC Testnet"
                             : "BNB Chain"
                         }
-                        workflow={serviceWorkflowFor(agent.category)}
+                        workflow={serviceWorkflowFor(agent.category, agent.capabilities)}
                       />
                     </div>
                   </article>
@@ -413,11 +414,12 @@ export default async function AgentIntelligencePage({
                   agentId={agent.id}
                   agentName={agent.name}
                   agentCategory={agent.category}
+                  agentCapabilities={agent.capabilities}
                   offerId={offers[0]?.id ?? ""}
                   chainId={agent.chainId}
                   price={marketplacePriceLabel(agent.activeOfferPrice)}
                   network={agent.chainId === 97 ? "BSC Testnet" : "BNB Chain"}
-                  workflow={serviceWorkflowFor(agent.category)}
+                  workflow={serviceWorkflowFor(agent.category, agent.capabilities)}
                   className="activate-link"
                   label="Hire agent"
                 />

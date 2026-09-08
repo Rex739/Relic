@@ -36,6 +36,7 @@ type QuickServiceCheckoutProps = {
   agentId: string;
   agentName: string;
   agentCategory: string;
+  agentCapabilities?: readonly string[];
   offerId: string;
   chainId: number;
   price: string;
@@ -49,6 +50,7 @@ export function QuickServiceCheckout({
   agentId,
   agentName,
   agentCategory,
+  agentCapabilities = [],
   offerId,
   chainId,
   price,
@@ -82,8 +84,10 @@ export function QuickServiceCheckout({
   const [authorizationInputs, setAuthorizationInputs] = useState<Record<string, string>>({});
   const [authorizationMandateId, setAuthorizationMandateId] = useState<string | null>(null);
   const requiresWalletAuthorization =
-    agentCategory === "rebalancing" || agentCategory === "yield-optimisation";
+    agentCategory === "rebalancing" || agentCategory === "yield-optimisation" ||
+    (agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt"));
   const isRebalancing = agentCategory === "rebalancing";
+  const isHealthGuard = agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt");
 
   const start = async (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -107,7 +111,7 @@ export function QuickServiceCheckout({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const schema = checkoutInputSchemaFor(agentCategory);
+    const schema = checkoutInputSchemaFor(agentCategory, isHealthGuard);
     if (schema !== null) {
       const validation = schema.safeParse(Object.fromEntries(formData));
       if (!validation.success) {
@@ -338,6 +342,15 @@ export function QuickServiceCheckout({
                     <div><dt>Capital cap</dt><dd>{authorizationInputs.capitalCap} TEST_USDT</dd></div>
                     <div><dt>Range</dt><dd>±{Number(authorizationInputs.rangeWidthBps ?? "0") / 100}%</dd></div>
                     <div><dt>Ends after</dt><dd>{authorizationInputs.durationHours} hours</dd></div>
+                  </dl>
+                ) : isHealthGuard ? (
+                  <dl className="secure-permission-limits">
+                    <div><dt>Repay trigger</dt><dd>{authorizationInputs.threshold}</dd></div>
+                    <div><dt>Target health factor</dt><dd>{authorizationInputs.target}</dd></div>
+                    <div><dt>Per action</dt><dd>{authorizationInputs.maximumRepay} USDT</dd></div>
+                    <div><dt>Total cap</dt><dd>{authorizationInputs.aggregateRepayLimit} USDT</dd></div>
+                    <div><dt>Network fee cap</dt><dd>{authorizationInputs.maxFeeBnb} BNB</dd></div>
+                    <div><dt>Expires after</dt><dd>{authorizationInputs.durationHours} hours</dd></div>
                   </dl>
                 ) : (
                   <dl className="secure-permission-limits">

@@ -76,7 +76,7 @@ export default async function HireAgentPage({
   ]);
   if (agentResponse.data === null) notFound();
   const agent = agentResponse.data;
-  const workflow = serviceWorkflowFor(agent.category);
+  const workflow = serviceWorkflowFor(agent.category, agent.capabilities);
   const offer = offers.find((item) => item.id === search.offer) ?? offers[0];
   if (agent.tier !== "Actionable" || offer === undefined)
     return (

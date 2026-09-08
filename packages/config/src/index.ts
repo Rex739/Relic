@@ -60,6 +60,7 @@ const serverEnvironmentSchema = z.object({
   RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
   VENUS_MAINNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   VENUS_MAINNET_USDT_VTOKEN: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  VENUS_MAINNET_USDT_DECIMALS: z.string().regex(/^(?:0|[1-9]|[1-2]\d|3[0-6])$/).optional(),
   // No Yield Optimizer contract address has a source-code fallback. These
   // must be the independently verified BSC Testnet deployments used by the
   // buyer-session authorizer and Layer A runtime.

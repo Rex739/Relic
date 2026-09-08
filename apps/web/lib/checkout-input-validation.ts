@@ -45,6 +45,26 @@ export const healthMonitoringCheckoutSchema = z.object({
   durationDays: wholeNumber("Monitoring period", 1, 365),
 });
 
+export const healthGuardCheckoutSchema = z
+  .object({
+    threshold: decimal("Repay trigger"),
+    target: decimal("Post-repayment target"),
+    maximumRepay: decimal("Maximum repayment per action"),
+    aggregateRepayLimit: decimal("Maximum total repayment"),
+    maxFeeBnb: decimal("Maximum BNB network fee"),
+    durationHours: wholeNumber("Guard duration", 1, 720),
+  })
+  .superRefine((value, context) => {
+    const units = (amount: string) => {
+      const [whole, fraction = ""] = amount.split(".");
+      return BigInt(`${whole}${fraction.padEnd(18, "0")}`);
+    };
+    if (units(value.target) <= units(value.threshold))
+      context.addIssue({ code: "custom", path: ["target"], message: "Target health factor must exceed the trigger" });
+    if (units(value.aggregateRepayLimit) < units(value.maximumRepay))
+      context.addIssue({ code: "custom", path: ["aggregateRepayLimit"], message: "Total repayment cap cannot be below the per-action cap" });
+  });
+
 export const lpRangeRebalancingCheckoutSchema = z.object({
   positionTokenId: z
     .string()
@@ -76,10 +96,10 @@ export const yieldOptimizerCheckoutSchema = z
       });
   });
 
-export const checkoutInputSchemaFor = (category: string) => {
+export const checkoutInputSchemaFor = (category: string, healthGuard = false) => {
   if (category === "grid-trading") return gridTradingCheckoutSchema;
   if (category === "rebalancing") return lpRangeRebalancingCheckoutSchema;
   if (category === "yield-optimisation") return yieldOptimizerCheckoutSchema;
-  if (category === "health-factor-monitoring") return healthMonitoringCheckoutSchema;
+  if (category === "health-factor-monitoring") return healthGuard ? healthGuardCheckoutSchema : healthMonitoringCheckoutSchema;
   return null;
 };

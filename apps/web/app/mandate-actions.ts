@@ -16,6 +16,7 @@ import { acceptTerms, hireOffer } from "../lib/commerce";
 import {
   gridTradingCheckoutSchema,
   healthMonitoringCheckoutSchema,
+  healthGuardCheckoutSchema,
   lpRangeRebalancingCheckoutSchema,
   yieldOptimizerCheckoutSchema,
 } from "../lib/checkout-input-validation";
@@ -46,6 +47,13 @@ function configuredYieldUsdtDecimals() {
   return Number(value);
 }
 
+function configuredHealthGuardUsdtDecimals() {
+  const value = process.env.VENUS_MAINNET_USDT_DECIMALS?.trim();
+  if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
+    throw new Error("Health Guard is unavailable until its verified Mainnet USDT decimal configuration is set.");
+  return Number(value);
+}
+
 async function serviceConfiguration(formData: FormData): Promise<CreateMandateRequest> {
   const durationDays = Number(formData.get("durationDays") ?? 14);
   const threshold = fieldString(formData, "threshold", "1.30");
@@ -56,6 +64,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const isGridTrader = category === "grid-trading";
   const isLpRangeRebalancer = category === "rebalancing";
   const isYieldOptimizer = category === "yield-optimisation";
+  const isHealthGuard = category === "health-factor-monitoring" && profile.profile.capabilitySet.includes("repay_debt");
   const gridCapitalCap = fieldString(formData, "capitalCap");
   const gridLowerPrice = fieldString(formData, "lowerPrice");
   const gridUpperPrice = fieldString(formData, "upperPrice");
@@ -100,7 +109,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   if (yieldValidation !== null && !yieldValidation.success)
     throw new Error(yieldValidation.error.issues[0]?.message ?? "Invalid Yield Optimizer settings");
   const validatedYield = yieldValidation?.success ? yieldValidation.data : null;
-  const healthValidation = category === "health-factor-monitoring"
+  const healthValidation = category === "health-factor-monitoring" && !isHealthGuard
     ? healthMonitoringCheckoutSchema.safeParse({
         threshold,
         durationDays: fieldString(formData, "durationDays", "14"),
@@ -109,6 +118,19 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   if (healthValidation !== null && !healthValidation.success)
     throw new Error(healthValidation.error.issues[0]?.message ?? "Invalid monitoring settings");
   const validatedHealth = healthValidation?.success ? healthValidation.data : null;
+  const healthGuardValidation = isHealthGuard
+    ? healthGuardCheckoutSchema.safeParse({
+        threshold,
+        target: fieldString(formData, "target"),
+        maximumRepay: fieldString(formData, "maximumRepay"),
+        aggregateRepayLimit: fieldString(formData, "aggregateRepayLimit"),
+        maxFeeBnb: fieldString(formData, "maxFeeBnb"),
+        durationHours: fieldString(formData, "durationHours"),
+      })
+    : null;
+  if (healthGuardValidation !== null && !healthGuardValidation.success)
+    throw new Error(healthGuardValidation.error.issues[0]?.message ?? "Invalid Health Guard settings");
+  const validatedHealthGuard = healthGuardValidation?.success ? healthGuardValidation.data : null;
   const enabledCapabilities =
     profile.profile.capabilitySet.length > 0
       ? profile.profile.capabilitySet
@@ -138,37 +160,37 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
     // for that asset. Keep it as task context until the offer publishes a
     // supported-asset schema.
     allowedAssets:
-      validatedGrid === null && validatedRebalancing === null && validatedYield === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null
         ? []
         : profile.profile.supportedAssets,
     allowedProtocols: profile.profile.supportedProtocols,
     allowedContracts:
-      validatedRebalancing === null && validatedYield === null ? [] : profile.profile.supportedContracts,
+      validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null ? [] : profile.profile.supportedContracts,
     perActionLimit:
-      validatedGrid === null && validatedRebalancing === null && validatedYield === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null
         ? null
         : {
             asset: "TEST_USDT",
             amount:
-              validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield!.capitalCap,
+              validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield?.capitalCap ?? validatedHealthGuard!.maximumRepay,
           },
     aggregateLimit:
-      validatedGrid === null && validatedRebalancing === null && validatedYield === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null
         ? null
         : {
             asset: "TEST_USDT",
             amount:
-              validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield!.capitalCap,
+              validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield?.capitalCap ?? validatedHealthGuard!.aggregateRepayLimit,
           },
     executionFrequency:
-      validatedGrid === null && validatedRebalancing === null && validatedYield === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null && validatedHealthGuard === null
         ? null
         : validatedGrid !== null
           ? {
             maxActions: validatedGrid.gridLevels * 2,
             windowSeconds: validatedGrid.durationHours * 3_600,
           }
-          : { maxActions: 1, windowSeconds: 3_600 },
+          : { maxActions: 1, windowSeconds: validatedHealthGuard === null ? 3_600 : 300 },
     startAt: now.toISOString(),
     expiresAt: new Date(
       now.getTime() +
@@ -178,9 +200,11 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
             ? validatedRebalancing.durationHours * 3_600_000
             : validatedYield !== null
               ? validatedYield.durationHours * 3_600_000
-            : (validatedHealth?.durationDays ?? durationDays) * 86_400_000),
+              : validatedHealthGuard !== null
+                ? validatedHealthGuard.durationHours * 3_600_000
+              : (validatedHealth?.durationDays ?? durationDays) * 86_400_000),
     ).toISOString(),
-    approvalMode: isGridTrader || isLpRangeRebalancer || isYieldOptimizer
+    approvalMode: isGridTrader || isLpRangeRebalancer || isYieldOptimizer || isHealthGuard
       ? "PRE_AUTHORIZED"
       : profile.profile.approvalModes.includes("OBSERVE_ONLY")
         ? "OBSERVE_ONLY"
@@ -189,6 +213,17 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
       ...(category === "health-factor-monitoring"
         ? { alertHealthFactorBelow: validatedHealth?.threshold ?? threshold }
         : {}),
+      ...(validatedHealthGuard === null
+        ? {}
+        : {
+            executionKind: "VENUS_USDT_HEALTH_GUARD_V1",
+            triggerHealthFactorWad: parseUnits(validatedHealthGuard.threshold, 18).toString(),
+            targetHealthFactorWad: parseUnits(validatedHealthGuard.target, 18).toString(),
+            maximumRepayBaseUnits: parseUnits(validatedHealthGuard.maximumRepay, configuredHealthGuardUsdtDecimals()).toString(),
+            aggregateRepayLimitBaseUnits: parseUnits(validatedHealthGuard.aggregateRepayLimit, configuredHealthGuardUsdtDecimals()).toString(),
+            maximumFeeWei: parseUnits(validatedHealthGuard.maxFeeBnb, 18).toString(),
+            sessionDurationHours: validatedHealthGuard.durationHours,
+          }),
       ...(fieldString(formData, "target") === ""
         ? {}
         : { target: fieldString(formData, "target") }),
