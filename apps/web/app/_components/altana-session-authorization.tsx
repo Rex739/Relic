@@ -11,6 +11,7 @@ import { useRelicWallet } from "./relic-wallet-provider";
 import { switchWalletChain } from "./wallet-provider";
 
 type Authorization = {
+  purpose: "LP_REBALANCER" | "YIELD_OPTIMIZER";
   sessionAddress: string;
   sessionPublicKey: string;
   expiresAt: string;
@@ -55,7 +56,7 @@ export function AltanaSessionAuthorization({
 
   const authorize = async () => {
     if (!wallet.authenticated || wallet.address === null) {
-      setError("Connect and authenticate the wallet that will hold this LP position.");
+      setError("Connect and authenticate the wallet that will authorize this service.");
       return;
     }
     setError(null);
@@ -66,8 +67,8 @@ export function AltanaSessionAuthorization({
         { method: "POST" },
       );
       const prepared = (await preparedResponse.json()) as Authorization & { error?: string };
-      if (!preparedResponse.ok || prepared.sessionPublicKey === undefined)
-        throw new Error(prepared.error ?? "Could not prepare the trading permission.");
+      if (!preparedResponse.ok || prepared.sessionPublicKey === undefined || prepared.purpose === undefined)
+        throw new Error(prepared.error ?? "Could not prepare the bounded wallet permission.");
 
       const provider = await wallet.getProvider();
       await switchWalletChain(provider, 97);
@@ -102,27 +103,16 @@ export function AltanaSessionAuthorization({
       });
       if (grant.transactionHash === undefined)
         throw new Error("Altana confirmed the grant without a transaction receipt. Try again shortly.");
-      const spendLimit = new Map(
-        (prepared.permissions.spend ?? []).map(({ token, limit }) => [token.toLowerCase(), BigInt(limit)]),
-      );
-      const wbnbLimit = spendLimit.get(wbnb.toLowerCase());
-      const usdtLimit = spendLimit.get(testUsdt.toLowerCase());
-      if (wbnbLimit === undefined || usdtLimit === undefined)
-        throw new Error("Relic did not prepare both bounded asset permissions for this LP position.");
       setStage("approving");
+      const calls = approvalCalls(prepared);
       const approval = await client.execute({
         wallet: altanaWallet,
         signer: adminSigner,
         chainId: 97,
-        calls: [
-          { to: wbnb, data: approveData(positionManager, wbnbLimit) },
-          { to: wbnb, data: approveData(swapRouter, wbnbLimit) },
-          { to: testUsdt, data: approveData(positionManager, usdtLimit) },
-          { to: testUsdt, data: approveData(swapRouter, usdtLimit) },
-        ],
+        calls,
       });
       if (approval.status !== "CONFIRMED" || approval.transactionHash === undefined)
-        throw new Error("PancakeSwap approvals were not confirmed. The LP session is not active yet.");
+        throw new Error("The bounded contract approval was not confirmed. The session is not active yet.");
       setStage("verifying");
       const confirmedResponse = await fetch(
         `/api/mandates/${encodeURIComponent(mandateId)}/altana-session-authorization/confirm`,
@@ -137,7 +127,7 @@ export function AltanaSessionAuthorization({
       );
       const confirmed = (await confirmedResponse.json()) as { error?: string };
       if (!confirmedResponse.ok)
-        throw new Error(confirmed.error ?? "Relic could not verify the trading permission.");
+        throw new Error(confirmed.error ?? "Relic could not verify the bounded wallet permission.");
       await onAuthorized();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Wallet authorization failed.");
@@ -175,4 +165,40 @@ function approveData(spender: Address, amount: bigint) {
     functionName: "approve",
     args: [spender, amount],
   });
+}
+
+/**
+ * The API prepares this from the reviewed mandate. The browser never derives
+ * a Venus address or an allowance itself: it can only approve the pair of
+ * constrained targets returned by Relic for this one session.
+ */
+function approvalCalls(prepared: Authorization) {
+  const spend = prepared.permissions.spend ?? [];
+  if (prepared.purpose === "LP_REBALANCER") {
+    const spendLimit = new Map(spend.map(({ token, limit }) => [token.toLowerCase(), BigInt(limit)]));
+    const wbnbLimit = spendLimit.get(wbnb.toLowerCase());
+    const usdtLimit = spendLimit.get(testUsdt.toLowerCase());
+    if (wbnbLimit === undefined || usdtLimit === undefined)
+      throw new Error("Relic did not prepare both bounded asset permissions for this LP position.");
+    return [
+      { to: wbnb, data: approveData(positionManager, wbnbLimit) },
+      { to: wbnb, data: approveData(swapRouter, wbnbLimit) },
+      { to: testUsdt, data: approveData(positionManager, usdtLimit) },
+      { to: testUsdt, data: approveData(swapRouter, usdtLimit) },
+    ];
+  }
+
+  if (spend.length !== 1 || prepared.permissions.calls?.length !== 2)
+    throw new Error("Relic did not prepare one bounded Yield Optimizer permission.");
+  const permission = spend[0];
+  if (permission === undefined)
+    throw new Error("Relic did not prepare one bounded Yield Optimizer permission.");
+  const { token, limit } = permission;
+  const tokenAddress = token as Address;
+  const vToken = prepared.permissions.calls
+    .map(({ to }) => to as Address)
+    .find((target) => target.toLowerCase() !== tokenAddress.toLowerCase());
+  if (vToken === undefined)
+    throw new Error("Relic did not prepare a valid Yield Optimizer supply target.");
+  return [{ to: tokenAddress, data: approveData(vToken, BigInt(limit)) }];
 }

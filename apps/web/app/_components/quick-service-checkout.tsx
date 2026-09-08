@@ -4,7 +4,7 @@ import { useState, type FormEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  prepareRebalancingAuthorization,
+  prepareWalletAuthorization,
   startHireCheckout,
   startHireCheckoutForAuthorizedMandate,
 } from "../mandate-actions";
@@ -76,11 +76,13 @@ export function QuickServiceCheckout({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [rebalancingStep, setRebalancingStep] = useState<"configure" | "review">(
+  const [authorizationStep, setAuthorizationStep] = useState<"configure" | "review">(
     "configure",
   );
-  const [rebalancingInputs, setRebalancingInputs] = useState<Record<string, string>>({});
-  const [rebalancingMandateId, setRebalancingMandateId] = useState<string | null>(null);
+  const [authorizationInputs, setAuthorizationInputs] = useState<Record<string, string>>({});
+  const [authorizationMandateId, setAuthorizationMandateId] = useState<string | null>(null);
+  const requiresWalletAuthorization =
+    agentCategory === "rebalancing" || agentCategory === "yield-optimisation";
   const isRebalancing = agentCategory === "rebalancing";
 
   const start = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -88,7 +90,7 @@ export function QuickServiceCheckout({
     try {
       const session = await fetch("/api/auth/session", { cache: "no-store" });
       if (session.ok) {
-        if (isRebalancing) setRebalancingStep("configure");
+        if (requiresWalletAuthorization) setAuthorizationStep("configure");
         setOpen(true);
         return;
       }
@@ -123,8 +125,8 @@ export function QuickServiceCheckout({
         return;
       }
     }
-    if (isRebalancing && rebalancingStep === "configure") {
-      setRebalancingInputs(
+    if (requiresWalletAuthorization && authorizationStep === "configure") {
+      setAuthorizationInputs(
         workflow.requirements.reduce<Record<string, string>>((inputs, field) => {
           inputs[field.name] = String(formData.get(field.name) ?? "");
           return inputs;
@@ -132,16 +134,16 @@ export function QuickServiceCheckout({
       );
       setFieldErrors({});
       setError(null);
-      setRebalancingStep("review");
+      setAuthorizationStep("review");
       return;
     }
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
     try {
-      if (isRebalancing) {
-        const prepared = await prepareRebalancingAuthorization(formData);
-        setRebalancingMandateId(prepared.mandateId);
+      if (requiresWalletAuthorization) {
+        const prepared = await prepareWalletAuthorization(formData);
+        setAuthorizationMandateId(prepared.mandateId);
         return;
       }
       const started = await startHireCheckout(formData);
@@ -158,7 +160,7 @@ export function QuickServiceCheckout({
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (!nextOpen && isRebalancing) setRebalancingStep("configure");
+        if (!nextOpen && requiresWalletAuthorization) setAuthorizationStep("configure");
       }}
     >
       <Button className={className} type="button" onClick={start}>
@@ -221,23 +223,23 @@ export function QuickServiceCheckout({
               />
             )}
           </>
-        ) : rebalancingMandateId !== null ? (
+        ) : authorizationMandateId !== null ? (
           <>
             <DialogHeader>
               <span className="overline">Secure wallet authorization</span>
-              <DialogTitle>Grant the rebalancer&apos;s exact permission</DialogTitle>
+              <DialogTitle>Grant this service&apos;s exact permission</DialogTitle>
               <DialogDescription>
                 This is a buyer-owned wallet grant. The order remains inactive until Relic verifies it on-chain.
               </DialogDescription>
             </DialogHeader>
             <AltanaSessionAuthorization
-              mandateId={rebalancingMandateId}
+              mandateId={authorizationMandateId}
               onAuthorized={async () => {
                 const started = await startHireCheckoutForAuthorizedMandate({
-                  mandateId: rebalancingMandateId,
+                  mandateId: authorizationMandateId,
                   offerId,
                 });
-                setRebalancingMandateId(null);
+                setAuthorizationMandateId(null);
                 setCheckout(started);
               }}
             />
@@ -255,17 +257,17 @@ export function QuickServiceCheckout({
           <input type="hidden" name="chainId" value={chainId} />
           <input type="hidden" name="category" value={agentCategory} />
           <input type="hidden" name="objective" value={`Run ${workflow.taskLabel} for my requested inputs.`} />
-          {isRebalancing && rebalancingStep === "review"
+          {requiresWalletAuthorization && authorizationStep === "review"
             ? workflow.requirements.map((field) => (
                 <input
                   key={field.name}
                   type="hidden"
                   name={field.name}
-                  value={rebalancingInputs[field.name] ?? ""}
+                  value={authorizationInputs[field.name] ?? ""}
                 />
               ))
             : null}
-          {(!isRebalancing || rebalancingStep === "configure") ? (
+          {(!requiresWalletAuthorization || authorizationStep === "configure") ? (
             <TooltipProvider delayDuration={180}>
             {workflow.requirements.map((field) => (
             <label key={field.name}>
@@ -325,42 +327,39 @@ export function QuickServiceCheckout({
                 <div className="secure-permission-heading">
                   <ShieldCheck aria-hidden="true" size={18} />
                   <div>
-                    <span className="overline">Your secure trading permission</span>
-                    <h3 id="secure-permission-title">Exactly what the rebalancer can do</h3>
+                    <span className="overline">Your secure wallet permission</span>
+                    <h3 id="secure-permission-title">Exactly what this service can do</h3>
                   </div>
                 </div>
                 <p>{workflow.permissionSummary}</p>
-                <dl className="secure-permission-limits">
-                  <div>
-                    <dt>Position</dt>
-                    <dd>#{rebalancingInputs.positionTokenId}</dd>
-                  </div>
-                  <div>
-                    <dt>Capital cap</dt>
-                    <dd>{rebalancingInputs.capitalCap} TEST_USDT</dd>
-                  </div>
-                  <div>
-                    <dt>Range</dt>
-                    <dd>±{Number(rebalancingInputs.rangeWidthBps ?? "0") / 100}%</dd>
-                  </div>
-                  <div>
-                    <dt>Ends after</dt>
-                    <dd>{rebalancingInputs.durationHours} hours</dd>
-                  </div>
-                </dl>
+                {isRebalancing ? (
+                  <dl className="secure-permission-limits">
+                    <div><dt>Position</dt><dd>#{authorizationInputs.positionTokenId}</dd></div>
+                    <div><dt>Capital cap</dt><dd>{authorizationInputs.capitalCap} TEST_USDT</dd></div>
+                    <div><dt>Range</dt><dd>±{Number(authorizationInputs.rangeWidthBps ?? "0") / 100}%</dd></div>
+                    <div><dt>Ends after</dt><dd>{authorizationInputs.durationHours} hours</dd></div>
+                  </dl>
+                ) : (
+                  <dl className="secure-permission-limits">
+                    <div><dt>Supply cap</dt><dd>{authorizationInputs.capitalCap} TEST_USDT</dd></div>
+                    <div><dt>One test run</dt><dd>{authorizationInputs.executionAmount} TEST_USDT</dd></div>
+                    <div><dt>Network fee cap</dt><dd>{authorizationInputs.maxFeeBnb} BNB</dd></div>
+                    <div><dt>Expires after</dt><dd>{authorizationInputs.durationHours} hours</dd></div>
+                  </dl>
+                )}
                 <ul>
-                  <li><Check aria-hidden="true" size={14} /> BNB/USDT only</li>
-                  <li><Check aria-hidden="true" size={14} /> PancakeSwap V3 contracts only</li>
-                  <li><Check aria-hidden="true" size={14} /> At most one rebalance per hour</li>
+                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "BNB/USDT only" : "BSC Testnet USDT only"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "PancakeSwap V3 contracts only" : "Configured Venus contracts only"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "At most one rebalance per hour" : "Exactly one supply-and-withdraw test run"}</li>
                   <li><Check aria-hidden="true" size={14} /> Revoke any time</li>
                 </ul>
                 <details>
                   <summary>How secure authorization works</summary>
                   <p>
-                    Before the rebalancer can act, you authorize a separate, buyer-owned
-                    Altana trading permission in your wallet. Relic never asks for your
-                    private key. If this position is in a different wallet, you will move
-                    only that LP NFT into your secure trading wallet first.
+                    Before this service can act, you authorize a separate, buyer-owned
+                    Altana session in your wallet. Relic never receives your wallet private
+                    key. The session is encrypted at rest, expires automatically, and can
+                    call only the contracts and spend cap shown above.
                   </p>
                 </details>
               </section>
@@ -384,11 +383,11 @@ export function QuickServiceCheckout({
             <span>You&apos;ll receive</span>
             <ul>{workflow.deliverables.map((item) => <li key={item}>{item}</li>)}</ul>
           </div>
-          {isRebalancing && rebalancingStep === "configure" ? null : (
+          {requiresWalletAuthorization && authorizationStep === "configure" ? null : (
             <label className="terms-confirm">
               <input type="checkbox" name="explicitApproval" value="approved" required />
-              {isRebalancing
-                ? "I understand that a separate wallet authorization is required before the rebalancer can trade."
+              {requiresWalletAuthorization
+                ? "I understand that a separate wallet authorization is required before this service can execute."
                 : "I approve the displayed permissions and service terms."}
             </label>
           )}
@@ -397,24 +396,24 @@ export function QuickServiceCheckout({
               variant="outline"
               type="button"
               onClick={() =>
-                isRebalancing && rebalancingStep === "review"
-                  ? setRebalancingStep("configure")
+                requiresWalletAuthorization && authorizationStep === "review"
+                  ? setAuthorizationStep("configure")
                   : setOpen(false)
               }
             >
-              {isRebalancing && rebalancingStep === "review" ? "Back" : "Cancel"}
+              {requiresWalletAuthorization && authorizationStep === "review" ? "Back" : "Cancel"}
             </Button>
             <Button type="submit" disabled={submitting}>
               {submitting
                 ? "Preparing secure request…"
-                : isRebalancing && rebalancingStep === "configure"
+                : requiresWalletAuthorization && authorizationStep === "configure"
                   ? "Review secure permission"
                   : "Confirm & sign"}
             </Button>
           </DialogFooter>
           {error !== null ? <p className="form-error" role="alert">{error}</p> : null}
           <small className="quick-checkout-note">
-            {isRebalancing && rebalancingStep === "configure"
+            {requiresWalletAuthorization && authorizationStep === "configure"
               ? "Next, you will review the exact position, cap, expiry, and contract scope."
               : "You&apos;ll sign in this dialog. Relic will show any payment before funds move."}
           </small>

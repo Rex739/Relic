@@ -53,6 +53,11 @@ const serverEnvironmentSchema = z.object({
   RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN: z.string().min(32).optional(),
   RELIC_YIELD_OPTIMIZER_AGENT_ID: z.uuid().optional(),
   RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  // No Yield Optimizer contract address has a source-code fallback. These
+  // must be the independently verified BSC Testnet deployments used by the
+  // buyer-session authorizer and Layer A runtime.
+  VENUS_TESTNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  VENUS_TESTNET_USDT_VTOKEN: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   // A 32-byte Base64 key injected by ECS from Secrets Manager. It encrypts
   // per-order Altana session keys before they can enter Relic storage.
   ALTANA_SESSION_ENCRYPTION_KEY: z

@@ -3,6 +3,7 @@
 import type { CreateMandateRequest } from "@relic/domain";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { parseUnits } from "viem";
 
 import {
   createMandate,
@@ -16,6 +17,7 @@ import {
   gridTradingCheckoutSchema,
   healthMonitoringCheckoutSchema,
   lpRangeRebalancingCheckoutSchema,
+  yieldOptimizerCheckoutSchema,
 } from "../lib/checkout-input-validation";
 
 const capabilities = [
@@ -46,6 +48,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const profile = await activationProfile(agentId);
   const isGridTrader = category === "grid-trading";
   const isLpRangeRebalancer = category === "rebalancing";
+  const isYieldOptimizer = category === "yield-optimisation";
   const gridCapitalCap = fieldString(formData, "capitalCap");
   const gridLowerPrice = fieldString(formData, "lowerPrice");
   const gridUpperPrice = fieldString(formData, "upperPrice");
@@ -79,6 +82,17 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const validatedRebalancing = rebalancingValidation?.success
     ? rebalancingValidation.data
     : null;
+  const yieldValidation = isYieldOptimizer
+    ? yieldOptimizerCheckoutSchema.safeParse({
+        capitalCap: fieldString(formData, "capitalCap"),
+        executionAmount: fieldString(formData, "executionAmount"),
+        maxFeeBnb: fieldString(formData, "maxFeeBnb"),
+        durationHours: fieldString(formData, "durationHours"),
+      })
+    : null;
+  if (yieldValidation !== null && !yieldValidation.success)
+    throw new Error(yieldValidation.error.issues[0]?.message ?? "Invalid Yield Optimizer settings");
+  const validatedYield = yieldValidation?.success ? yieldValidation.data : null;
   const healthValidation = category === "health-factor-monitoring"
     ? healthMonitoringCheckoutSchema.safeParse({
         threshold,
@@ -117,30 +131,30 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
     // for that asset. Keep it as task context until the offer publishes a
     // supported-asset schema.
     allowedAssets:
-      validatedGrid === null && validatedRebalancing === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null
         ? []
         : profile.profile.supportedAssets,
     allowedProtocols: profile.profile.supportedProtocols,
     allowedContracts:
-      validatedRebalancing === null ? [] : profile.profile.supportedContracts,
+      validatedRebalancing === null && validatedYield === null ? [] : profile.profile.supportedContracts,
     perActionLimit:
-      validatedGrid === null && validatedRebalancing === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null
         ? null
         : {
             asset: "TEST_USDT",
             amount:
-              validatedGrid?.capitalCap ?? validatedRebalancing!.capitalCap,
+              validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield!.capitalCap,
           },
     aggregateLimit:
-      validatedGrid === null && validatedRebalancing === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null
         ? null
         : {
             asset: "TEST_USDT",
             amount:
-              validatedGrid?.capitalCap ?? validatedRebalancing!.capitalCap,
+              validatedGrid?.capitalCap ?? validatedRebalancing?.capitalCap ?? validatedYield!.capitalCap,
           },
     executionFrequency:
-      validatedGrid === null && validatedRebalancing === null
+      validatedGrid === null && validatedRebalancing === null && validatedYield === null
         ? null
         : validatedGrid !== null
           ? {
@@ -155,9 +169,11 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
           ? validatedGrid.durationHours * 3_600_000
           : validatedRebalancing !== null
             ? validatedRebalancing.durationHours * 3_600_000
+            : validatedYield !== null
+              ? validatedYield.durationHours * 3_600_000
             : (validatedHealth?.durationDays ?? durationDays) * 86_400_000),
     ).toISOString(),
-    approvalMode: isGridTrader || isLpRangeRebalancer
+    approvalMode: isGridTrader || isLpRangeRebalancer || isYieldOptimizer
       ? "PRE_AUTHORIZED"
       : profile.profile.approvalModes.includes("OBSERVE_ONLY")
         ? "OBSERVE_ONLY"
@@ -194,6 +210,16 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
             durationHours: validatedRebalancing.durationHours,
             minimumSecondsBetweenRebalances: 3_600,
           }),
+      ...(validatedYield === null
+        ? {}
+        : {
+            executionKind: "VENUS_CORE_SUPPLY_WITHDRAW_V1",
+            maximumAmountBaseUnits: parseUnits(validatedYield.capitalCap, 18).toString(),
+            executionAmountBaseUnits: parseUnits(validatedYield.executionAmount, 18).toString(),
+            maximumFeeWei: parseUnits(validatedYield.maxFeeBnb, 18).toString(),
+            sessionDurationHours: validatedYield.durationHours,
+            minimumSecondsBetweenExecutions: 3_600,
+          }),
     },
     stopConditions: [
       { kind: "SERVICE_STALE" },
@@ -214,12 +240,12 @@ export type StartedHireCheckout = {
   agreementId: string;
 };
 
-/** Creates a reviewed rebalancing mandate. It deliberately does not activate
- * the mandate or create a paid agreement; the buyer's Altana grant must be
- * verified first. */
-export async function prepareRebalancingAuthorization(formData: FormData) {
-  if (fieldString(formData, "category") !== "rebalancing")
-    throw new Error("This authorization flow is only for LP rebalancing.");
+/** Creates a reviewed executable mandate without activating it or creating a
+ * paid agreement. The buyer's bounded Altana grant must be verified first. */
+export async function prepareWalletAuthorization(formData: FormData) {
+  const category = fieldString(formData, "category");
+  if (category !== "rebalancing" && category !== "yield-optimisation")
+    throw new Error("This service does not require a bounded wallet session.");
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
   const draft = await createMandate(await serviceConfiguration(formData));
@@ -253,8 +279,8 @@ export async function startHireCheckout(
 ): Promise<StartedHireCheckout> {
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
-  if (fieldString(formData, "category") === "rebalancing")
-    throw new Error("Authorize the buyer-owned trading permission before starting LP rebalancing checkout.");
+  if (["rebalancing", "yield-optimisation"].includes(fieldString(formData, "category")))
+    throw new Error("Authorize the buyer-owned bounded session before starting this executable service checkout.");
   const draft = await createMandate(await serviceConfiguration(formData));
   await transitionMandate(draft.id, "review");
   await transitionMandate(draft.id, "activate");

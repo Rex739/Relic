@@ -100,6 +100,8 @@ type PermissionSnapshot = {
   spend: Array<{ token: Address; limit: string; period: "day" }>;
 };
 
+type YieldSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
+
 const asText = (value: unknown) => (typeof value === "string" ? value : null);
 
 function rebalancerSettings(riskConstraints: Record<string, unknown>) {
@@ -117,8 +119,25 @@ function rebalancerSettings(riskConstraints: Record<string, unknown>) {
   return { positionTokenId, capitalCap, durationHours };
 }
 
+function yieldSettings(riskConstraints: Record<string, unknown>) {
+  const maximumAmountBaseUnits = asText(riskConstraints.maximumAmountBaseUnits);
+  const executionAmountBaseUnits = asText(riskConstraints.executionAmountBaseUnits);
+  const maximumFeeWei = asText(riskConstraints.maximumFeeWei);
+  const durationHours = riskConstraints.sessionDurationHours;
+  if (
+    riskConstraints.executionKind !== "VENUS_CORE_SUPPLY_WITHDRAW_V1" ||
+    maximumAmountBaseUnits === null || !/^[1-9]\d*$/u.test(maximumAmountBaseUnits) ||
+    executionAmountBaseUnits === null || !/^[1-9]\d*$/u.test(executionAmountBaseUnits) ||
+    maximumFeeWei === null || !/^[1-9]\d*$/u.test(maximumFeeWei) ||
+    typeof durationHours !== "number" || !Number.isInteger(durationHours) || durationHours < 1 || durationHours > 168 ||
+    BigInt(executionAmountBaseUnits) > BigInt(maximumAmountBaseUnits)
+  ) return null;
+  return { maximumAmountBaseUnits, durationHours };
+}
+
 /**
- * Prepares and verifies a buyer-owned Altana session for exactly one LP order.
+ * Prepares and verifies a buyer-owned Altana session for one configured,
+ * executable BNB Testnet mandate.
  * The buyer signs the grant in their wallet. Relic holds only the constrained
  * session key, encrypted at rest; it never receives the buyer's admin key.
  */
@@ -128,26 +147,31 @@ export class AltanaSessionAuthorizationService {
     private readonly store: DrizzleAltanaSessionAuthorizationStore,
     private readonly encryption: AltanaSessionEncryption,
     private readonly testnetRpcUrl: string,
+    private readonly yieldConfig?: YieldSessionConfig,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
   public async prepare(principalId: string, mandateId: string) {
     const mandate = await this.mandates.get(principalId, mandateId);
-    const settings = rebalancerSettings(mandate.version.riskConstraints);
-    if (settings === null || mandate.chainId !== 97)
+    const rebalancer = rebalancerSettings(mandate.version.riskConstraints);
+    const yieldOptimizer = yieldSettings(mandate.version.riskConstraints);
+    if ((rebalancer === null && yieldOptimizer === null) || mandate.chainId !== 97)
       throw new MandateValidationError(
         "altana_session_not_supported",
-        "A buyer-owned Altana session is available only for the BNB testnet LP rebalancer.",
+        "A buyer-owned Altana session is available only for a configured BNB Testnet executable service.",
       );
+    if (yieldOptimizer !== null && this.yieldConfig === undefined)
+      throw new MandateValidationError("altana_session_not_configured", "Yield Optimizer session configuration is unavailable.");
     if (mandate.status !== "REVIEWED")
       throw new MandateValidationError(
         "altana_session_invalid_state",
-        "Review the rebalancer settings before authorizing its trading session.",
+        "Review the service settings before authorizing its bounded session.",
       );
+    const purpose = rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
 
     const existing = await this.store.find(mandateId, principalId);
     if (existing !== null && existing.status === "PENDING" && existing.expiresAt > this.now())
-      return this.#public(existing);
+      return this.#public(existing, purpose);
     if (existing !== null)
       throw new MandateValidationError(
         "altana_session_replacement_required",
@@ -159,19 +183,12 @@ export class AltanaSessionAuthorizationService {
     const expiresAt = new Date(
       Math.min(
         Date.parse(mandate.version.expiresAt),
-        this.now().getTime() + settings.durationHours * 3_600_000,
+        this.now().getTime() + (rebalancer?.durationHours ?? yieldOptimizer!.durationHours) * 3_600_000,
       ),
     );
-    const wbnbLimit = await this.#boundedWbnbSpend(settings.positionTokenId, settings.capitalCap);
-    const permissions: PermissionSnapshot = {
-      calls: [{ to: positionManager }, { to: swapRouter }],
-      // TEST_USDT is an 18-decimal test token. Persist the exact base-unit cap
-      // that Altana enforces instead of re-parsing a display amount later.
-      spend: [
-        { token: testUsdt, limit: parseUnits(settings.capitalCap, 18).toString(), period: "day" },
-        { token: wbnb, limit: wbnbLimit.toString(), period: "day" },
-      ],
-    };
+    const permissions: PermissionSnapshot = rebalancer === null
+      ? this.#yieldPermissions(yieldOptimizer!, this.yieldConfig!)
+      : await this.#rebalancerPermissions(rebalancer);
     const created = await this.store.create({
       mandateId,
       principalId,
@@ -183,7 +200,7 @@ export class AltanaSessionAuthorizationService {
       expiresAt,
       status: "PENDING",
     });
-    return this.#public(created);
+    return this.#public(created, purpose);
   }
 
   public async confirm(input: {
@@ -299,7 +316,28 @@ export class AltanaSessionAuthorizationService {
     return (rawWbnb * 12n) / 10n;
   }
 
-  #public(record: AltanaSessionAuthorizationRecord) {
+  #yieldPermissions(settings: { maximumAmountBaseUnits: string }, config: YieldSessionConfig): PermissionSnapshot {
+    return {
+      calls: [{ to: config.usdt }, { to: config.venusUsdtVToken }],
+      spend: [{ token: config.usdt, limit: settings.maximumAmountBaseUnits, period: "day" }],
+    };
+  }
+
+  async #rebalancerPermissions(settings: { positionTokenId: string; capitalCap: string }): Promise<PermissionSnapshot> {
+    const wbnbLimit = await this.#boundedWbnbSpend(settings.positionTokenId, settings.capitalCap);
+    return {
+      calls: [{ to: positionManager }, { to: swapRouter }],
+      spend: [
+        { token: testUsdt, limit: parseUnits(settings.capitalCap, 18).toString(), period: "day" },
+        { token: wbnb, limit: wbnbLimit.toString(), period: "day" },
+      ],
+    };
+  }
+
+  #public(
+    record: AltanaSessionAuthorizationRecord,
+    purpose?: "LP_REBALANCER" | "YIELD_OPTIMIZER",
+  ) {
     return {
       id: record.id,
       mandateId: record.mandateId,
@@ -309,6 +347,7 @@ export class AltanaSessionAuthorizationService {
       permissions: record.permissions,
       expiresAt: record.expiresAt.toISOString(),
       status: record.status,
+      ...(purpose === undefined ? {} : { purpose }),
       ...(record.walletAddress === null ? {} : { walletAddress: record.walletAddress }),
       ...(record.grantTransactionHash === null ? {} : { transactionHash: record.grantTransactionHash }),
     };

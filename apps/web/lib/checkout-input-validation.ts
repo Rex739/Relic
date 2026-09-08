@@ -56,9 +56,30 @@ export const lpRangeRebalancingCheckoutSchema = z.object({
   durationHours: wholeNumber("Run time", 1, 168),
 });
 
+export const yieldOptimizerCheckoutSchema = z
+  .object({
+    capitalCap: decimal("Maximum supplied USDT"),
+    executionAmount: decimal("Test execution amount"),
+    maxFeeBnb: decimal("Maximum BNB network fee"),
+    durationHours: wholeNumber("Session duration", 1, 168),
+  })
+  .superRefine((value, context) => {
+    const units = (amount: string) => {
+      const [whole, fraction = ""] = amount.split(".");
+      return BigInt(`${whole}${fraction.padEnd(18, "0")}`);
+    };
+    if (units(value.executionAmount) > units(value.capitalCap))
+      context.addIssue({
+        code: "custom",
+        path: ["executionAmount"],
+        message: "Test execution amount cannot exceed the supplied USDT cap",
+      });
+  });
+
 export const checkoutInputSchemaFor = (category: string) => {
   if (category === "grid-trading") return gridTradingCheckoutSchema;
   if (category === "rebalancing") return lpRangeRebalancingCheckoutSchema;
+  if (category === "yield-optimisation") return yieldOptimizerCheckoutSchema;
   if (category === "health-factor-monitoring") return healthMonitoringCheckoutSchema;
   return null;
 };
