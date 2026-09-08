@@ -6,6 +6,8 @@ export type PreparedTransaction = Readonly<{
   data: `0x${string}`;
   value: bigint;
   maximumFeeWei: bigint;
+  /** Production session signers re-encode this instead of accepting raw calldata. */
+  call: Readonly<{ address: Address; abi: Abi; functionName: string; args: readonly unknown[] }>;
 }>;
 
 const erc20Abi = [{
@@ -36,6 +38,7 @@ export class VenusHealthTransactionAdapter {
       data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args }),
       value: 0n,
       maximumFeeWei,
+      call: { address: this.config.usdt, abi: erc20Abi, functionName: "approve", args },
     };
   }
 
@@ -46,6 +49,7 @@ export class VenusHealthTransactionAdapter {
       data: encodeFunctionData({ abi: vTokenAbi, functionName: "repayBorrowBehalf", args }),
       value: 0n,
       maximumFeeWei,
+      call: { address: this.config.venusUsdtVToken, abi: vTokenAbi, functionName: "repayBorrowBehalf", args },
     };
   }
 }

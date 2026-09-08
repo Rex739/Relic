@@ -47,6 +47,10 @@ export class VenusMainnetHealthReader {
     this.client = client ?? createPublicClient({ chain: bsc, transport: http(config.rpcUrl) });
   }
 
+  verifyDeployment(): Promise<void> {
+    return verifyHealthGuardDeployment(this.config, this.client);
+  }
+
   async observation(mandate: HealthGuardMandate): Promise<HealthObservation> {
     const block = await this.client.getBlock({ blockTag: "latest" });
     const blockNumber = block.number;
