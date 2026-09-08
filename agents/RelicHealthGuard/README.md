@@ -9,6 +9,8 @@ Relic Health Guard is a Mainnet-first, executable Venus health-protection servic
 - Submit an exact ERC-20 approval only when required, then call the configured Venus market's `repayBorrowBehalf(borrower, amount)`.
 - Enforce a per-action cap, aggregate cap, health-factor trigger and target, cooldown, mandate expiry, minimum USDT reserve, transaction-fee cap, idempotency, simulation, confirmation, and emergency pause.
 
+V1 supports the Venus **Core Pool** only. It derives the health factor from same-block Venus account snapshots, the Core Comptroller's collateral factors, and its oracle prices; it refuses to act when any of that evidence cannot be read or validated.
+
 ## What it cannot do
 
 - It cannot swap, borrow, withdraw collateral, move funds to a third party, or call a buyer-supplied contract.
