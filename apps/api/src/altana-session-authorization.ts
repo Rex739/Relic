@@ -100,7 +100,11 @@ type PermissionSnapshot = {
   spend: Array<{ token: Address; limit: string; period: "day" }>;
 };
 
-type YieldSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
+type YieldSessionConfig = Readonly<{
+  usdt: Address;
+  venusUsdtVToken: Address;
+  maximumJobAmountBaseUnits: bigint;
+}>;
 type HealthGuardSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
 
 const asText = (value: unknown) => (typeof value === "string" ? value : null);
@@ -186,6 +190,14 @@ export class AltanaSessionAuthorizationService {
       throw new MandateValidationError("altana_session_not_supported", "Health Guard is configured for BSC Mainnet only.");
     if (yieldOptimizer !== null && this.yieldConfig === undefined)
       throw new MandateValidationError("altana_session_not_configured", "Yield Optimizer session configuration is unavailable.");
+    if (
+      yieldOptimizer !== null &&
+      BigInt(yieldOptimizer.maximumAmountBaseUnits) > this.yieldConfig!.maximumJobAmountBaseUnits
+    )
+      throw new MandateValidationError(
+        "altana_session_amount_exceeds_limit",
+        "This Yield Optimizer mandate exceeds the currently verified testnet safety limit.",
+      );
     if (healthGuard !== null && (this.mainnetRpcUrl === undefined || this.healthGuardConfig === undefined))
       throw new MandateValidationError("altana_session_not_configured", "Health Guard Mainnet session configuration is unavailable.");
     if (mandate.status !== "REVIEWED")
