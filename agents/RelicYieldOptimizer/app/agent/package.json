@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
@@ -11,6 +13,7 @@
     "verify-deployment": "pnpm build && node dist/verifyDeployment.js"
   },
   "dependencies": {
+    "@altananetwork/sdk": "0.7.1",
     "@bnbagent/studio-runtime": "0.0.13",
     "viem": "^2.56.3"
   },
