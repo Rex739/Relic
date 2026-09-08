@@ -11,7 +11,7 @@ import { useRelicWallet } from "./relic-wallet-provider";
 import { switchWalletChain } from "./wallet-provider";
 
 type Authorization = {
-  purpose: "LP_REBALANCER" | "YIELD_OPTIMIZER";
+  purpose: "LP_REBALANCER" | "YIELD_OPTIMIZER" | "GRID_TRADER";
   sessionAddress: string;
   sessionPublicKey: string;
   expiresAt: string;
@@ -23,8 +23,10 @@ type Authorization = {
 
 const positionManager = "0x427bF5b37357632377eCbEC9de3626C71A5396c1" as const;
 const swapRouter = "0x9a489505a00cE272eAa5e07Dba6491314CaE3796" as const;
+const gridSwapRouter = "0xD70C70AD87aa8D45b8D59600342FB3AEe76E3c68" as const;
 const wbnb = "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd" as const;
 const testUsdt = "0xc70B8741B8B07A6d61E54fd4B20f22Fa648E5565" as const;
+const gridTestUsdt = "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd" as const;
 
 const erc20ApprovalAbi = [
   {
@@ -147,7 +149,7 @@ export function AltanaSessionAuthorization({
       <ShieldCheck aria-hidden="true" size={20} />
       <h3>Authorize your bounded trading session</h3>
       <p>
-        Your wallet will grant one encrypted session key for this exact LP position,
+        Your wallet will grant one encrypted session key for this exact service mandate,
         cap, contract allowlist, and expiry. Relic never receives your wallet private key.
       </p>
       <Button type="button" onClick={() => void authorize()} disabled={busy}>
@@ -185,6 +187,23 @@ function approvalCalls(prepared: Authorization) {
       { to: wbnb, data: approveData(swapRouter, wbnbLimit) },
       { to: testUsdt, data: approveData(positionManager, usdtLimit) },
       { to: testUsdt, data: approveData(swapRouter, usdtLimit) },
+    ];
+  }
+
+  if (prepared.purpose === "GRID_TRADER") {
+    const gridUsdtPermission = spend.find(
+      ({ token }) => token.toLowerCase() === gridTestUsdt.toLowerCase(),
+    );
+    const hasApprovedRouter = prepared.permissions.calls?.some(
+      ({ to }) => to.toLowerCase() === gridSwapRouter.toLowerCase(),
+    );
+    if (gridUsdtPermission === undefined || !hasApprovedRouter)
+      throw new Error("Relic did not prepare the bounded Grid Trader router permission.");
+    return [
+      {
+        to: gridTestUsdt,
+        data: approveData(gridSwapRouter, BigInt(gridUsdtPermission.limit)),
+      },
     ];
   }
 
