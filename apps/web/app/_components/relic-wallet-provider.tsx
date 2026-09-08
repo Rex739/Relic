@@ -60,6 +60,48 @@ type RelicWalletRuntime = {
   getProvider: () => Promise<EthereumProvider>;
 };
 
+type InjectedEthereumProvider = EthereumProvider & {
+  providers?: EthereumProvider[];
+};
+
+function isProviderForAddress(
+  provider: EthereumProvider,
+  address: string,
+) {
+  return provider
+    .request({ method: "eth_accounts" })
+    .then(
+      (accounts) =>
+        Array.isArray(accounts) &&
+        accounts.some(
+          (account) =>
+            typeof account === "string" &&
+            account.toLowerCase() === address.toLowerCase(),
+        ),
+    )
+    .catch(() => false);
+}
+
+/**
+ * Privy authenticates an external wallet, but its generic provider wrapper
+ * does not forward every signing RPC (notably raw eth_sign). For an external
+ * wallet we must ask the matching injected provider directly; Privy's own
+ * embedded provider remains the correct choice for email/Google wallets.
+ */
+async function matchingInjectedProvider(address: string) {
+  if (typeof window === "undefined") return null;
+  const ethereum = (window as Window & { ethereum?: InjectedEthereumProvider })
+    .ethereum;
+  if (ethereum === undefined) return null;
+  const candidates = ethereum.providers === undefined
+    ? [ethereum]
+    : [ethereum, ...ethereum.providers];
+  for (const provider of candidates) {
+    if (await isProviderForAddress(provider, address)) return provider;
+  }
+  return null;
+}
+
 const unavailableRuntime: RelicWalletRuntime = {
   configured: false,
   ready: true,
@@ -318,8 +360,12 @@ function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const getProvider = useCallback(async () => {
     if (activeWallet === null)
       throw new Error("Connect a wallet through Privy first");
+    if (selectedWalletSource === "external") {
+      const injected = await matchingInjectedProvider(activeWallet.address);
+      if (injected !== null) return injected;
+    }
     return await activeWallet.getEthereumProvider();
-  }, [activeWallet]);
+  }, [activeWallet, selectedWalletSource]);
 
   const value = useMemo<RelicWalletRuntime>(
     () => ({
