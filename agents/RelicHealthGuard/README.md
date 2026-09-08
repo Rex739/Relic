@@ -30,3 +30,5 @@ Relic's API exposes only two private, bearer-authenticated endpoints for this se
 `CHAIN_ID=56`, `BSC_MAINNET_RPC_URL`, `VENUS_USDT`, `VENUS_USDT_VTOKEN`, `VENUS_COMPTROLLER`, `USDT_DECIMALS`, `MAX_REPAY_BASE_UNITS`, `MINIMUM_BNB_GAS_RESERVE_WEI`, `PRIVATE_AGENT_BEARER_TOKEN`, and `EXECUTION_ENABLED=true` are all required. Contract values must be verified from official Venus deployment records and independently checked against the configured RPC before enabling execution.
 
 `EXECUTION_ENABLED` defaults to false. This is not a Testnet switch: when enabled with a chain ID other than 56, startup fails.
+
+Before deployment, run `pnpm audit:mainnet` with the production environment injected. It performs read-only RPC and bytecode/underlying/comptroller verification and checks that private runtime credentials are present. It does not start a scheduler, create a buyer session, or submit a transaction.
