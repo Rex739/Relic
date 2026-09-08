@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /** Layer B public surface. It contains no signing or protocol authority. */
 export function publicAgentCard(publicUrl: string) {
   const base = publicUrl.replace(/\/$/u, "");
@@ -27,4 +29,50 @@ export function fundedJobId(body: unknown): string | null {
     if (typeof id === "string" && /^\d+$/u.test(id)) return id;
   }
   return null;
+}
+
+export type PublicGatewayConfig = Readonly<{
+  privateAgentUrl: string;
+  privateAgentBearerToken: string;
+  allowInternalHttp?: boolean;
+}>;
+
+export function privateCycleEndpoint(config: PublicGatewayConfig): URL {
+  const endpoint = new URL("/cycles", config.privateAgentUrl);
+  if (endpoint.protocol !== "https:" && !config.allowInternalHttp)
+    throw new Error("PRIVATE_AGENT_URL must use HTTPS outside private networking");
+  return endpoint;
+}
+
+/**
+ * The public gateway never forwards caller-supplied execution instructions.
+ * It extracts one funded job ID, creates a delivery key, and lets the private
+ * worker fetch the canonical mandate and encrypted buyer session from Relic.
+ */
+export async function forwardFundedNotification(
+  body: unknown,
+  config: PublicGatewayConfig,
+  fetchImpl: typeof fetch = fetch,
+  deliveryId = randomUUID(),
+): Promise<{ status: number; body: unknown }> {
+  const jobId = fundedJobId(body);
+  if (jobId === null)
+    return { status: 400, body: { error: "A funded notify_funded message with a numeric jobId is required" } };
+  if (!config.privateAgentBearerToken.trim())
+    throw new Error("PRIVATE_AGENT_BEARER_TOKEN is not configured");
+  const response = await fetchImpl(privateCycleEndpoint(config), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.privateAgentBearerToken}`,
+      "content-type": "application/json",
+      "x-relic-delivery-id": deliveryId,
+    },
+    body: JSON.stringify({ commerceJobId: jobId }),
+  });
+  const text = await response.text();
+  try {
+    return { status: response.status, body: JSON.parse(text) as unknown };
+  } catch {
+    return { status: response.status, body: { error: "Private Health Guard returned a non-JSON response" } };
+  }
 }

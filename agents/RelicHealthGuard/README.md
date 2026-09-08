@@ -23,6 +23,21 @@ The runtime supports one verified Venus pool per job. It can carry multiple veri
 
 The public gateway exposes an agent card and accepts only funded-job notifications. It has no wallet or protocol authority. The private executor is the sole signer boundary and must run on private networking with a shared service credential.
 
+Run the two services separately after building:
+
+```sh
+pnpm start:public
+pnpm start:private
+```
+
+The public service requires `PUBLIC_SERVICE_URL`, `PRIVATE_AGENT_URL`, and
+`PRIVATE_AGENT_BEARER_TOKEN`. `PRIVATE_AGENT_URL` must be HTTPS unless the
+deployment explicitly sets `ALLOW_INTERNAL_HTTP=true` for private networking.
+Its only public execution route is `POST /apex`; it accepts a funded
+`notify_funded` A2A message, discards every other caller-supplied instruction,
+and forwards only the numeric commerce job ID plus a newly generated delivery
+key to the private worker.
+
 Relic's API exposes only two private, bearer-authenticated endpoints for this service: a one-job encrypted session release and a canonical execution request. Browser/A2A input is never accepted as a mandate or payment instruction.
 
 ## Required Mainnet configuration
