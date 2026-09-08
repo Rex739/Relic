@@ -54,6 +54,7 @@ async function rawDigestSignature(
     throw new Error("Altana can only authorize a 32-byte transaction digest.");
 
   let signed: unknown;
+  let privyFailure: unknown;
   try {
     signed = await provider.request({
       // Privy's embedded wallet RPC for a raw secp256k1 digest. It is the
@@ -61,7 +62,8 @@ async function rawDigestSignature(
       method: "secp256k1_sign",
       params: [digest],
     });
-  } catch {
+  } catch (caught) {
+    privyFailure = caught;
     try {
       // MetaMask/Rabby and other injected EOA providers retain this standard
       // EIP-1193 raw-digest method. Keep it as a compatibility fallback.
@@ -69,13 +71,34 @@ async function rawDigestSignature(
         method: "eth_sign",
         params: [address, digest],
       });
-    } catch {
+    } catch (walletFailure) {
       throw new Error(
-        "Your connected wallet cannot sign the secure trading permission. Try reconnecting your Privy wallet, then approve the signature request.",
+        `Privy raw-sign request failed: ${describeProviderFailure(privyFailure)}. ` +
+          `MetaMask raw-sign fallback failed: ${describeProviderFailure(walletFailure)}.`,
       );
     }
   }
   if (!isSignature(signed))
     throw new Error("The connected wallet returned an invalid permission signature.");
   return signed;
+}
+
+/**
+ * Wallet providers otherwise hide the only information that distinguishes a
+ * rejected request from an unsupported method or a chain/account mismatch.
+ * Keep the useful RPC diagnostic in the UI, without serializing provider
+ * internals, request params, or any wallet data.
+ */
+function describeProviderFailure(caught: unknown) {
+  if (typeof caught === "object" && caught !== null) {
+    const value = caught as { code?: unknown; message?: unknown };
+    const code = typeof value.code === "number" || typeof value.code === "string"
+      ? ` (code ${String(value.code)})`
+      : "";
+    if (typeof value.message === "string" && value.message.trim() !== "")
+      return `${value.message.trim()}${code}`;
+    return `provider returned an unnamed error${code}`;
+  }
+  if (caught instanceof Error) return caught.message;
+  return typeof caught === "string" ? caught : "provider returned an unknown error";
 }

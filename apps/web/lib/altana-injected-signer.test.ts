@@ -37,6 +37,23 @@ describe("signerFromConnectedWallet", () => {
     await expect(signer.signDigest(`0x${"11".repeat(32)}`)).resolves.toMatch(/^0x/u);
   });
 
+  it("keeps both provider failures visible for an actionable diagnosis", async () => {
+    const provider = {
+      request: ({ method }: { method: string }) => {
+        if (method === "eth_accounts") return Promise.resolve([account.address]);
+        if (method === "secp256k1_sign")
+          return Promise.reject({ code: 4200, message: "Unsupported method" });
+        if (method === "eth_sign")
+          return Promise.reject({ code: 4001, message: "User rejected the request" });
+        return Promise.reject(new Error(`unexpected method ${method}`));
+      },
+    };
+
+    await expect(signerFromConnectedWallet(provider)).rejects.toThrow(
+      "Privy raw-sign request failed: Unsupported method (code 4200). MetaMask raw-sign fallback failed: User rejected the request (code 4001).",
+    );
+  });
+
   it("fails closed when no wallet is connected", async () => {
     await expect(
       signerFromConnectedWallet({ request: () => Promise.resolve([]) }),
