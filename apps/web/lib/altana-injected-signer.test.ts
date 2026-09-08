@@ -11,7 +11,8 @@ describe("signerFromConnectedWallet", () => {
     const provider = {
       request: ({ method, params }: { method: string; params?: unknown[] }) => {
         if (method === "eth_accounts") return Promise.resolve([account.address]);
-        if (method === "eth_sign") return account.sign({ hash: params?.[1] as `0x${string}` });
+        if (method === "secp256k1_sign")
+          return account.sign({ hash: params?.[0] as `0x${string}` });
         return Promise.reject(new Error(`unexpected method ${method}`));
       },
     };
@@ -19,6 +20,20 @@ describe("signerFromConnectedWallet", () => {
     const signer = await signerFromConnectedWallet(provider);
     expect(signer.type).toBe("injected");
     expect(signer.address).toBe(account.address);
+    await expect(signer.signDigest(`0x${"11".repeat(32)}`)).resolves.toMatch(/^0x/u);
+  });
+
+  it("falls back to eth_sign for an injected EOA provider", async () => {
+    const provider = {
+      request: ({ method, params }: { method: string; params?: unknown[] }) => {
+        if (method === "eth_accounts") return Promise.resolve([account.address]);
+        if (method === "secp256k1_sign") return Promise.reject(new Error("unsupported"));
+        if (method === "eth_sign") return account.sign({ hash: params?.[1] as `0x${string}` });
+        return Promise.reject(new Error(`unexpected method ${method}`));
+      },
+    };
+
+    const signer = await signerFromConnectedWallet(provider);
     await expect(signer.signDigest(`0x${"11".repeat(32)}`)).resolves.toMatch(/^0x/u);
   });
 
