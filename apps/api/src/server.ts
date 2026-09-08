@@ -4,6 +4,7 @@ import {
   createDatabase,
   DrizzleAgentRepository,
   DrizzleAgentExecutionJobStore,
+  DrizzleHealthGuardCycleStore,
   DrizzleAltanaSessionAuthorizationStore,
   DrizzleCommerceStore,
   DrizzleExecutionStore,
@@ -34,6 +35,7 @@ import { ServicePublicationVerifier } from "./service-publication.js";
 import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
+import { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -202,6 +204,10 @@ const app = createApp(repository, onboarding, mandates, {
     ? {}
     : {
         healthGuardInternalToken: environment.RELIC_HEALTH_GUARD_INTERNAL_TOKEN,
+        healthGuardCycleStore: new HealthGuardCycleStore(
+          new DrizzleHealthGuardCycleStore(connection.db),
+          environment.RELIC_HEALTH_GUARD_AGENT_ID,
+        ),
         ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY === undefined
           ? {}
           : { healthGuardFundedSessionRelease: new HealthGuardFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_HEALTH_GUARD_AGENT_ID, environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY) }),

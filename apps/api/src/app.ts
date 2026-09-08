@@ -49,6 +49,7 @@ import type { AltanaSessionAuthorizationService } from "./altana-session-authori
 import type { ExecutionApplicationService } from "./executions.js";
 import type { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
 import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
+import type { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import type { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
 import type { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import type {
@@ -1179,6 +1180,7 @@ export function createApp(
     yieldFundedSessionRelease?: YieldFundedSessionRelease;
     healthGuardInternalToken?: string;
     healthGuardFundedSessionRelease?: HealthGuardFundedSessionRelease;
+    healthGuardCycleStore?: HealthGuardCycleStore;
     walletAuthService?: WalletAuthenticationService;
     privyAppId?: string;
     privyJwtVerificationKey?: string;
@@ -1534,6 +1536,14 @@ export function createApp(
       );
     return options.yieldOptimizerExecutionStore;
   };
+  const requireHealthGuardCycleStore = () => {
+    if (options.healthGuardCycleStore === undefined || options.healthGuardInternalToken === undefined)
+      throw new MandateValidationError(
+        "health_guard_cycle_persistence_unavailable",
+        "Health Guard cycle persistence is unavailable.",
+      );
+    return options.healthGuardCycleStore;
+  };
   const hasInternalToken = (context: { req: { header(name: string): string | undefined } }, expected: string | undefined) => {
     const token = context.req.header("authorization")?.replace(/^Bearer\s+/u, "");
     return expected !== undefined && token !== undefined && token.length === expected.length && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
@@ -1576,6 +1586,52 @@ export function createApp(
     if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
     if (options.healthGuardFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
     return context.json(await options.healthGuardFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/health-guard/cycles", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    const input = z.object({
+      id: z.uuid(),
+      commerceJobId: z.string().regex(/^\d+$/u),
+      idempotencyKey: z.string().min(1).max(200),
+      observedAt: z.coerce.date(),
+      healthFactorWad: z.string().regex(/^\d+$/u),
+      outstandingDebtBaseUnits: z.string().regex(/^\d+$/u),
+      rescueWalletBalanceBaseUnits: z.string().regex(/^\d+$/u),
+    }).parse(await context.req.json());
+    return context.json(await requireHealthGuardCycleStore().createOrFind({
+      ...input,
+      healthFactorWad: BigInt(input.healthFactorWad),
+      outstandingDebtBaseUnits: BigInt(input.outstandingDebtBaseUnits),
+      rescueWalletBalanceBaseUnits: BigInt(input.rescueWalletBalanceBaseUnits),
+    }), 200);
+  });
+  app.get("/internal/health-guard/cycles/:id", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    return context.json(await requireHealthGuardCycleStore().get(z.uuid().parse(context.req.param("id"))), 200);
+  });
+  app.get("/internal/health-guard/funded-jobs/:jobId/repay-history", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    return context.json(await requireHealthGuardCycleStore().history(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/health-guard/cycles/:id/transitions", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    const input = z.object({
+      expectedRevision: z.number().int().nonnegative(),
+      to: z.enum(["OBSERVED", "NO_ACTION", "POLICY_ACCEPTED", "APPROVAL_SUBMITTED", "APPROVED", "REPAY_SUBMITTED", "COMPLETED", "RECOVERY_REQUIRED"]),
+      decisionReason: z.string().min(1).max(1_000).optional(),
+      repayAmountBaseUnits: z.string().regex(/^\d+$/u).optional(),
+      transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/u).optional(),
+      recoveryReason: z.string().min(1).max(1_000).optional(),
+    }).parse(await context.req.json());
+    return context.json(await requireHealthGuardCycleStore().transition({
+      id: z.uuid().parse(context.req.param("id")),
+      expectedRevision: input.expectedRevision,
+      to: input.to,
+      ...(input.decisionReason === undefined ? {} : { decisionReason: input.decisionReason }),
+      ...(input.repayAmountBaseUnits === undefined ? {} : { repayAmountBaseUnits: BigInt(input.repayAmountBaseUnits) }),
+      ...(input.transactionHash === undefined ? {} : { transactionHash: input.transactionHash }),
+      ...(input.recoveryReason === undefined ? {} : { recoveryReason: input.recoveryReason }),
+    }), 200);
   });
   app.get("/internal/yield-optimizer/execution-jobs/:id", async (context) => {
     if (!hasInternalToken(context, options.yieldOptimizerInternalToken))

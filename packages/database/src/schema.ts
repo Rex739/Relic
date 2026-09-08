@@ -1779,6 +1779,55 @@ export const agentExecutionJobs = pgTable(
   ],
 );
 
+/**
+ * A Health Guard job is deliberately not an `agentExecutionJob`: one funded
+ * buyer mandate can produce many independently idempotent observation cycles.
+ * Amounts remain base-unit numerics so the ledger never loses token precision.
+ */
+export const healthGuardCycleStatus = pgEnum("health_guard_cycle_status", [
+  "OBSERVED",
+  "NO_ACTION",
+  "POLICY_ACCEPTED",
+  "APPROVAL_SUBMITTED",
+  "APPROVED",
+  "REPAY_SUBMITTED",
+  "COMPLETED",
+  "RECOVERY_REQUIRED",
+]);
+
+export const healthGuardCycles = pgTable(
+  "health_guard_cycles",
+  {
+    id: uuid("id").primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "restrict" }),
+    commerceJobId: text("commerce_job_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: healthGuardCycleStatus("status").notNull().default("OBSERVED"),
+    revision: integer("revision").notNull().default(0),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    healthFactorWad: numeric("health_factor_wad", { precision: 78, scale: 0 }).notNull(),
+    outstandingDebtBaseUnits: numeric("outstanding_debt_base_units", { precision: 78, scale: 0 }).notNull(),
+    rescueWalletBalanceBaseUnits: numeric("rescue_wallet_balance_base_units", { precision: 78, scale: 0 }).notNull(),
+    decisionReason: text("decision_reason"),
+    repayAmountBaseUnits: numeric("repay_amount_base_units", { precision: 78, scale: 0 }),
+    approvalTxHash: text("approval_tx_hash"),
+    repaymentTxHash: text("repayment_tx_hash"),
+    recoveryReason: text("recovery_reason"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("health_guard_cycle_idempotency_unique").on(table.agentId, table.idempotencyKey),
+    index("health_guard_cycle_job_status_time_idx").on(
+      table.agentId,
+      table.commerceJobId,
+      table.status,
+      table.updatedAt,
+    ),
+  ],
+);
+
 export const executionRequests = pgTable(
   "execution_requests",
   {
