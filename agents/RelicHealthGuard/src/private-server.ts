@@ -1,11 +1,13 @@
 import { createServer } from "node:http";
 import { loadHealthGuardConfig } from "./config.js";
 import { FundedHealthGuardSessionClient } from "./funded-session-client.js";
+import { FundedHealthGuardJobDirectory } from "./funded-job-directory.js";
 import { PerJobAltanaHealthGuardSigner } from "./per-job-altana-signer.js";
 import { HealthGuardPrivateExecutor } from "./private-executor.js";
 import { healthGuardPrivateRuntimeHandler } from "./private-runtime.js";
 import { RelicHealthGuardCycleStore } from "./relic-cycle-store.js";
 import { VenusMainnetHealthReader } from "./venus-reader.js";
+import { HealthGuardScheduler } from "./scheduler.js";
 
 const port = Number(process.env.PORT ?? "9000");
 const bearerToken = process.env.PRIVATE_AGENT_BEARER_TOKEN?.trim();
@@ -36,3 +38,16 @@ const executor = new HealthGuardPrivateExecutor(
 createServer(healthGuardPrivateRuntimeHandler(executor, bearerToken)).listen(port, "0.0.0.0", () =>
   console.info(`Relic Health Guard private executor listening on ${String(port)}`),
 );
+
+if (config.executionEnabled && process.env.HEALTH_GUARD_SCHEDULER_ENABLED === "true") {
+  const pollSeconds = Number(process.env.HEALTH_GUARD_POLL_SECONDS ?? "60");
+  new HealthGuardScheduler(
+    new FundedHealthGuardJobDirectory({ apiUrl, bearerToken: internalToken }),
+    executor,
+    { pollSeconds },
+  ).start(({ attempted, succeeded, recoveryRequired, failed }) =>
+    console.info(`Health Guard scheduler: attempted=${String(attempted)} succeeded=${String(succeeded)} recovery=${String(recoveryRequired)} failed=${String(failed)}`),
+  );
+} else {
+  console.info("Health Guard scheduler is disabled");
+}

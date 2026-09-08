@@ -231,6 +231,33 @@ export class DrizzleCommerceStore {
     return row;
   }
 
+  /** Private scheduler inventory: only live Mainnet Health Guard mandates with a still-valid buyer session. */
+  public async listFundedHealthGuardJobIds(agentId: string, limit = 100) {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+      throw new Error("Health Guard job listing limit is invalid");
+    const rows = await this.database
+      .select({ externalJobId: activations.externalJobId })
+      .from(activations)
+      .innerJoin(mandates, eq(activations.mandateId, mandates.id))
+      .innerJoin(mandateVersions, and(
+        eq(mandateVersions.mandateId, mandates.id),
+        eq(mandateVersions.version, mandates.currentVersion),
+      ))
+      .innerJoin(altanaSessionAuthorizations, eq(altanaSessionAuthorizations.mandateId, mandates.id))
+      .where(and(
+        eq(activations.agentId, agentId),
+        eq(activations.status, "FUNDED"),
+        eq(activations.lifecycleState, "ACTIVE"),
+        eq(mandates.status, "ACTIVE"),
+        eq(mandates.chainId, 56),
+        eq(altanaSessionAuthorizations.status, "GRANTED"),
+        gt(altanaSessionAuthorizations.expiresAt, new Date()),
+        sql`${mandateVersions.riskConstraints}->>'executionKind' = 'VENUS_USDT_HEALTH_GUARD_V1'`,
+      ))
+      .limit(limit);
+    return rows.flatMap(({ externalJobId }) => externalJobId === null ? [] : [externalJobId]);
+  }
+
   public async marketplaceReviewEligibility(input: {
     activationId: string;
     principalId: string;

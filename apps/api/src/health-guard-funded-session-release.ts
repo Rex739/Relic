@@ -32,6 +32,10 @@ export class HealthGuardFundedSessionRelease {
     };
   }
 
+  async activeFundedJobIds(limit?: number) {
+    return this.commerce.listFundedHealthGuardJobIds(this.agentId, limit);
+  }
+
   async canonicalExecution(jobId: string) {
     const row = await this.commerce.findFundedHealthGuardSession(jobId);
     if (!row || row.mandate.agentId !== this.agentId) throw new Error("No funded active Health Guard session is bound to this job");

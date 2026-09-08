@@ -1587,6 +1587,12 @@ export function createApp(
     if (options.healthGuardFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
     return context.json(await options.healthGuardFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
   });
+  app.get("/internal/health-guard/funded-jobs", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.healthGuardFundedSessionRelease === undefined) return context.json({ error: "funded_job_directory_unavailable" }, 503);
+    const limit = z.coerce.number().int().min(1).max(500).default(100).parse(context.req.query("limit"));
+    return context.json({ jobIds: await options.healthGuardFundedSessionRelease.activeFundedJobIds(limit) }, 200);
+  });
   app.post("/internal/health-guard/cycles", async (context) => {
     if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
     const input = z.object({
