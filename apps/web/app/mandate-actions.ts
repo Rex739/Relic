@@ -48,6 +48,13 @@ function configuredYieldUsdtDecimals() {
   return Number(value);
 }
 
+function configuredGridUsdtDecimals() {
+  const value = process.env.GRID_TESTNET_USDT_DECIMALS?.trim();
+  if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
+    throw new Error("Grid Trader is unavailable until its verified TEST_USDT decimal configuration is set.");
+  return Number(value);
+}
+
 function configuredHealthGuardUsdtDecimals() {
   const value = process.env.VENUS_MAINNET_USDT_DECIMALS?.trim();
   if (value === undefined || !/^(?:0|[1-9]|[1-2]\d|3[0-6])$/u.test(value))
@@ -79,6 +86,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
   const gridUpperPrice = fieldString(formData, "upperPrice");
   const gridLevels = fieldString(formData, "gridLevels");
   const gridDurationHours = fieldString(formData, "durationHours");
+  const gridMaxFeeBnb = fieldString(formData, "maxFeeBnb");
   const gridValidation = isGridTrader
     ? gridTradingCheckoutSchema.safeParse({
         capitalCap: gridCapitalCap,
@@ -86,6 +94,7 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         upperPrice: gridUpperPrice,
         gridLevels,
         durationHours: gridDurationHours,
+        maxFeeBnb: gridMaxFeeBnb,
       })
     : null;
   if (gridValidation !== null && !gridValidation.success)
@@ -249,6 +258,9 @@ async function serviceConfiguration(formData: FormData): Promise<CreateMandateRe
         ? {}
         : {
             market: "WBNB/TEST_USDT",
+            executionKind: "PANCAKESWAP_V3_GRID_V1",
+            maximumCapitalBaseUnits: parseUnits(validatedGrid.capitalCap, configuredGridUsdtDecimals()).toString(),
+            maximumFeeWei: parseUnits(validatedGrid.maxFeeBnb, 18).toString(),
             capitalCap: validatedGrid.capitalCap,
             lowerPrice: validatedGrid.lowerPrice,
             upperPrice: validatedGrid.upperPrice,
@@ -300,7 +312,7 @@ export type StartedHireCheckout = {
  * paid agreement. The buyer's bounded Altana grant must be verified first. */
 export async function prepareWalletAuthorization(formData: FormData) {
   const category = fieldString(formData, "category");
-  if (category !== "rebalancing" && category !== "yield-optimisation")
+  if (category !== "rebalancing" && category !== "yield-optimisation" && category !== "grid-trading")
     throw new Error("This service does not require a bounded wallet session.");
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
@@ -335,7 +347,7 @@ export async function startHireCheckout(
 ): Promise<StartedHireCheckout> {
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
-  if (["rebalancing", "yield-optimisation"].includes(fieldString(formData, "category")))
+  if (["rebalancing", "yield-optimisation", "grid-trading"].includes(fieldString(formData, "category")))
     throw new Error("Authorize the buyer-owned bounded session before starting this executable service checkout.");
   const draft = await createMandate(await serviceConfiguration(formData));
   await transitionMandate(draft.id, "review");

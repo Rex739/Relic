@@ -53,6 +53,18 @@ const serverEnvironmentSchema = z.object({
   RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN: z.string().min(32).optional(),
   RELIC_YIELD_OPTIMIZER_AGENT_ID: z.uuid().optional(),
   RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  // Grid execution is a separate BSC Testnet release. Its buyer session may
+  // only be released to the configured private Grid runtime.
+  RELIC_GRID_TRADER_INTERNAL_TOKEN: z.string().min(32).optional(),
+  RELIC_GRID_TRADER_AGENT_ID: z.uuid().optional(),
+  RELIC_GRID_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  GRID_TESTNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  GRID_TESTNET_WBNB: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  GRID_TESTNET_SWAP_ROUTER: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  GRID_TESTNET_POOL: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  GRID_TESTNET_POOL_FEE: z.string().regex(/^\d+$/).optional(),
+  GRID_TESTNET_USDT_DECIMALS: z.string().regex(/^(?:0|[1-9]|[1-2]\d|3[0-6])$/).optional(),
+  MAX_GRID_JOB_AMOUNT_BASE_UNITS: z.string().regex(/^[1-9]\d*$/).optional(),
   // Mainnet-only Health Guard execution is configured separately from the
   // testnet Yield Optimizer. No address has a source-code fallback.
   RELIC_HEALTH_GUARD_INTERNAL_TOKEN: z.string().min(32).optional(),

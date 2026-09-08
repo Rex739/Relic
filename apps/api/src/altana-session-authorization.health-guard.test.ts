@@ -28,6 +28,7 @@ describe("AltanaSessionAuthorizationService Health Guard", () => {
       {} as never,
       "https://testnet.example",
       undefined,
+      undefined,
       "https://mainnet.example",
       { usdt: "0x0000000000000000000000000000000000000002", venusUsdtVToken: "0x0000000000000000000000000000000000000003" },
       { inspect: async () => ({ eligible: false, reason: "no_usdt_debt" }) },

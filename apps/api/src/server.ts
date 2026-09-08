@@ -34,6 +34,7 @@ import {
 import { ServicePublicationVerifier } from "./service-publication.js";
 import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
+import { GridFundedSessionRelease } from "./grid-funded-session-release.js";
 import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import { HealthGuardPreflight } from "./health-guard-preflight.js";
@@ -95,6 +96,15 @@ const altanaSessions =
               usdt: environment.VENUS_TESTNET_USDT as `0x${string}`,
               venusUsdtVToken: environment.VENUS_TESTNET_USDT_VTOKEN as `0x${string}`,
               maximumJobAmountBaseUnits: BigInt(environment.MAX_JOB_AMOUNT_BASE_UNITS),
+            },
+        environment.GRID_TESTNET_USDT === undefined || environment.GRID_TESTNET_WBNB === undefined || environment.GRID_TESTNET_SWAP_ROUTER === undefined || environment.GRID_TESTNET_USDT_DECIMALS === undefined || environment.MAX_GRID_JOB_AMOUNT_BASE_UNITS === undefined
+          ? undefined
+          : {
+              usdt: environment.GRID_TESTNET_USDT as `0x${string}`,
+              wrappedBnb: environment.GRID_TESTNET_WBNB as `0x${string}`,
+              swapRouter: environment.GRID_TESTNET_SWAP_ROUTER as `0x${string}`,
+              usdtDecimals: Number(environment.GRID_TESTNET_USDT_DECIMALS),
+              maximumJobAmountBaseUnits: BigInt(environment.MAX_GRID_JOB_AMOUNT_BASE_UNITS),
             },
         environment.BSC_MAINNET_RPC_URL,
         environment.VENUS_MAINNET_USDT === undefined || environment.VENUS_MAINNET_USDT_VTOKEN === undefined || healthGuardPreflight === undefined
@@ -209,6 +219,21 @@ const app = createApp(repository, onboarding, mandates, {
         ),
         yieldOptimizerInternalToken: environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN,
         ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY === undefined ? {} : { yieldFundedSessionRelease: new YieldFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_YIELD_OPTIMIZER_AGENT_ID, environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY) }),
+      }),
+  ...(connection === null || environment.RELIC_GRID_TRADER_INTERNAL_TOKEN === undefined || environment.RELIC_GRID_TRADER_AGENT_ID === undefined
+    ? {}
+    : {
+        gridTraderInternalToken: environment.RELIC_GRID_TRADER_INTERNAL_TOKEN,
+        ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_GRID_SESSION_TRANSFER_PUBLIC_KEY === undefined
+          ? {}
+          : {
+              gridFundedSessionRelease: new GridFundedSessionRelease(
+                new DrizzleCommerceStore(connection.db),
+                new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY),
+                environment.RELIC_GRID_TRADER_AGENT_ID,
+                environment.RELIC_GRID_SESSION_TRANSFER_PUBLIC_KEY,
+              ),
+            }),
       }),
   ...(healthGuardPreflight === undefined ? {} : { healthGuardPreflight }),
   ...(connection === null || environment.RELIC_HEALTH_GUARD_INTERNAL_TOKEN === undefined || environment.RELIC_HEALTH_GUARD_AGENT_ID === undefined

@@ -105,6 +105,13 @@ type YieldSessionConfig = Readonly<{
   venusUsdtVToken: Address;
   maximumJobAmountBaseUnits: bigint;
 }>;
+type GridSessionConfig = Readonly<{
+  usdt: Address;
+  wrappedBnb: Address;
+  swapRouter: Address;
+  maximumJobAmountBaseUnits: bigint;
+  usdtDecimals: number;
+}>;
 type HealthGuardSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
 type HealthGuardPositionPreflight = Readonly<{
   inspect(input: { poolId: unknown; borrower: Address }): Promise<Readonly<{ eligible: boolean; reason: string }>>;
@@ -143,6 +150,21 @@ function yieldSettings(riskConstraints: Record<string, unknown>) {
   return { maximumAmountBaseUnits, durationHours };
 }
 
+function gridSettings(riskConstraints: Record<string, unknown>) {
+  const maximumCapitalBaseUnits = asText(riskConstraints.maximumCapitalBaseUnits);
+  const lowerPrice = asText(riskConstraints.lowerPrice);
+  const durationHours = riskConstraints.durationHours;
+  const maximumFeeWei = asText(riskConstraints.maximumFeeWei);
+  if (
+    riskConstraints.executionKind !== "PANCAKESWAP_V3_GRID_V1" ||
+    maximumCapitalBaseUnits === null || !/^[1-9]\d*$/u.test(maximumCapitalBaseUnits) ||
+    lowerPrice === null || !/^\d+(?:\.\d+)?$/u.test(lowerPrice) ||
+    maximumFeeWei === null || !/^[1-9]\d*$/u.test(maximumFeeWei) ||
+    typeof durationHours !== "number" || !Number.isInteger(durationHours) || durationHours < 1 || durationHours > 168
+  ) return null;
+  return { maximumCapitalBaseUnits, lowerPrice, durationHours };
+}
+
 function healthGuardSettings(riskConstraints: Record<string, unknown>) {
   const healthGuardPoolId = riskConstraints.healthGuardPoolId;
   const maximumRepayBaseUnits = asText(riskConstraints.maximumRepayBaseUnits);
@@ -174,6 +196,7 @@ export class AltanaSessionAuthorizationService {
     private readonly encryption: AltanaSessionEncryption,
     private readonly testnetRpcUrl: string,
     private readonly yieldConfig?: YieldSessionConfig,
+    private readonly gridConfig?: GridSessionConfig,
     private readonly mainnetRpcUrl?: string,
     private readonly healthGuardConfig?: HealthGuardSessionConfig,
     private readonly healthGuardPreflight?: HealthGuardPositionPreflight,
@@ -184,8 +207,9 @@ export class AltanaSessionAuthorizationService {
     const mandate = await this.mandates.get(principalId, mandateId);
     const rebalancer = rebalancerSettings(mandate.version.riskConstraints);
     const yieldOptimizer = yieldSettings(mandate.version.riskConstraints);
+    const gridTrader = gridSettings(mandate.version.riskConstraints);
     const healthGuard = healthGuardSettings(mandate.version.riskConstraints);
-    if (rebalancer === null && yieldOptimizer === null && healthGuard === null)
+    if (rebalancer === null && yieldOptimizer === null && gridTrader === null && healthGuard === null)
       throw new MandateValidationError(
         "altana_session_not_supported",
         "A buyer-owned Altana session is available only for a configured executable service.",
@@ -204,6 +228,13 @@ export class AltanaSessionAuthorizationService {
         "altana_session_amount_exceeds_limit",
         "This Yield Optimizer mandate exceeds the currently verified testnet safety limit.",
       );
+    if (gridTrader !== null && this.gridConfig === undefined)
+      throw new MandateValidationError("altana_session_not_configured", "Grid Trader session configuration is unavailable.");
+    if (gridTrader !== null && BigInt(gridTrader.maximumCapitalBaseUnits) > this.gridConfig!.maximumJobAmountBaseUnits)
+      throw new MandateValidationError(
+        "altana_session_amount_exceeds_limit",
+        "This Grid Trader mandate exceeds the currently verified testnet safety limit.",
+      );
     if (healthGuard !== null && (this.mainnetRpcUrl === undefined || this.healthGuardConfig === undefined || this.healthGuardPreflight === undefined))
       throw new MandateValidationError("altana_session_not_configured", "Health Guard Mainnet session configuration is unavailable.");
     if (mandate.status !== "REVIEWED")
@@ -212,7 +243,7 @@ export class AltanaSessionAuthorizationService {
         "Review the service settings before authorizing its bounded session.",
       );
     if (healthGuard !== null) await this.#assertHealthGuardPosition(mandate.version.riskConstraints, healthGuard.poolId);
-    const purpose = healthGuard !== null ? "HEALTH_GUARD" : rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
+    const purpose = healthGuard !== null ? "HEALTH_GUARD" : gridTrader !== null ? "GRID_TRADER" : rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
 
     const existing = await this.store.find(mandateId, principalId);
     if (existing !== null && existing.status === "PENDING" && existing.expiresAt > this.now())
@@ -228,11 +259,12 @@ export class AltanaSessionAuthorizationService {
     const expiresAt = new Date(
       Math.min(
         Date.parse(mandate.version.expiresAt),
-        this.now().getTime() + (rebalancer?.durationHours ?? yieldOptimizer?.durationHours ?? healthGuard!.durationHours) * 3_600_000,
+        this.now().getTime() + (rebalancer?.durationHours ?? yieldOptimizer?.durationHours ?? gridTrader?.durationHours ?? healthGuard!.durationHours) * 3_600_000,
       ),
     );
     const permissions: PermissionSnapshot = healthGuard !== null
       ? this.#healthGuardPermissions(healthGuard, this.healthGuardConfig!)
+      : gridTrader !== null ? this.#gridPermissions(gridTrader, this.gridConfig!)
       : rebalancer === null ? this.#yieldPermissions(yieldOptimizer!, this.yieldConfig!) : await this.#rebalancerPermissions(rebalancer);
     const created = await this.store.create({
       mandateId,
@@ -386,7 +418,22 @@ export class AltanaSessionAuthorizationService {
     };
   }
 
-  async #assertHealthGuardPosition(riskConstraints: Record<string, unknown>, poolId: "venus-core-pool") {
+  #gridPermissions(settings: { maximumCapitalBaseUnits: string; lowerPrice: string }, config: GridSessionConfig): PermissionSnapshot {
+    const lowerPrice = parseUnits(settings.lowerPrice, 18);
+    if (lowerPrice <= 0n) throw new MandateValidationError("altana_session_invalid_state", "Grid Trader requires a positive lower price.");
+    // A 5% ceiling keeps the WBNB sell permission bounded by the buyer's USDT
+    // capital even if the market moves between authorization and execution.
+    const wrappedBnbLimit = (BigInt(settings.maximumCapitalBaseUnits) * (10n ** 18n) * 105n) / (lowerPrice * 100n);
+    return {
+      calls: [{ to: config.usdt }, { to: config.wrappedBnb }, { to: config.swapRouter }],
+      spend: [
+        { token: config.usdt, limit: settings.maximumCapitalBaseUnits, period: "day" },
+        { token: config.wrappedBnb, limit: wrappedBnbLimit.toString(), period: "day" },
+      ],
+    };
+  }
+
+  async #assertHealthGuardPosition(riskConstraints: Record<string, unknown>, poolId: string) {
     const monitoredAccount = asText(riskConstraints.monitoredAccount);
     if (monitoredAccount === null || !/^0x[0-9a-fA-F]{40}$/u.test(monitoredAccount))
       throw new MandateValidationError("health_guard_position_invalid", "Health Guard requires a valid Venus borrower wallet.");
@@ -410,7 +457,7 @@ export class AltanaSessionAuthorizationService {
 
   #public(
     record: AltanaSessionAuthorizationRecord,
-    purpose?: "LP_REBALANCER" | "YIELD_OPTIMIZER" | "HEALTH_GUARD",
+    purpose?: "LP_REBALANCER" | "YIELD_OPTIMIZER" | "GRID_TRADER" | "HEALTH_GUARD",
   ) {
     return {
       id: record.id,

@@ -51,6 +51,7 @@ import type { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
 import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import type { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import type { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
+import type { GridFundedSessionRelease } from "./grid-funded-session-release.js";
 import type { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import type { HealthGuardPreflight } from "./health-guard-preflight.js";
 import type {
@@ -1179,6 +1180,8 @@ export function createApp(
     yieldOptimizerExecutionStore?: YieldOptimizerExecutionStore;
     yieldOptimizerInternalToken?: string;
     yieldFundedSessionRelease?: YieldFundedSessionRelease;
+    gridTraderInternalToken?: string;
+    gridFundedSessionRelease?: GridFundedSessionRelease;
     healthGuardInternalToken?: string;
     healthGuardFundedSessionRelease?: HealthGuardFundedSessionRelease;
     healthGuardCycleStore?: HealthGuardCycleStore;
@@ -1587,6 +1590,16 @@ export function createApp(
     if (!hasInternalToken(context, options.yieldOptimizerInternalToken)) return context.json({ error: "unauthorized" }, 401);
     if (options.yieldFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
     return context.json(await options.yieldFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/grid-trader/funded-jobs/:jobId/session", async (context) => {
+    if (!hasInternalToken(context, options.gridTraderInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.gridFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
+    return context.json(await options.gridFundedSessionRelease.release(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/grid-trader/funded-jobs/:jobId/execution-request", async (context) => {
+    if (!hasInternalToken(context, options.gridTraderInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.gridFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
+    return context.json(await options.gridFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
   });
   app.post("/internal/health-guard/funded-jobs/:jobId/session", async (context) => {
     if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);

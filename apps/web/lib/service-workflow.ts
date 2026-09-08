@@ -202,6 +202,16 @@ const workflows: Record<MarketplaceCategory, ServiceWorkflow> = {
         max: 168,
         step: 1,
       },
+      {
+        name: "maxFeeBnb",
+        label: "Maximum BNB network fee",
+        placeholder: "e.g. 0.001",
+        helper: "The most BNB this buyer-authorized session may spend on network fees across this grid run.",
+        required: true,
+        type: "number",
+        min: 0.000000000000000001,
+        step: "any",
+      },
     ],
     deliverables: [
       "Live grid status and current market price",

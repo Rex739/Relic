@@ -87,9 +87,10 @@ export function QuickServiceCheckout({
   const [authorizationMandateId, setAuthorizationMandateId] = useState<string | null>(null);
   const [healthGuardPreflight, setHealthGuardPreflight] = useState<HealthGuardPreflight | null>(null);
   const requiresWalletAuthorization =
-    agentCategory === "rebalancing" || agentCategory === "yield-optimisation" ||
+    agentCategory === "rebalancing" || agentCategory === "yield-optimisation" || agentCategory === "grid-trading" ||
     (agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt"));
   const isRebalancing = agentCategory === "rebalancing";
+  const isGridTrader = agentCategory === "grid-trading";
   const isHealthGuard = agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt");
 
   const start = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -390,7 +391,7 @@ export function QuickServiceCheckout({
                     <div><dt>Target health factor</dt><dd>{authorizationInputs.target}</dd></div>
                     <div><dt>Per action</dt><dd>{authorizationInputs.maximumRepay} USDT</dd></div>
                     <div><dt>Total cap</dt><dd>{authorizationInputs.aggregateRepayLimit} USDT</dd></div>
-                    <div><dt>Network fee cap</dt><dd>{authorizationInputs.maxFeeBnb} BNB</dd></div>
+                    {(isGridTrader || !isRebalancing) && <div><dt>Network fee cap</dt><dd>{authorizationInputs.maxFeeBnb} BNB</dd></div>}
                     <div><dt>Expires after</dt><dd>{authorizationInputs.durationHours} hours</dd></div>
                   </dl>
                 ) : (
@@ -402,9 +403,9 @@ export function QuickServiceCheckout({
                   </dl>
                 )}
                 <ul>
-                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "BNB/USDT only" : isHealthGuard ? "Venus Core Pool USDT debt only" : "BSC Testnet USDT only"}</li>
-                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "PancakeSwap V3 contracts only" : "Configured Venus contracts only"}</li>
-                  <li><Check aria-hidden="true" size={14} /> {isRebalancing ? "At most one rebalance per hour" : isHealthGuard ? "A repayment only after a fresh health check" : "Exactly one supply-and-withdraw test run"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isGridTrader || isRebalancing ? "BNB/USDT only" : isHealthGuard ? "Venus Core Pool USDT debt only" : "BSC Testnet USDT only"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isGridTrader || isRebalancing ? "Configured PancakeSwap V3 contracts only" : "Configured Venus contracts only"}</li>
+                  <li><Check aria-hidden="true" size={14} /> {isGridTrader ? "Only within the price range and capital cap you set" : isRebalancing ? "At most one rebalance per hour" : isHealthGuard ? "A repayment only after a fresh health check" : "Exactly one supply-and-withdraw test run"}</li>
                   <li><Check aria-hidden="true" size={14} /> Revoke any time</li>
                 </ul>
                 <details>

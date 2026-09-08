@@ -20,7 +20,8 @@
     "zod": "^3.25.0",
     "express": "^5.1.0",
     "@a2a-js/sdk": ">=0.3.14 <1.0",
-    "@altananetwork/sdk": "0.7.1"
+    "@altananetwork/sdk": "0.7.1",
+    "viem": "^2.56.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

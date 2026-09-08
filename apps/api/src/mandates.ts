@@ -102,7 +102,8 @@ export class MandateApplicationService {
     const mandate = await this.#mandate(principalId, id);
     if (
       ("positionTokenId" in mandate.version.riskConstraints ||
-        mandate.version.riskConstraints.executionKind === "VENUS_CORE_SUPPLY_WITHDRAW_V1") &&
+        mandate.version.riskConstraints.executionKind === "VENUS_CORE_SUPPLY_WITHDRAW_V1" ||
+        mandate.version.riskConstraints.executionKind === "PANCAKESWAP_V3_GRID_V1") &&
       mandate.authorizationBoundary !== "WALLET_AUTHORIZED"
     )
       throw new MandateValidationError(

@@ -26,6 +26,7 @@ export const gridTradingCheckoutSchema = z
     upperPrice: decimal("Upper price"),
     gridLevels: wholeNumber("Grid levels", 5, 8),
     durationHours: wholeNumber("Run time", 1, 168),
+    maxFeeBnb: decimal("Maximum BNB network fee"),
   })
   .superRefine((value, context) => {
     const toUnits = (amount: string) => {

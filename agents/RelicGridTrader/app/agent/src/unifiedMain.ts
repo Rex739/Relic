@@ -96,6 +96,9 @@ import express from "express";
 import { buildAgentCard } from "./agentCard.js";
 import { SellerAgentExecutor } from "./executor.js";
 import { createGridDeliverable } from "./gridPlan.js";
+import { executeFirstGridLeg } from "./gridFirstLegExecutor.js";
+import { GridFundedSessionClient } from "./gridFundedSessionClient.js";
+import { loadGridRuntimeConfig } from "./gridRuntimeConfig.js";
 import { requestLimitContext } from "./requestLimits.js";
 import type { RunWork } from "./sellerCore.js";
 
@@ -216,8 +219,33 @@ function defaultNetwork(): string {
 // URL, but who gets paid and the per-call/daily caps stay locked in
 // studio.toml.)
 export function buildRunWork(): RunWork {
-  return async (prompt, { abortSignal }) => {
+  return async (prompt, { abortSignal, sessionId }) => {
     if (abortSignal?.aborted) throw new Error("Grid planning was cancelled");
+    // Only SellerCore's verified ERC-8183 path supplies a numeric job id.
+    // Direct/B402 planning deliberately remains read-only.
+    if (/^[1-9]\d*$/u.test(sessionId)) {
+      const config = loadGridRuntimeConfig();
+      const apiUrl = process.env.RELIC_API_URL?.trim();
+      const bearerToken = process.env.RELIC_GRID_TRADER_INTERNAL_TOKEN?.trim();
+      const executorPrivateKeyPem = process.env.RELIC_GRID_SESSION_TRANSFER_PRIVATE_KEY?.trim();
+      if (!apiUrl || !bearerToken || !executorPrivateKeyPem)
+        throw new Error("Grid Trader execution is unavailable until RELIC_API_URL, RELIC_GRID_TRADER_INTERNAL_TOKEN, and RELIC_GRID_SESSION_TRANSFER_PRIVATE_KEY are configured");
+      const sessions = new GridFundedSessionClient({ apiUrl, bearerToken, executorPrivateKeyPem });
+      const request = await sessions.request(sessionId);
+      const released = await sessions.release(sessionId);
+      const execution = await executeFirstGridLeg({ config, request, session: released });
+      return JSON.stringify({
+        schema: "relic.result.v1",
+        status: execution.status === "executed" ? "success" : "waiting",
+        severity: execution.status === "executed" ? "info" : "warning",
+        summary: execution.status === "executed" ? "First grid leg executed" : "Grid entry is waiting for the buyer price range",
+        explanation: execution.status === "executed"
+          ? "Relic released the buyer-owned scoped session only after funding. The first bounded USDT-to-WBNB grid entry was confirmed and reconciled on BSC Testnet."
+          : "No swap was sent: the configured PancakeSwap V3 pool price is outside the buyer-approved range.",
+        execution,
+        evidence: { source: "relic-grid-first-leg", observedAt: new Date().toISOString() },
+      });
+    }
     return JSON.stringify(createGridDeliverable(prompt));
   };
 }
