@@ -1,14 +1,12 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-
 import { revalidatePath } from "next/cache";
 
 import { getMandate, listExecutions, requestExecution } from "../lib/mandates";
 
 const createHealthObservation = async (mandateId: string, account: string) => {
   const mandate = await getMandate(mandateId);
-  return requestExecution(mandateId, `health-observation:${randomUUID()}`, {
+  return requestExecution(mandateId, `health-observation:${globalThis.crypto.randomUUID()}`, {
     mandateId,
     mandateVersion: mandate.currentVersion,
     agentId: mandate.agentId,
@@ -49,7 +47,7 @@ export async function requestLpRebalance(mandateId: string) {
     !Number.isInteger(rangeWidthBps)
   )
     throw new Error("This LP mandate is missing its verified rebalance settings.");
-  await requestExecution(mandateId, `lp-rebalance:${randomUUID()}`, {
+  await requestExecution(mandateId, `lp-rebalance:${globalThis.crypto.randomUUID()}`, {
     mandateId,
     mandateVersion: mandate.currentVersion,
     agentId: mandate.agentId,
@@ -110,7 +108,7 @@ export async function requestForbiddenTransfer(
     !/^0x[0-9a-fA-F]{40}$/.test(destination)
   )
     throw new Error("A valid public BSC destination address is required");
-  await requestExecution(mandateId, `forbidden-transfer:${randomUUID()}`, {
+  await requestExecution(mandateId, `forbidden-transfer:${globalThis.crypto.randomUUID()}`, {
     mandateId,
     mandateVersion: mandate.currentVersion,
     agentId: mandate.agentId,

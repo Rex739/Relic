@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isHealthGuardPoolId } from "@relic/domain";
+import { isHealthGuardPoolId } from "@relic/domain/health-guard-pools";
 
 const decimal = (label: string) =>
   z

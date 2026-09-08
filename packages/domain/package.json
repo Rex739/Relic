@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./health-guard-pools": "./src/health-guard-pools.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

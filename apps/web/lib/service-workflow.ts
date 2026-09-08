@@ -1,4 +1,4 @@
-import { healthGuardPools } from "@relic/domain";
+import { healthGuardPools } from "@relic/domain/health-guard-pools";
 
 export type MarketplaceCategory =
   | "rebalancing"
