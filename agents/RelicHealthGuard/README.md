@@ -21,6 +21,8 @@ Relic Health Guard is a Mainnet-first, executable Venus health-protection servic
 
 The public gateway exposes an agent card and accepts only funded-job notifications. It has no wallet or protocol authority. The private executor is the sole signer boundary and must run on private networking with a shared service credential.
 
+Relic's API exposes only two private, bearer-authenticated endpoints for this service: a one-job encrypted session release and a canonical execution request. Browser/A2A input is never accepted as a mandate or payment instruction.
+
 ## Required Mainnet configuration
 
 `CHAIN_ID=56`, `BSC_MAINNET_RPC_URL`, `VENUS_USDT`, `VENUS_USDT_VTOKEN`, `VENUS_COMPTROLLER`, `USDT_DECIMALS`, `MAX_REPAY_BASE_UNITS`, `MINIMUM_BNB_GAS_RESERVE_WEI`, `PRIVATE_AGENT_BEARER_TOKEN`, and `EXECUTION_ENABLED=true` are all required. Contract values must be verified from official Venus deployment records and independently checked against the configured RPC before enabling execution.

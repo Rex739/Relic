@@ -53,6 +53,13 @@ const serverEnvironmentSchema = z.object({
   RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN: z.string().min(32).optional(),
   RELIC_YIELD_OPTIMIZER_AGENT_ID: z.uuid().optional(),
   RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  // Mainnet-only Health Guard execution is configured separately from the
+  // testnet Yield Optimizer. No address has a source-code fallback.
+  RELIC_HEALTH_GUARD_INTERNAL_TOKEN: z.string().min(32).optional(),
+  RELIC_HEALTH_GUARD_AGENT_ID: z.uuid().optional(),
+  RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  VENUS_MAINNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  VENUS_MAINNET_USDT_VTOKEN: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   // No Yield Optimizer contract address has a source-code fallback. These
   // must be the independently verified BSC Testnet deployments used by the
   // buyer-session authorizer and Layer A runtime.

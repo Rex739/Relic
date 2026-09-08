@@ -301,6 +301,9 @@ export function mandateProfileForAgent(
       now.getTime() - freshnessDays * 86_400_000 &&
     agent.availability === "available";
   const isHealthMonitor = agent.category === "health-factor-monitoring";
+  const isHealthGuard = isHealthMonitor && agent.capabilities.some(
+    (item) => transactionCapabilities.includes(canonical(item)),
+  );
   const isGridTrader = agent.category === "grid-trading";
   const isLpRangeRebalancer = agent.category === "rebalancing";
   const isTestnetLpRangeRebalancer =
@@ -311,7 +314,7 @@ export function mandateProfileForAgent(
     ...agent.surfacedBecause,
   ].join(" ");
   const venusVerified = /\bvenus\b/i.test(evidenceText);
-  const capabilitySet = isHealthMonitor
+  const capabilitySet = isHealthMonitor && !isHealthGuard
     ? [
         "monitor_positions",
         "calculate_health_factor",
@@ -346,7 +349,7 @@ export function mandateProfileForAgent(
           pancakeSwapV3TestnetSwapRouter,
         ]
       : [],
-    approvalModes: isHealthMonitor
+    approvalModes: isHealthMonitor && !isHealthGuard
       ? ["OBSERVE_ONLY"]
       : isGridTrader
         ? ["ASK_BEFORE_EXECUTION", "PRE_AUTHORIZED"]
@@ -360,7 +363,7 @@ export function mandateProfileForAgent(
     transactional:
       isGridTrader ||
       isTestnetLpRangeRebalancer ||
-      (!isHealthMonitor &&
+      (!(isHealthMonitor && !isHealthGuard) &&
         agent.capabilities.some((item) =>
           transactionCapabilities.includes(canonical(item)),
         )),

@@ -33,6 +33,7 @@ import {
 import { ServicePublicationVerifier } from "./service-publication.js";
 import { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
+import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -80,6 +81,10 @@ const altanaSessions =
         environment.VENUS_TESTNET_USDT === undefined || environment.VENUS_TESTNET_USDT_VTOKEN === undefined || environment.VENUS_TESTNET_USDT_DECIMALS === undefined
           ? undefined
           : { usdt: environment.VENUS_TESTNET_USDT as `0x${string}`, venusUsdtVToken: environment.VENUS_TESTNET_USDT_VTOKEN as `0x${string}` },
+        environment.BSC_MAINNET_RPC_URL,
+        environment.VENUS_MAINNET_USDT === undefined || environment.VENUS_MAINNET_USDT_VTOKEN === undefined
+          ? undefined
+          : { usdt: environment.VENUS_MAINNET_USDT as `0x${string}`, venusUsdtVToken: environment.VENUS_MAINNET_USDT_VTOKEN as `0x${string}` },
       );
 const executions =
   connection === null
@@ -188,6 +193,14 @@ const app = createApp(repository, onboarding, mandates, {
         ),
         yieldOptimizerInternalToken: environment.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN,
         ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY === undefined ? {} : { yieldFundedSessionRelease: new YieldFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_YIELD_OPTIMIZER_AGENT_ID, environment.RELIC_YIELD_SESSION_TRANSFER_PUBLIC_KEY) }),
+      }),
+  ...(connection === null || environment.RELIC_HEALTH_GUARD_INTERNAL_TOKEN === undefined || environment.RELIC_HEALTH_GUARD_AGENT_ID === undefined
+    ? {}
+    : {
+        healthGuardInternalToken: environment.RELIC_HEALTH_GUARD_INTERNAL_TOKEN,
+        ...(environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined || environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY === undefined
+          ? {}
+          : { healthGuardFundedSessionRelease: new HealthGuardFundedSessionRelease(new DrizzleCommerceStore(connection.db), new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY), environment.RELIC_HEALTH_GUARD_AGENT_ID, environment.RELIC_HEALTH_GUARD_SESSION_TRANSFER_PUBLIC_KEY) }),
       }),
   ...(walletAuth === undefined ? {} : { walletAuthService: walletAuth }),
   ...(environment.NEXT_PUBLIC_PRIVY_APP_ID === undefined

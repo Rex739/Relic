@@ -50,6 +50,7 @@ import type { ExecutionApplicationService } from "./executions.js";
 import type { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
 import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
 import type { YieldFundedSessionRelease } from "./yield-funded-session-release.js";
+import type { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-release.js";
 import type {
   CommerceApplicationService,
   WalletAuthenticationService,
@@ -1176,6 +1177,8 @@ export function createApp(
     yieldOptimizerExecutionStore?: YieldOptimizerExecutionStore;
     yieldOptimizerInternalToken?: string;
     yieldFundedSessionRelease?: YieldFundedSessionRelease;
+    healthGuardInternalToken?: string;
+    healthGuardFundedSessionRelease?: HealthGuardFundedSessionRelease;
     walletAuthService?: WalletAuthenticationService;
     privyAppId?: string;
     privyJwtVerificationKey?: string;
@@ -1563,6 +1566,16 @@ export function createApp(
     if (!hasInternalToken(context, options.yieldOptimizerInternalToken)) return context.json({ error: "unauthorized" }, 401);
     if (options.yieldFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
     return context.json(await options.yieldFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/health-guard/funded-jobs/:jobId/session", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.healthGuardFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
+    return context.json(await options.healthGuardFundedSessionRelease.release(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
+  });
+  app.post("/internal/health-guard/funded-jobs/:jobId/execution-request", async (context) => {
+    if (!hasInternalToken(context, options.healthGuardInternalToken)) return context.json({ error: "unauthorized" }, 401);
+    if (options.healthGuardFundedSessionRelease === undefined) return context.json({ error: "session_release_unavailable" }, 503);
+    return context.json(await options.healthGuardFundedSessionRelease.canonicalExecution(z.string().regex(/^\d+$/u).parse(context.req.param("jobId"))), 200);
   });
   app.get("/internal/yield-optimizer/execution-jobs/:id", async (context) => {
     if (!hasInternalToken(context, options.yieldOptimizerInternalToken))

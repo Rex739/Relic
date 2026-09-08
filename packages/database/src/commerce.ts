@@ -218,6 +218,19 @@ export class DrizzleCommerceStore {
     return row;
   }
 
+  /** Mainnet equivalent of the bounded session query used only by Health Guard. */
+  public async findFundedHealthGuardSession(externalJobId: string) {
+    const [row] = await this.database
+      .select({ activation: activations, mandate: mandates, version: mandateVersions, session: altanaSessionAuthorizations })
+      .from(activations)
+      .innerJoin(mandates, eq(activations.mandateId, mandates.id))
+      .innerJoin(mandateVersions, and(eq(mandateVersions.mandateId, mandates.id), eq(mandateVersions.version, mandates.currentVersion)))
+      .innerJoin(altanaSessionAuthorizations, eq(altanaSessionAuthorizations.mandateId, mandates.id))
+      .where(and(eq(activations.externalJobId, externalJobId), eq(activations.status, "FUNDED"), eq(activations.lifecycleState, "ACTIVE"), eq(mandates.status, "ACTIVE"), eq(mandates.chainId, 56), eq(altanaSessionAuthorizations.status, "GRANTED"), gt(altanaSessionAuthorizations.expiresAt, new Date())))
+      .limit(1);
+    return row;
+  }
+
   public async marketplaceReviewEligibility(input: {
     activationId: string;
     principalId: string;

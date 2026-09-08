@@ -1,6 +1,6 @@
 import { createPublicClient, getAddress, http, parseUnits, type Address } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
-import { bscTestnet } from "viem/chains";
+import { bsc, bscTestnet } from "viem/chains";
 
 import type {
   AltanaSessionAuthorizationRecord,
@@ -101,6 +101,7 @@ type PermissionSnapshot = {
 };
 
 type YieldSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
+type HealthGuardSessionConfig = Readonly<{ usdt: Address; venusUsdtVToken: Address }>;
 
 const asText = (value: unknown) => (typeof value === "string" ? value : null);
 
@@ -135,6 +136,22 @@ function yieldSettings(riskConstraints: Record<string, unknown>) {
   return { maximumAmountBaseUnits, durationHours };
 }
 
+function healthGuardSettings(riskConstraints: Record<string, unknown>) {
+  const maximumRepayBaseUnits = asText(riskConstraints.maximumRepayBaseUnits);
+  const aggregateRepayLimitBaseUnits = asText(riskConstraints.aggregateRepayLimitBaseUnits);
+  const maximumFeeWei = asText(riskConstraints.maximumFeeWei);
+  const durationHours = riskConstraints.sessionDurationHours;
+  if (
+    riskConstraints.executionKind !== "VENUS_USDT_HEALTH_GUARD_V1" ||
+    maximumRepayBaseUnits === null || !/^[1-9]\d*$/u.test(maximumRepayBaseUnits) ||
+    aggregateRepayLimitBaseUnits === null || !/^[1-9]\d*$/u.test(aggregateRepayLimitBaseUnits) ||
+    maximumFeeWei === null || !/^[1-9]\d*$/u.test(maximumFeeWei) ||
+    typeof durationHours !== "number" || !Number.isInteger(durationHours) || durationHours < 1 || durationHours > 720 ||
+    BigInt(aggregateRepayLimitBaseUnits) < BigInt(maximumRepayBaseUnits)
+  ) return null;
+  return { maximumRepayBaseUnits, durationHours };
+}
+
 /**
  * Prepares and verifies a buyer-owned Altana session for one configured,
  * executable BNB Testnet mandate.
@@ -148,6 +165,8 @@ export class AltanaSessionAuthorizationService {
     private readonly encryption: AltanaSessionEncryption,
     private readonly testnetRpcUrl: string,
     private readonly yieldConfig?: YieldSessionConfig,
+    private readonly mainnetRpcUrl?: string,
+    private readonly healthGuardConfig?: HealthGuardSessionConfig,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -155,19 +174,26 @@ export class AltanaSessionAuthorizationService {
     const mandate = await this.mandates.get(principalId, mandateId);
     const rebalancer = rebalancerSettings(mandate.version.riskConstraints);
     const yieldOptimizer = yieldSettings(mandate.version.riskConstraints);
-    if ((rebalancer === null && yieldOptimizer === null) || mandate.chainId !== 97)
+    const healthGuard = healthGuardSettings(mandate.version.riskConstraints);
+    if (rebalancer === null && yieldOptimizer === null && healthGuard === null)
       throw new MandateValidationError(
         "altana_session_not_supported",
-        "A buyer-owned Altana session is available only for a configured BNB Testnet executable service.",
+        "A buyer-owned Altana session is available only for a configured executable service.",
       );
+    if (healthGuard === null && mandate.chainId !== 97)
+      throw new MandateValidationError("altana_session_not_supported", "This executable service is configured for BNB Testnet only.");
+    if (healthGuard !== null && mandate.chainId !== 56)
+      throw new MandateValidationError("altana_session_not_supported", "Health Guard is configured for BSC Mainnet only.");
     if (yieldOptimizer !== null && this.yieldConfig === undefined)
       throw new MandateValidationError("altana_session_not_configured", "Yield Optimizer session configuration is unavailable.");
+    if (healthGuard !== null && (this.mainnetRpcUrl === undefined || this.healthGuardConfig === undefined))
+      throw new MandateValidationError("altana_session_not_configured", "Health Guard Mainnet session configuration is unavailable.");
     if (mandate.status !== "REVIEWED")
       throw new MandateValidationError(
         "altana_session_invalid_state",
         "Review the service settings before authorizing its bounded session.",
       );
-    const purpose = rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
+    const purpose = healthGuard !== null ? "HEALTH_GUARD" : rebalancer === null ? "YIELD_OPTIMIZER" : "LP_REBALANCER";
 
     const existing = await this.store.find(mandateId, principalId);
     if (existing !== null && existing.status === "PENDING" && existing.expiresAt > this.now())
@@ -183,16 +209,16 @@ export class AltanaSessionAuthorizationService {
     const expiresAt = new Date(
       Math.min(
         Date.parse(mandate.version.expiresAt),
-        this.now().getTime() + (rebalancer?.durationHours ?? yieldOptimizer!.durationHours) * 3_600_000,
+        this.now().getTime() + (rebalancer?.durationHours ?? yieldOptimizer?.durationHours ?? healthGuard!.durationHours) * 3_600_000,
       ),
     );
-    const permissions: PermissionSnapshot = rebalancer === null
-      ? this.#yieldPermissions(yieldOptimizer!, this.yieldConfig!)
-      : await this.#rebalancerPermissions(rebalancer);
+    const permissions: PermissionSnapshot = healthGuard !== null
+      ? this.#healthGuardPermissions(healthGuard, this.healthGuardConfig!)
+      : rebalancer === null ? this.#yieldPermissions(yieldOptimizer!, this.yieldConfig!) : await this.#rebalancerPermissions(rebalancer);
     const created = await this.store.create({
       mandateId,
       principalId,
-      chainId: 97,
+      chainId: healthGuard !== null ? 56 : 97,
       sessionAddress: account.address,
       sessionPublicKey: account.publicKey,
       encryptedSessionPrivateKey: this.encryption.encrypt(privateKey),
@@ -234,7 +260,7 @@ export class AltanaSessionAuthorizationService {
     if (record.status !== "PENDING" || record.expiresAt <= this.now())
       throw new MandateValidationError("altana_session_expired", "This trading permission has expired. Create a new one.");
     const walletAddress = getAddress(input.walletAddress);
-    const publicClient = createPublicClient({ chain: bscTestnet, transport: http(this.testnetRpcUrl) });
+    const publicClient = createPublicClient({ chain: record.chainId === 56 ? bsc : bscTestnet, transport: http(record.chainId === 56 ? this.mainnetRpcUrl! : this.testnetRpcUrl) });
     const [keys] = await publicClient.readContract({
       address: walletAddress,
       abi: accountKeysAbi,
@@ -323,6 +349,13 @@ export class AltanaSessionAuthorizationService {
     };
   }
 
+  #healthGuardPermissions(settings: { maximumRepayBaseUnits: string }, config: HealthGuardSessionConfig): PermissionSnapshot {
+    return {
+      calls: [{ to: config.usdt }, { to: config.venusUsdtVToken }],
+      spend: [{ token: config.usdt, limit: settings.maximumRepayBaseUnits, period: "day" }],
+    };
+  }
+
   async #rebalancerPermissions(settings: { positionTokenId: string; capitalCap: string }): Promise<PermissionSnapshot> {
     const wbnbLimit = await this.#boundedWbnbSpend(settings.positionTokenId, settings.capitalCap);
     return {
@@ -336,7 +369,7 @@ export class AltanaSessionAuthorizationService {
 
   #public(
     record: AltanaSessionAuthorizationRecord,
-    purpose?: "LP_REBALANCER" | "YIELD_OPTIMIZER",
+    purpose?: "LP_REBALANCER" | "YIELD_OPTIMIZER" | "HEALTH_GUARD",
   ) {
     return {
       id: record.id,
