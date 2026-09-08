@@ -7,7 +7,7 @@ COPY agents/RelicHealthGuard/package.json ./agents/RelicHealthGuard/package.json
 RUN pnpm install --frozen-lockfile --filter relic-health-guard...
 COPY agents/RelicHealthGuard ./agents/RelicHealthGuard
 RUN pnpm --filter relic-health-guard build
-RUN pnpm --filter relic-health-guard --prod deploy /runtime
+RUN pnpm --filter relic-health-guard --prod deploy --legacy /runtime
 
 FROM node:22-alpine
 WORKDIR /app
