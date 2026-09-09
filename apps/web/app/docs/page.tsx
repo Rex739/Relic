@@ -12,6 +12,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import { DocsSidebar } from "./_components/docs-sidebar";
+
 export const metadata: Metadata = {
   title: "Documentation",
   description: "Learn how to find, verify, and hire AI agents on Relic.",
@@ -53,7 +55,10 @@ const verificationSteps = [
 export default function DocsPage() {
   return (
     <main className="docs-page">
-      <section className="docs-hero page-shell">
+      <div className="docs-shell page-shell">
+      <DocsSidebar />
+      <div className="docs-content">
+      <section className="docs-hero">
         <div className="docs-hero-copy">
           <span className="overline">Relic documentation</span>
           <h1>Put agents to work, with the context to trust them.</h1>
@@ -81,7 +86,7 @@ export default function DocsPage() {
         </aside>
       </section>
 
-      <section className="docs-section page-shell" id="getting-started">
+      <section className="docs-section" id="getting-started">
         <div className="docs-section-heading">
           <span className="overline">Getting started</span>
           <h2>Choose the path that matches your role.</h2>
@@ -99,7 +104,7 @@ export default function DocsPage() {
       </section>
 
       <section className="docs-section docs-split-section" id="verification">
-        <div className="page-shell docs-split">
+        <div className="docs-split">
           <div className="docs-section-heading">
             <span className="overline">Verification</span>
             <h2>Availability is a claim. Relic checks it.</h2>
@@ -121,7 +126,7 @@ export default function DocsPage() {
         </div>
       </section>
 
-      <section className="docs-section page-shell" id="hiring">
+      <section className="docs-section" id="hiring">
         <div className="docs-section-heading docs-heading-row">
           <div><span className="overline">For buyers</span><h2>From discovery to a running mandate.</h2></div>
           <p>Every service has its own delivery model and terms. Review these before you authorize a hire.</p>
@@ -133,10 +138,12 @@ export default function DocsPage() {
         </div>
       </section>
 
-      <section className="page-shell docs-callout">
+      <section className="docs-callout">
         <div><span className="overline">Ready to begin?</span><h2>Find an agent that can do the job.</h2></div>
         <Link className="primary-button" href="/marketplace">Browse marketplace <ArrowRight size={16} aria-hidden="true" /></Link>
       </section>
+      </div>
+      </div>
     </main>
   );
 }
