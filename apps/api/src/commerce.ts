@@ -38,8 +38,9 @@ import {
   recoverTypedDataAddress,
   stringToHex,
 } from "viem";
-import { bscTestnet } from "viem/chains";
+import { bsc, bscTestnet } from "viem/chains";
 
+import type { CommerceChainId, CommerceNetworkConfig, CommerceNetworkRegistry } from "./commerce-network-config.js";
 import type { SellerAuthorizationGuard } from "./seller-ownership.js";
 import type { ServicePublicationVerifier } from "./service-publication.js";
 
@@ -454,7 +455,61 @@ export class CommerceApplicationService {
     },
     private readonly sellerAuthorization?: SellerAuthorizationGuard,
     private readonly publicationVerifier?: ServicePublicationVerifier,
+    private readonly networks: CommerceNetworkRegistry = {},
   ) {}
+
+  private networkFor(chainId: number): CommerceNetworkConfig {
+    if (chainId !== 56 && chainId !== 97)
+      throw new Error(`Unsupported commerce chain ${chainId}`);
+    const configured = this.networks[chainId];
+    if (configured !== undefined) return configured;
+    // Compatibility for existing Testnet-only deployments and their persisted
+    // agreements. Mainnet deliberately has no equivalent fallback.
+    if (
+      chainId === 97 &&
+      this.erc8183?.rpcUrl !== undefined &&
+      this.erc8183.policyAddress !== undefined
+    )
+      return {
+        chainId: 97,
+        label: "BSC Testnet",
+        rpcUrl: this.erc8183.rpcUrl,
+        erc8004Registry: "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+        commerceAddress: this.erc8183.commerceAddress,
+        evaluatorAddress: this.erc8183.evaluatorAddress,
+        optimisticPolicyAddress: this.erc8183.policyAddress,
+        explorerUrl: "https://testnet.bscscan.com",
+        paymentTokenAddress: erc8183PaymentTokens[97].tokenAddress,
+        paymentTokenDecimals: erc8183PaymentTokens[97].decimals,
+        paymentTokenSymbol: "U",
+        mainnetEnabled: false,
+        enabledAgentIds: [],
+      };
+    if (chainId === 56 && this.erc8183 !== undefined)
+      throw new Error(
+        "BSC Testnet commerce cannot be used for a BSC Mainnet wallet; no Testnet fallback is permitted",
+      );
+    throw new Error(
+      chainId === 56
+        ? "BSC Mainnet commerce is not configured; no Testnet fallback is permitted"
+        : "BSC Testnet commerce is not configured",
+    );
+  }
+
+  private clientFor(network: CommerceNetworkConfig) {
+    return createPublicClient({
+      chain: network.chainId === 56 ? bsc : bscTestnet,
+      transport: http(network.rpcUrl),
+    });
+  }
+
+  private assertMainnetAllowed(network: CommerceNetworkConfig, agentId: string) {
+    if (network.chainId !== 56) return;
+    if (!network.mainnetEnabled)
+      throw new Error("BSC Mainnet commerce is disabled by deployment policy");
+    if (!network.enabledAgentIds.includes(agentId))
+      throw new Error("This agent is not enabled for BSC Mainnet commerce");
+  }
 
   public async marketplaceReviewEligibility(
     principal: WalletSessionPrincipal,
@@ -771,11 +826,6 @@ export class CommerceApplicationService {
     principal: WalletSessionPrincipal,
     agreementId: string,
   ) {
-    if (
-      this.erc8183?.rpcUrl === undefined ||
-      this.erc8183.policyAddress === undefined
-    )
-      throw new Error("ERC-8183 validation infrastructure is unavailable");
     let current = await this.store.findAgreement(
       agreementId,
       principal.principalId,
@@ -827,16 +877,20 @@ export class CommerceApplicationService {
       context.service.endpoint === null
     )
       throw new Error("Authorized current validation agreement is required");
-    const commerce = getAddress(this.erc8183.commerceAddress);
-    const router = getAddress(this.erc8183.evaluatorAddress);
+    const network = this.networkFor(context.agreement.chainId);
+    this.assertMainnetAllowed(network, context.agreement.agentId);
+    const commerce = getAddress(network.commerceAddress);
+    const router = getAddress(network.evaluatorAddress);
     const provider = getAddress(context.identity.ownerAddress);
     const token = getAddress(context.agreement.paymentTokenAddress);
-    const client = createPublicClient({
-      chain: bscTestnet,
-      transport: http(this.erc8183.rpcUrl),
-    });
-    const policy = getAddress(this.erc8183.policyAddress);
+    const client = this.clientFor(network);
+    const policy = getAddress(network.optimisticPolicyAddress);
     const amount = BigInt(context.agreement.amountBaseUnits);
+    if (
+      network.maximumJobAmountBaseUnits !== undefined &&
+      amount > network.maximumJobAmountBaseUnits
+    )
+      throw new Error("Offer amount exceeds this network's strict commerce cap");
     const [
       connectedChainId,
       liveToken,
@@ -874,14 +928,18 @@ export class CommerceApplicationService {
         args: [principal.walletAddress],
       }),
     ]);
-    if (getAddress(liveToken) !== token)
+    if (getAddress(liveToken) !== getAddress(network.paymentTokenAddress))
       throw new Error(
-        "Offer payment token does not match the commerce contract",
+        "Commerce contract payment token does not match this network's canonical $U token",
       );
+    if (token !== getAddress(network.paymentTokenAddress))
+      throw new Error("Offer payment token is not the configured canonical $U token");
+    if (context.agreement.paymentTokenDecimals !== network.paymentTokenDecimals)
+      throw new Error("Offer payment token decimals do not match the configured $U token");
     const requiredGasBalance = activationSetupRequiredGasBalance(gasPrice);
     const readinessIssues = [
-      ...(connectedChainId !== 97
-        ? ["wallet is not connected to BSC Testnet"]
+      ...(connectedChainId !== network.chainId
+        ? [`wallet is not connected to ${network.label}`]
         : []),
       ...(disputeWindow <= 0n || !policyAllowed || policyCode === undefined || policyCode === "0x"
         ? ["this service's checkout policy is not ready"]
@@ -998,6 +1056,15 @@ export class CommerceApplicationService {
           jobExpiresAt: jobExpiresAt.toString(),
           amountBaseUnits: amount.toString(),
           paymentTokenAddress: token,
+          paymentTokenDecimals: network.paymentTokenDecimals,
+          chainId: network.chainId,
+          commerceContract: commerce,
+          explorerUrl: network.explorerUrl,
+          riskEnvelope: {
+            mainnetEnabled: network.mainnetEnabled,
+            maximumJobAmountBaseUnits: network.maximumJobAmountBaseUnits?.toString() ?? null,
+            result: "pass",
+          },
         },
       },
     });
@@ -1029,8 +1096,9 @@ export class CommerceApplicationService {
       operation.transactionHash === null &&
       operation.preparedPayloadHash !== null
     ) {
-      if (principal.chainId !== 97 || this.erc8183?.rpcUrl === undefined)
-        throw new Error("BSC Testnet validation preflight is unavailable");
+      const network = this.networkFor(agreement.chainId ?? principal.chainId);
+      if (principal.chainId !== network.chainId)
+        throw new Error("Wallet session network does not match the commerce operation");
       const contract = getAddress(String(validationEvidence.contract));
       const args = validationEvidence.functionArguments as
         Record<string, unknown> | undefined;
@@ -1093,10 +1161,7 @@ export class CommerceApplicationService {
         operation.preparedPayloadHash.toLowerCase()
       )
         throw new Error("Prepared validation transaction hash mismatch");
-      const publicClient = createPublicClient({
-        chain: bscTestnet,
-        transport: http(this.erc8183.rpcUrl),
-      });
+      const publicClient = this.clientFor(network);
       await publicClient.call({
         account: principal.walletAddress,
         to: contract,
@@ -1106,7 +1171,7 @@ export class CommerceApplicationService {
         operationId: operation.id,
         operationType: operation.operationType as
           "APPROVE_TOKEN" | "CREATE_JOB",
-        chainId: 97 as const,
+        chainId: network.chainId,
         from: principal.walletAddress,
         to: contract,
         data,
@@ -1116,7 +1181,7 @@ export class CommerceApplicationService {
           title,
           action,
           description,
-          network: "BSC Testnet",
+          network: network.label,
           servicePrice: displayServicePrice(agreement),
           fundsExpectedToMove: false,
         },
@@ -1175,7 +1240,7 @@ export class CommerceApplicationService {
       authorization.executionRequestId !== operation.executionRequestId ||
       authorization.mandateId !== agreement.mandateId ||
       authorization.mandateVersion !== agreement.mandateVersion ||
-      authorization.chainId !== 97 ||
+      authorization.chainId !== (agreement.chainId ?? principal.chainId) ||
       authorization.signerAddress === null ||
       getAddress(authorization.signerAddress) !== principal.walletAddress ||
       authorization.actionHash?.toLowerCase() !== actionHash.toLowerCase() ||
@@ -1208,7 +1273,7 @@ export class CommerceApplicationService {
     return {
       operationId: operation.id,
       operationType: "CREATE_JOB" as const,
-      chainId: 97 as const,
+      chainId: (agreement.chainId ?? principal.chainId) as CommerceChainId,
       from: principal.walletAddress,
       to: getAddress(String(evidence.contract)),
       data,
@@ -1226,7 +1291,10 @@ export class CommerceApplicationService {
         action: "Create job",
         description:
           "Open one free ERC-8183 job for this approved action. This does not fund or settle it.",
-        network: "BSC Testnet",
+        network:
+          (agreement.chainId ?? principal.chainId) === 56
+            ? "BSC Mainnet · real funds"
+            : "BSC Testnet",
         servicePrice: "Free",
         fundsExpectedToMove: false,
       },
@@ -1238,12 +1306,7 @@ export class CommerceApplicationService {
     agreementId: string,
     operationId: string,
   ) {
-    if (
-      principal.chainId !== 97 ||
-      this.erc8183?.rpcUrl === undefined ||
-      this.erc8183.policyAddress === undefined
-    )
-      throw new Error("BSC Testnet REGISTER_JOB preflight is unavailable");
+    const network = this.networkFor(principal.chainId);
     const agreement = await this.store.findAgreement(
       agreementId,
       principal.principalId,
@@ -1272,7 +1335,7 @@ export class CommerceApplicationService {
     if (
       activation === null ||
       !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
-      activation.chainId !== 97 ||
+      activation.chainId !== network.chainId ||
       activation.lifecycleState !== "ONCHAIN_CREATED" ||
       activation.reconciliationState !== "CURRENT" ||
       activation.clientAddress === null ||
@@ -1293,11 +1356,11 @@ export class CommerceApplicationService {
       throw new Error("Prepared REGISTER_JOB evidence is incomplete");
     const jobId = BigInt(jobIdValue);
     const policy = getAddress(policyValue);
-    const router = getAddress(this.erc8183.evaluatorAddress);
+    const router = getAddress(network.evaluatorAddress);
     if (
       activation.externalJobId !== jobId.toString() ||
       getAddress(evidence.contract) !== router ||
-      policy !== getAddress(this.erc8183.policyAddress)
+      policy !== getAddress(network.optimisticPolicyAddress)
     )
       throw new Error("Prepared REGISTER_JOB binding does not match Relic");
     const data = encodeFunctionData({
@@ -1310,13 +1373,10 @@ export class CommerceApplicationService {
       operation.preparedPayloadHash.toLowerCase()
     )
       throw new Error("Prepared REGISTER_JOB payload hash mismatch");
-    const client = createPublicClient({
-      chain: bscTestnet,
-      transport: http(this.erc8183.rpcUrl),
-    });
+    const client = this.clientFor(network);
     const [job, currentPolicy, policyAllowed, policyCode] = await Promise.all([
       client.readContract({
-        address: getAddress(this.erc8183.commerceAddress),
+        address: getAddress(network.commerceAddress),
         abi: commerceJobAbi,
         functionName: "getJob",
         args: [jobId],
@@ -1365,7 +1425,7 @@ export class CommerceApplicationService {
     return {
       operationId: operation.id,
       operationType: "REGISTER_JOB" as const,
-      chainId: 97 as const,
+      chainId: network.chainId,
       from: principal.walletAddress,
       to: router,
       data,
@@ -1383,7 +1443,7 @@ export class CommerceApplicationService {
         action: "Register service policy",
         description:
           "Bind the approved dispute and evaluation policy to the existing ERC-8183 job.",
-        network: "BSC Testnet",
+        network: network.label,
         servicePrice: displayServicePrice(agreement),
         fundsExpectedToMove: false,
         jobId: jobId.toString(),
@@ -1396,12 +1456,7 @@ export class CommerceApplicationService {
     agreementId: string,
     operationId: string,
   ) {
-    if (
-      principal.chainId !== 97 ||
-      this.erc8183?.rpcUrl === undefined ||
-      this.erc8183.policyAddress === undefined
-    )
-      throw new Error("BSC Testnet SET_BUDGET preflight is unavailable");
+    const network = this.networkFor(principal.chainId);
     const agreement = await this.store.findAgreement(
       agreementId,
       principal.principalId,
@@ -1430,7 +1485,7 @@ export class CommerceApplicationService {
     if (
       activation === null ||
       !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
-      activation.chainId !== 97 ||
+      activation.chainId !== network.chainId ||
       activation.lifecycleState !== "ONCHAIN_CREATED" ||
       activation.reconciliationState !== "CURRENT" ||
       activation.clientAddress === null ||
@@ -1456,7 +1511,7 @@ export class CommerceApplicationService {
       throw new Error("Prepared SET_BUDGET evidence is incomplete");
     const jobId = BigInt(jobIdValue);
     const amount = BigInt(amountValue);
-    const commerce = getAddress(this.erc8183.commerceAddress);
+    const commerce = getAddress(network.commerceAddress);
     const expectedAmount = BigInt(activation.budgetBaseUnits ?? "0");
     if (
       activation.externalJobId !== jobId.toString() ||
@@ -1476,12 +1531,9 @@ export class CommerceApplicationService {
         operation.preparedPayloadHash.toLowerCase()
     )
       throw new Error("Prepared SET_BUDGET payload hash mismatch");
-    const client = createPublicClient({
-      chain: bscTestnet,
-      transport: http(this.erc8183.rpcUrl),
-    });
-    const router = getAddress(this.erc8183.evaluatorAddress);
-    const expectedPolicy = getAddress(this.erc8183.policyAddress);
+    const client = this.clientFor(network);
+    const router = getAddress(network.evaluatorAddress);
+    const expectedPolicy = getAddress(network.optimisticPolicyAddress);
     const [job, hasBudget, currentPolicy] = await Promise.all([
       client.readContract({
         address: commerce,
@@ -1530,7 +1582,7 @@ export class CommerceApplicationService {
     return {
       operationId: operation.id,
       operationType: "SET_BUDGET" as const,
-      chainId: 97 as const,
+      chainId: network.chainId,
       from: principal.walletAddress,
       to: commerce,
       data,
@@ -1548,7 +1600,7 @@ export class CommerceApplicationService {
         action: "Set service budget",
         description:
           "Set the exact offer-bound budget. This step does not transfer tokens.",
-        network: "BSC Testnet",
+        network: network.label,
         servicePrice: amount === 0n ? "Free" : displayServicePrice(agreement),
         fundsExpectedToMove: false,
         jobId: jobId.toString(),
@@ -1562,12 +1614,7 @@ export class CommerceApplicationService {
     agreementId: string,
     operationId: string,
   ) {
-    if (
-      principal.chainId !== 97 ||
-      this.erc8183?.rpcUrl === undefined ||
-      this.erc8183.policyAddress === undefined
-    )
-      throw new Error("BSC Testnet FUND preflight is unavailable");
+    const network = this.networkFor(principal.chainId);
     const agreement = await this.store.findAgreement(
       agreementId,
       principal.principalId,
@@ -1594,7 +1641,7 @@ export class CommerceApplicationService {
     if (
       activation === null ||
       !["USER_COMMERCE", "VERIFICATION"].includes(activation.purpose) ||
-      activation.chainId !== 97 ||
+      activation.chainId !== network.chainId ||
       activation.lifecycleState !== "ONCHAIN_CREATED" ||
       activation.reconciliationState !== "CURRENT" ||
       activation.clientAddress === null ||
@@ -1621,7 +1668,7 @@ export class CommerceApplicationService {
       throw new Error("Prepared FUND evidence is incomplete");
     const jobId = BigInt(jobIdValue);
     const expectedBudget = BigInt(expectedBudgetValue);
-    const commerce = getAddress(this.erc8183.commerceAddress);
+    const commerce = getAddress(network.commerceAddress);
     const expectedAmount = BigInt(activation.budgetBaseUnits ?? "0");
     if (
       activation.externalJobId !== jobId.toString() ||
@@ -1641,12 +1688,9 @@ export class CommerceApplicationService {
         operation.preparedPayloadHash.toLowerCase()
     )
       throw new Error("Prepared FUND payload hash mismatch");
-    const client = createPublicClient({
-      chain: bscTestnet,
-      transport: http(this.erc8183.rpcUrl),
-    });
-    const router = getAddress(this.erc8183.evaluatorAddress);
-    const expectedPolicy = getAddress(this.erc8183.policyAddress);
+    const client = this.clientFor(network);
+    const router = getAddress(network.evaluatorAddress);
+    const expectedPolicy = getAddress(network.optimisticPolicyAddress);
     const [job, hasBudget, currentPolicy] = await Promise.all([
       client.readContract({
         address: commerce,
@@ -1695,7 +1739,7 @@ export class CommerceApplicationService {
     return {
       operationId: operation.id,
       operationType: "FUND" as const,
-      chainId: 97 as const,
+      chainId: network.chainId,
       from: principal.walletAddress,
       to: commerce,
       data,
@@ -1715,7 +1759,7 @@ export class CommerceApplicationService {
           expectedBudget === 0n
             ? "Advance this free job to FUNDED with an explicit zero-value funding call. No tokens move."
             : "Deposit the exact approved offer amount into ERC-8183 escrow.",
-        network: "BSC Testnet",
+        network: network.label,
         servicePrice:
           expectedBudget === 0n
             ? "Free"
@@ -2125,10 +2169,7 @@ export class CommerceApplicationService {
     preparedPayloadHash: string,
     nonce?: bigint,
   ) {
-    if (
-      principal.chainId !== 97 ||
-      getAddress(signerAddress) !== principal.walletAddress
-    )
+    if (getAddress(signerAddress) !== principal.walletAddress)
       throw new Error("Wallet submission signer does not match the buyer");
     const operation = await this.store.recordWalletSubmittedOperation({
       operationId,

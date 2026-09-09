@@ -351,6 +351,11 @@ export async function startHireCheckout(
   if (formData.get("explicitApproval") !== "approved")
     throw new Error("Explicit mandate approval is required");
   if (
+    fieldString(formData, "chainId") === "56" &&
+    formData.get("mainnetFundsAcknowledged") !== "approved"
+  )
+    throw new Error("Confirm that this Mainnet hire can use real funds before continuing");
+  if (
     ["rebalancing", "yield-optimisation", "grid-trading"].includes(fieldString(formData, "category")) ||
     await isHealthGuardCheckout(formData)
   )

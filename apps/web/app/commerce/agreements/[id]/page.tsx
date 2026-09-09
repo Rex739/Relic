@@ -109,7 +109,7 @@ export default async function CommerceAgreementPage({
             <div>
               <dt>Network</dt>
               <dd>
-                {Number(item.chainId) === 97 ? "BSC Testnet" : "BSC Mainnet"}
+                {Number(item.chainId) === 97 ? "BSC Testnet" : "Mainnet · real funds"}
               </dd>
             </div>
             <div>

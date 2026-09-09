@@ -41,8 +41,13 @@ export interface Erc8004OwnershipReader {
 export class ViemErc8004OwnershipReader implements Erc8004OwnershipReader {
   readonly #mainnet;
   readonly #testnet;
+  readonly #registryAddresses;
 
-  constructor(input: { mainnetRpcUrl: string; testnetRpcUrl: string }) {
+  constructor(input: {
+    mainnetRpcUrl: string;
+    testnetRpcUrl: string;
+    registryAddresses?: Partial<Record<56 | 97, Address>>;
+  }) {
     this.#mainnet = createPublicClient({
       chain: bsc,
       transport: http(input.mainnetRpcUrl),
@@ -51,10 +56,11 @@ export class ViemErc8004OwnershipReader implements Erc8004OwnershipReader {
       chain: bscTestnet,
       transport: http(input.testnetRpcUrl),
     });
+    this.#registryAddresses = input.registryAddresses ?? {};
   }
 
   registryAddress(chainId: 56 | 97) {
-    return ERC8004_REGISTRY_BY_CHAIN[chainId];
+    return this.#registryAddresses[chainId] ?? ERC8004_REGISTRY_BY_CHAIN[chainId];
   }
 
   async ownerOf(chainId: 56 | 97, externalAgentId: string) {

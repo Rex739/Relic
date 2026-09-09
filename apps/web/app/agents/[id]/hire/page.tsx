@@ -293,6 +293,12 @@ export default async function HireAgentPage({
           <input type="hidden" name="offerId" value={offer.id} />
           <input type="hidden" name="chainId" value={agent.chainId} />
           <input type="hidden" name="category" value={agent.category} />
+          {agent.chainId === 56 ? (
+            <label className="mainnet-funds-warning">
+              <input name="mainnetFundsAcknowledged" type="checkbox" value="approved" required />
+              <span><strong>Mainnet · real funds.</strong> I understand this hire can create Mainnet transactions and escrow the exact approved $U amount plus BNB gas.</span>
+            </label>
+          ) : null}
           <input
             type="hidden"
             name="objective"
@@ -484,7 +490,7 @@ export default async function HireAgentPage({
               <div>
                 <dt>Network</dt>
                 <dd>
-                  {offer.version.chainId === 97 ? "BSC Testnet" : "BSC Mainnet"}
+                  {offer.version.chainId === 97 ? "BSC Testnet" : "Mainnet · real funds"}
                 </dd>
               </div>
             </dl>

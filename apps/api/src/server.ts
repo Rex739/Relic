@@ -42,6 +42,7 @@ import { HealthGuardFundedSessionRelease } from "./health-guard-funded-session-r
 import { HealthGuardCycleStore } from "./health-guard-cycle-store.js";
 import { HealthGuardPreflight } from "./health-guard-preflight.js";
 import { parseHealthGuardPoolRegistry } from "./health-guard-pool-registry.js";
+import { commerceNetworkConfig } from "./commerce-network-config.js";
 
 class EmptyAgentRepository implements AgentReadRepository {
   public async list() {
@@ -53,6 +54,7 @@ class EmptyAgentRepository implements AgentReadRepository {
 }
 
 const environment = getServerEnvironment();
+const commerceNetworks = commerceNetworkConfig(environment);
 const healthGuardPools = parseHealthGuardPoolRegistry(environment.HEALTH_GUARD_POOLS_JSON);
 const connection =
   environment.DATABASE_URL === undefined
@@ -67,6 +69,14 @@ const onboarding =
 const ownershipReader = new ViemErc8004OwnershipReader({
   mainnetRpcUrl: environment.BSC_MAINNET_RPC_URL,
   testnetRpcUrl: environment.BSC_TESTNET_RPC_URL,
+  registryAddresses: {
+    ...(commerceNetworks[56] === undefined
+      ? {}
+      : { 56: commerceNetworks[56].erc8004Registry }),
+    ...(commerceNetworks[97] === undefined
+      ? {}
+      : { 97: commerceNetworks[97].erc8004Registry }),
+  },
 });
 const sellerAuthorization =
   onboarding === undefined
@@ -211,6 +221,7 @@ const commerce =
             },
         sellerAuthorization,
         new ServicePublicationVerifier(new DrizzleSupplyStore(connection.db)),
+        commerceNetworks,
       );
 const mandateApiSecret =
   environment.MANDATE_API_SECRET ??

@@ -133,6 +133,33 @@ const serverEnvironmentSchema = z.object({
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/)
     .optional(),
+  // Mainnet commerce is a separate deployment. None of these values fall
+  // back to their Testnet counterparts; a partial Mainnet configuration is
+  // intentionally unusable.
+  RELIC_MAINNET_COMMERCE_ENABLED: z.enum(["true", "false"]).optional(),
+  RELIC_MAINNET_ENABLED_AGENT_IDS: z.string().trim().min(1).optional(),
+  RELIC_MAINNET_ERC8004_REGISTRY_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_MAINNET_ERC8183_COMMERCE_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_MAINNET_ERC8183_EVALUATOR_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_MAINNET_ERC8183_POLICY_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_MAINNET_PAYMENT_TOKEN_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  RELIC_MAINNET_PAYMENT_TOKEN_DECIMALS: z.string().regex(/^(?:0|[1-9]|[1-2]\d|3[0-6])$/).optional(),
+  RELIC_MAINNET_MAX_JOB_AMOUNT_BASE_UNITS: z.string().regex(/^[1-9]\d*$/).optional(),
 });
 
 export type ServerEnvironment = z.infer<typeof serverEnvironmentSchema>;

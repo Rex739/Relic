@@ -97,7 +97,7 @@ function FilterForm({
         ))}
       </fieldset>
       <FilterDropdown name="tier" label="Service availability" initialValue={filters.tier || "all"} options={[["all", "Verified services"], ["Working", "Working"], ["Actionable", "Actionable"]]} />
-      <FilterDropdown name="chainId" label="Network" initialValue={filters.chainId || "all"} options={[["all", "All networks"], ["56", "BNB Chain"], ["97", "BNB Chain Testnet"]]} />
+      <FilterDropdown name="chainId" label="Network" initialValue={filters.chainId || "all"} options={[["all", "All networks"], ["56", "Mainnet · real funds"], ["97", "BSC Testnet"]]} />
       <FilterDropdown name="sort" label="Sort results" initialValue={filters.sort} options={[["relevance", "Most relevant"], ["recently-verified", "Recently verified"], ["completed-jobs", "Completed jobs"], ["completion-rate", "Completion rate"]]} />
       <div className="marketplace-filter-actions">
         <Link href="/marketplace">Clear all</Link>
