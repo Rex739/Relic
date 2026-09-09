@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { FundedSessionClient } from "./fundedSessionClient.js";
-import { loadVenusTestnetConfig } from "./networkConfig.js";
+import { loadVenusConfig } from "./networkConfig.js";
 import { PerJobAltanaSigner } from "./perJobAltanaSigner.js";
 import { YieldPrivateExecutor } from "./privateExecutor.js";
 import { privateRuntimeHandler } from "./privateRuntime.js";
@@ -12,7 +12,7 @@ const port = Number(process.env.PORT ?? "9000");
 const bearerToken = process.env.PRIVATE_AGENT_BEARER_TOKEN?.trim();
 if (!bearerToken) throw new Error("PRIVATE_AGENT_BEARER_TOKEN is required");
 
-const config = loadVenusTestnetConfig();
+const config = loadVenusConfig();
 const apiUrl = process.env.RELIC_API_URL?.trim();
 const internalToken = process.env.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN?.trim();
 const transferPrivateKey = process.env.RELIC_YIELD_SESSION_TRANSFER_PRIVATE_KEY?.trim();

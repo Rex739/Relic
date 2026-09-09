@@ -7,6 +7,7 @@ const privateAgentUrl = process.env.PRIVATE_AGENT_URL?.trim();
 const privateAgentBearerToken = process.env.PRIVATE_AGENT_BEARER_TOKEN?.trim();
 const relicApiUrl = process.env.RELIC_API_URL?.trim();
 const relicInternalToken = process.env.RELIC_YIELD_OPTIMIZER_INTERNAL_TOKEN?.trim();
+const publicNetwork = process.env.RELIC_YIELD_NETWORK?.trim() || "bsc-testnet";
 
 const send = (response: ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { "content-type": "application/json" });
@@ -53,8 +54,10 @@ createServer(async (request, response) => {
     }
   }
   if (request.method === "GET" && url.pathname === "/.well-known/agent-card.json") {
+    if (publicNetwork !== "bsc-testnet" && publicNetwork !== "bsc-mainnet")
+      return send(response, 503, { error: "RELIC_YIELD_NETWORK must be bsc-testnet or bsc-mainnet" });
     return publicUrl
-      ? send(response, 200, publicAgentCard(publicUrl))
+      ? send(response, 200, publicAgentCard(publicUrl, publicNetwork))
       : send(response, 503, { error: "PUBLIC_SERVICE_URL is not configured" });
   }
   if (request.method === "POST" && url.pathname === "/apex") {

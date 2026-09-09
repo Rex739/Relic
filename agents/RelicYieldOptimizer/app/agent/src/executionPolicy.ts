@@ -1,8 +1,4 @@
-import {
-  BSC_TESTNET_CHAIN_ID,
-  type Address,
-  type VenusTestnetConfig,
-} from "./networkConfig.js";
+import { type Address, type VenusConfig } from "./networkConfig.js";
 
 export type YieldOperation = "approve" | "supply" | "withdraw";
 
@@ -38,12 +34,12 @@ const deny = (message: string): never => {
  * structured intents only: raw calldata is intentionally not accepted.
  */
 export function validateYieldIntent(
-  config: VenusTestnetConfig,
+  config: VenusConfig,
   mandate: YieldMandate,
   intent: YieldIntent,
   now = new Date(),
 ): void {
-  if (intent.chainId !== BSC_TESTNET_CHAIN_ID) deny("wrong network");
+  if (intent.chainId !== config.chainId) deny("wrong network");
   if (now >= mandate.expiresAt || intent.deadline <= now || intent.deadline > mandate.expiresAt)
     deny("intent is outside the mandate window");
   if (!sameAddress(intent.account, mandate.account)) deny("intent account differs from buyer mandate");

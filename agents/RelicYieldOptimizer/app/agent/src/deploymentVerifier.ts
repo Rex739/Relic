@@ -1,8 +1,4 @@
-import {
-  BSC_TESTNET_CHAIN_ID,
-  type Address,
-  type VenusTestnetConfig,
-} from "./networkConfig.js";
+import { type Address, type VenusConfig, networkLabel } from "./networkConfig.js";
 
 /** Minimal RPC surface. The live adapter is deliberately separate from policy. */
 export interface VenusReadClient {
@@ -16,7 +12,7 @@ export interface VenusReadClient {
 
 export type VerifiedVenusDeployment = Readonly<{
   verifiedAt: Date;
-  chainId: typeof BSC_TESTNET_CHAIN_ID;
+  chainId: VenusConfig["chainId"];
   usdtSymbol: string;
   usdtDecimals: number;
   withdrawableCashBaseUnits: bigint;
@@ -36,10 +32,11 @@ const fail = (reason: string): never => {
  */
 export async function verifyVenusDeployment(
   client: VenusReadClient,
-  config: VenusTestnetConfig,
+  config: VenusConfig,
   now = new Date(),
 ): Promise<VerifiedVenusDeployment> {
-  if ((await client.getChainId()) !== BSC_TESTNET_CHAIN_ID) fail("RPC is not BSC Testnet");
+  if ((await client.getChainId()) !== config.chainId)
+    fail(`RPC is not ${networkLabel(config.chainId)}`);
 
   for (const [label, address] of [
     ["USDT", config.usdt],
@@ -64,7 +61,7 @@ export async function verifyVenusDeployment(
 
   return Object.freeze({
     verifiedAt: now,
-    chainId: BSC_TESTNET_CHAIN_ID,
+    chainId: config.chainId,
     usdtSymbol: metadata.symbol,
     usdtDecimals: metadata.decimals,
     withdrawableCashBaseUnits: cash,

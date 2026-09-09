@@ -41,3 +41,9 @@ test("fails closed if the RPC is not BSC Testnet", async () => {
     /not BSC Testnet/,
   );
 });
+
+test("verifies a configured BSC Mainnet market against chain 56", async () => {
+  const mainnet = { ...config, chainId: 56 as const, network: "bsc-mainnet" as const };
+  const verified = await verifyVenusDeployment(client({ getChainId: async () => 56 }), mainnet);
+  assert.equal(verified.chainId, 56);
+});

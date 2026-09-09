@@ -1,5 +1,5 @@
 import { verifyVenusDeployment } from "./deploymentVerifier.js";
-import { loadVenusTestnetConfig } from "./networkConfig.js";
+import { loadVenusConfig } from "./networkConfig.js";
 import { VenusJsonRpcClient } from "./venusRpcClient.js";
 
 /**
@@ -12,7 +12,7 @@ import { VenusJsonRpcClient } from "./venusRpcClient.js";
 export async function verifyConfiguredVenusDeployment(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
-  const config = loadVenusTestnetConfig(env);
+  const config = loadVenusConfig(env);
   const deployment = await verifyVenusDeployment(
     new VenusJsonRpcClient(config.rpcUrl),
     config,

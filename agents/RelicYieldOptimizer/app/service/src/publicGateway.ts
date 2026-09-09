@@ -11,6 +11,14 @@ export type GatewayConfig = Readonly<{
   allowInternalHttp?: boolean;
 }>;
 
+export type PublicNetwork = "bsc-testnet" | "bsc-mainnet";
+
+function publicNetworkDetails(network: PublicNetwork) {
+  return network === "bsc-mainnet"
+    ? { label: "BSC Mainnet", tag: "bsc-mainnet" }
+    : { label: "BSC Testnet", tag: "bsc-testnet" };
+}
+
 export function privateAgentEndpoint(config: GatewayConfig): URL {
   const endpoint = new URL(config.privateAgentUrl);
   if (endpoint.protocol !== "https:" && !config.allowInternalHttp)
@@ -26,12 +34,13 @@ function relicApiEndpoint(config: GatewayConfig, jobId: string): URL {
   return endpoint;
 }
 
-export function publicAgentCard(publicUrl: string) {
+export function publicAgentCard(publicUrl: string, network: PublicNetwork = "bsc-testnet") {
   const baseUrl = publicUrl.replace(/\/$/u, "");
+  const details = publicNetworkDetails(network);
   return {
     name: "Relic Yield Optimizer",
     description:
-      "A constrained BSC Testnet USDT supply optimizer. It can execute only buyer-mandated Venus supply and withdrawal operations.",
+      `A constrained ${details.label} USDT supply optimizer. It can execute only buyer-mandated Venus supply and withdrawal operations.`,
     url: `${baseUrl}/apex`,
     version: "0.1.0",
     protocolVersion: "0.3.0",
@@ -43,8 +52,8 @@ export function publicAgentCard(publicUrl: string) {
       {
         id: "negotiate",
         name: "Negotiate a constrained yield job",
-        description: "Returns a signed quote for a bounded BSC Testnet USDT yield operation.",
-        tags: ["erc8183", "yield", "venus", "bsc-testnet", "usdt"],
+        description: `Returns a signed quote for a bounded ${details.label} USDT yield operation.`,
+        tags: ["erc8183", "yield", "venus", details.tag, "usdt"],
         inputModes: ["application/json"],
         outputModes: ["application/json"],
       },

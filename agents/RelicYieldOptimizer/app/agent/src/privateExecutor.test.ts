@@ -50,7 +50,7 @@ test("executes only a canonical funded-job relay when all runtime dependencies e
     idempotencyKey: "yield:8183:1",
     mandate: {
       jobId: "8183", account: "0x4444444444444444444444444444444444444444",
-      expiresAt: "2026-09-08T00:00:00.000Z", maximumAmountBaseUnits: "1",
+      expiresAt: "2027-09-08T00:00:00.000Z", maximumAmountBaseUnits: "1",
       minimumSecondsBetweenExecutions: "0",
     },
     amountBaseUnits: "1", maximumFeeWei: "1",

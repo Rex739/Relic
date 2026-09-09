@@ -11,6 +11,13 @@ test("advertises the executable apex URL, not the card URL", () => {
   assert.equal(publicAgentCard("https://example.test/").url, "https://example.test/apex");
 });
 
+test("advertises mainnet only when the gateway is explicitly configured for it", () => {
+  const card = publicAgentCard("https://example.test", "bsc-mainnet");
+  assert.match(card.description, /BSC Mainnet/);
+  assert.equal(card.skills[0]!.tags.includes("bsc-mainnet"), true);
+  assert.equal(card.skills[0]!.tags.includes("bsc-testnet"), false);
+});
+
 test("forwards only declared commerce skills", () => {
   assert.equal(isAllowedA2aSkill(negotiate), true);
   assert.equal(isAllowedA2aSkill({ ...negotiate, params: { message: { parts: [{ kind: "data", data: { skill: "execute_anything" } }] } } }), false);
