@@ -62,6 +62,92 @@ describe("activation setup readiness", () => {
   });
 });
 
+describe("network-scoped commerce activation", () => {
+  const principal = {
+    principalId: principalIdForWallet(account.address, 56),
+    walletAddress: account.address,
+    chainId: 56 as const,
+    sessionId: "01945b1e-7e80-7000-8000-000000000071",
+  };
+
+  it("uses the allowlisted Mainnet registry addresses for activation", async () => {
+    const mainnetCommerce =
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
+    const mainnetEvaluator =
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
+    const agreement = {
+      id: "01945b1e-7e80-7000-8000-000000000072",
+      status: "ACTIVE",
+      chainId: 56,
+      agentId: "01945b1e-7e80-7000-8000-000000000073",
+    };
+    const authorizationId = "01945b1e-7e80-7000-8000-000000000074";
+    const executionRequestId = "01945b1e-7e80-7000-8000-000000000075";
+    const createUserCommerceActivation = vi.fn(async (input) => input);
+    const service = new CommerceApplicationService(
+      {
+        async findAgreement() {
+          return agreement;
+        },
+        async authorizationArtifact() {
+          return {
+            id: authorizationId,
+            agreementId: agreement.id,
+            executionRequestId,
+            chainId: 56,
+            signerAddress: account.address,
+            verificationStatus: "VERIFIED",
+            revokedAt: null,
+            expiresAt: new Date(now.getTime() + 20 * 60_000),
+          };
+        },
+        createUserCommerceActivation,
+      } as never,
+      router,
+      () => now,
+      undefined,
+      undefined,
+      undefined,
+      {
+        56: {
+          chainId: 56,
+          label: "BSC Mainnet · real funds",
+          rpcUrl: "https://mainnet.invalid",
+          erc8004Registry: "0x8888888888888888888888888888888888888888",
+          commerceAddress: mainnetCommerce,
+          evaluatorAddress: mainnetEvaluator,
+          optimisticPolicyAddress: policy,
+          explorerUrl: "https://bscscan.com",
+          paymentTokenAddress: "0x9999999999999999999999999999999999999999",
+          paymentTokenDecimals: 18,
+          paymentTokenSymbol: "U",
+          mainnetEnabled: true,
+          enabledAgentIds: [agreement.agentId],
+        },
+      },
+    );
+
+    await expect(
+      service.createActivation(
+        principal,
+        agreement.id,
+        executionRequestId,
+        authorizationId,
+      ),
+    ).resolves.toMatchObject({
+      commerceAddress: mainnetCommerce,
+      evaluatorAddress: mainnetEvaluator,
+    });
+    expect(createUserCommerceActivation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commerceAddress: mainnetCommerce,
+        evaluatorAddress: mainnetEvaluator,
+        clientAddress: account.address,
+      }),
+    );
+  });
+});
+
 class MemoryWalletStore {
   challenge: Record<string, unknown> | null = null;
   consumed = false;

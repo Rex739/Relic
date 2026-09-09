@@ -1201,6 +1201,16 @@ export class CommerceApplicationService {
       throw new Error(
         "CREATE_JOB operation is not eligible for wallet submission",
       );
+    const legacyChainId = agreement.chainId ?? principal.chainId;
+    if (principal.chainId !== legacyChainId)
+      throw new Error("Wallet session network does not match the commerce operation");
+    if (legacyChainId === 56) {
+      const network = this.networkFor(legacyChainId);
+      this.assertMainnetAllowed(network, agreement.agentId);
+      throw new Error(
+        "Legacy zero-price CREATE_JOB operations are BSC Testnet-only. Create a new Mainnet checkout instead.",
+      );
+    }
     const evidence = operation.evidence as Record<string, unknown>;
     const authorizationId = evidence.exactActionAuthorizationId;
     const actionHash = evidence.actionHash;
@@ -1813,6 +1823,18 @@ export class CommerceApplicationService {
         operationId,
       );
     if (
+      existingAgreement !== null &&
+      (existingAgreement.chainId ?? principal.chainId) === 56
+    ) {
+      const network = this.networkFor(56);
+      if (network.chainId === 56) {
+        this.assertMainnetAllowed(network, existingAgreement.agentId);
+        throw new Error(
+          "Legacy CREATE_JOB refresh is BSC Testnet-only. Create a new Mainnet checkout instead.",
+        );
+      }
+    }
+    if (
       this.erc8183?.rpcUrl === undefined ||
       this.erc8183.policyAddress === undefined
     )
@@ -2225,8 +2247,16 @@ export class CommerceApplicationService {
     executionRequestId: string,
     authorizationId: string,
   ) {
-    if (this.erc8183 === undefined)
-      throw new Error("ERC-8183 activation configuration is unavailable");
+    const agreement = await this.store.findAgreement(
+      agreementId,
+      principal.principalId,
+    );
+    if (agreement === null || agreement.status !== "ACTIVE")
+      throw new Error("Commerce agreement is not eligible for activation");
+    const network = this.networkFor(agreement.chainId ?? principal.chainId);
+    if (principal.chainId !== network.chainId)
+      throw new Error("Wallet session network does not match the commerce agreement");
+    this.assertMainnetAllowed(network, agreement.agentId);
     const authorization = await this.store.authorizationArtifact(
       authorizationId,
       principal.principalId,
@@ -2241,6 +2271,8 @@ export class CommerceApplicationService {
       authorization.revokedAt !== null ||
       authorization.expiresAt <= minimumExpiry ||
       authorization.executionRequestId !== executionRequestId ||
+      authorization.agreementId !== agreement.id ||
+      authorization.chainId !== network.chainId ||
       authorization.signerAddress === null ||
       getAddress(authorization.signerAddress) !== principal.walletAddress
     )
@@ -2251,9 +2283,9 @@ export class CommerceApplicationService {
       agreementId,
       executionRequestId,
       authorizationId,
-      commerceAddress: this.erc8183.commerceAddress,
+      commerceAddress: network.commerceAddress,
       clientAddress: principal.walletAddress,
-      evaluatorAddress: this.erc8183.evaluatorAddress,
+      evaluatorAddress: network.evaluatorAddress,
     });
   }
 
