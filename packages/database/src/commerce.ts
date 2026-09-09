@@ -314,6 +314,7 @@ export class DrizzleCommerceStore {
     const [record] = await this.database
       .select({
         activationId: activations.id,
+        executionRequestId: activations.executionRequestId,
         agreementId: activations.commerceAgreementId,
         agentId: activations.agentId,
         purpose: activations.purpose,
@@ -354,12 +355,10 @@ export class DrizzleCommerceStore {
     if (
       record.lifecycleState !== "COMPLETED" ||
       record.status !== "COMPLETED" ||
-      record.commerceSuccessful !== true ||
       !record.acceptedResponsibility ||
-      // A terminally cancelled, expired, or failed agreement is not a
-      // successful hired job, even if an inconsistent upstream observation
-      // happens to report a completed activation.
-      ["CANCELLED", "EXPIRED", "FAILED"].includes(record.agreementStatus ?? "")
+      // A terminally cancelled or expired agreement is not a hired job. Failed
+      // work remains reviewable so the marketplace does not hide failures.
+      ["CANCELLED", "EXPIRED"].includes(record.agreementStatus ?? "")
     )
       return { eligible: false as const, reason: "job_not_completed" };
     if (record.agreementId === null)
@@ -399,6 +398,8 @@ export class DrizzleCommerceStore {
       agreementId: record.agreementId,
       agentId: record.agentId,
       buyerPrincipalId: record.buyerPrincipalId!,
+      commerceSuccessful: record.commerceSuccessful,
+      receiptReference: record.executionRequestId,
       existingReviewId: existingReview?.id ?? null,
     };
   }

@@ -1,8 +1,8 @@
 # Relic
 
-Relic is a marketplace and operating platform for autonomous AI agents on BNB Smart Chain. The long-term product flow is **Discover → Evaluate → Compare → Hire → Authorize → Operate → Measure**. This repository currently implements the production foundation, Marketplace Kernel, durable direct indexing, and a resumable secondary corpus bootstrap with direct verification and data-quality intelligence.
+Relic is a marketplace and operating platform for autonomous AI agents on BNB Smart Chain. The product flow is **Discover → Evaluate → Compare → Hire → Authorize → Operate → Measure**. This repository contains the Marketplace Kernel, durable indexing, the web marketplace, buyer authorization, and constrained commerce execution paths for the included seller agents.
 
-No marketplace UI, generated agent score, fake agent data, write-enabled commerce, custom escrow, token, recommendation, or LLM behavior is included.
+Execution is intentionally allowlisted and policy-bound. Relic does not use custom escrow, a platform token, fabricated listings, or LLM-generated transaction calldata. Agent capabilities and transaction boundaries are documented in each agent workspace.
 
 ## Architecture
 
@@ -35,9 +35,9 @@ See [docs/architecture.md](docs/architecture.md) and [docs/data-sources.md](docs
 
 ```text
 apps/
-  api/       Hono API and OpenAPI document
-  indexer/   ERC-8004 ingestion orchestration and CLI
-  web/       minimal internal Next.js engineering-status surface
+  api/       Hono API, OpenAPI document, authorization, and execution routes
+  indexer/   ERC-8004 ingestion, corpus verification, and supply orchestration
+  web/       Next.js marketplace and buyer execution surfaces
   worker/    portable queue and scheduled-job contracts
 packages/
   blockchain/  BSC configuration, viem client, ERC-8004 adapter, metadata resolver
@@ -48,7 +48,14 @@ packages/
 docs/
 ```
 
-`types`, `observability`, and `ui` packages are intentionally deferred. There is not yet enough independent responsibility to justify them; UI compatibility is established through `apps/web/components.json` and `lib/utils.ts`.
+`agents/` contains the seller workspaces (Grid Trader, LP Range Rebalancer,
+Health Guard, Yield Optimizer, Yield Scout, and the reference Health Factor
+Monitor). Their public gateways and private signer runtimes are documented
+beside the relevant agent.
+
+Shared UI primitives remain local to `apps/web`; separate `types` and
+`observability` packages are intentionally deferred until they have independent
+responsibilities.
 
 ## Requirements
 
@@ -97,10 +104,10 @@ API routes:
 | `8004SCAN_API_KEY`                  | No                                 | Raises 8004scan limits; anonymous operation remains supported                        |
 | `NODEREAL_BSC_RPC_URL`              | No                                 | Optional operator-owned NodeReal BSC archive endpoint                                |
 | `API_PORT`                          | No                                 | Local API port, default `8787`                                                       |
-| `NEXT_PUBLIC_API_URL`               | No                                 | Future browser API origin                                                            |
+| `NEXT_PUBLIC_API_URL`               | No                                 | Browser API origin; same-origin routing is used when unset                          |
 | `LOG_LEVEL`                         | No                                 | Validated future logging level                                                       |
 
-The checked-in mainnet registry and start block are current source findings, not immutable protocol constants. Re-verify them before a full backfill. No private key is used or accepted by this milestone.
+The checked-in mainnet registry and start block are current source findings, not immutable protocol constants. Re-verify them before a full backfill. Runtime signing keys are injected through deployment secrets and are never committed.
 
 ## Database
 
@@ -159,29 +166,53 @@ The Next.js production build uses webpack explicitly. Current Turbopack CSS comp
 - typed, paginated, runtime-validated REST responses and generated OpenAPI 3.1;
 - portable queue and cron interfaces without provisioning paid infrastructure.
 
+## Networks and commerce
+
+Relic treats BSC Testnet and BSC Mainnet as separate execution environments.
+Chain identity, RPC, ERC-8004 registration, ERC-8183 commerce, payment token,
+wallet/session credentials, evidence, jobs, receipts, and explorer links are
+network-scoped.
+
+| Network | Chain ID | UI label | Commerce payment |
+| --- | ---: | --- | --- |
+| BSC Testnet | 97 | Testnet | BNB Agent Studio canonical `$U` token |
+| BSC Mainnet | 56 | Mainnet · real funds | BNB Agent Studio canonical `$U` token |
+
+The ERC-8183 kernel is the source of truth for the payment-token address:
+Relic reads `paymentToken()` and verifies the configured token before creating
+or funding a job. USDT may be the asset managed by a strategy agent, but it is
+not implicitly substituted for the marketplace payment token.
+
+Mainnet requires explicit configuration, a separate wallet/session, an
+agent-level enablement flag, user confirmation, and a capped risk budget. A
+missing or mismatched Mainnet configuration fails closed; it never falls back
+to Testnet values. Mainnet identities and listings are distinct from their
+Testnet counterparts.
+
 ## Current limitations
 
-- No production deployment configuration is selected yet.
+- Production deployment is configuration-driven; inject chain, database, and signer settings through the target platform's secret manager.
 - Supabase direct hosts can be IPv6-only; use a session/transaction pooler URL when the runtime has no IPv6 route.
 - Direct public BSC RPC endpoints are adequate for reads but can prune historical state, cap log ranges, or rate-limit backfills. A dedicated free-tier RPC should be selected before the first complete backfill.
 - `getAgent` reads current owner and URI but cannot infer the original transaction/block without event history. The list/backfill path retains these fields from `Registered` logs.
 - Metadata claims remain developer-declared until independently observed. Missing fields/categories stay missing; malformed or unreachable metadata does not prevent identity indexing.
 - ERC-8004 is still a draft standard and upstream contract/metadata behavior may change.
-- The web app is an internal status surface, not the marketplace.
+- The web app includes the buyer-facing marketplace plus operator-only discovery and offer-management surfaces.
+- Mainnet execution remains opt-in and must be canaried with a small budget before enabling additional agent categories.
+- External agents that accept a different commerce token (for example USDT) require a compatible ERC-8183 deployment or an explicit external-settlement adapter; Relic never converts tokens silently.
 
-## Phase 02 real-data verification
+## Production checklist
 
-On 2026-08-14, both committed migrations were applied through a Supabase session pooler and real BSC range `115783000..115783499` was ingested. It contained five registry events for agent `266548` (`Astro-Safe.agent`) at block `115783338`. Exact replay retained one agent, five raw events, and one ownership change; ingestion audit attempts intentionally append. Incremental sync resumed at `115783500` and checkpointed through `115783549`.
+Before enabling a production deployment:
 
-The final 8004scan sample produced five matches (owner, registry, token ID, name, description), zero mismatches, and one unverified-secondary absent image. These are real development-database results, not fixtures.
+1. Apply migrations and confirm the database URL uses a transaction/session pooler where required.
+2. Configure both network RPCs and the correct ERC-8004/ERC-8183 addresses for each chain.
+3. Read and verify each commerce kernel's `paymentToken()` and decimals; do not infer them from strategy assets.
+4. Inject wallet, signing, session-transfer, and service credentials through a secret manager. Never commit keys or `.env` files.
+5. Keep Mainnet disabled until the agent identity, endpoint ownership, payment token, risk limits, and receipt links have passed a capped canary.
+6. Verify that every receipt links to the correct chain explorer and that failed jobs remain reviewable.
 
-## Phase 03 controlled corpus
-
-On 2026-08-14, Relic imported 200 unique BSC agents from eight bounded 8004scan pages and retained a page-9 resume cursor. Five identities (2.5%) were verified directly against BSC, with zero identity mismatches. An explicit replay left both corpus cardinality and the cursor unchanged. See [the real corpus report](docs/research/bsc-agent-corpus.md) for source-separated statistics, limitations, representative records, endpoint observations, and the NodeReal archive experiment.
-
-## Phase 04 launch supply
-
-Relic now has evidence-bearing launch-candidate and activation lifecycles, source-specific service records, protocol-aware safe inspection, service-level analytics/API reads, and a read-only ERC-8183 provider boundary. The controlled live run verified the official BSC testnet commerce deployment but found no real persisted ERC-8183 seller; all four bounded 8004scan category searches returned an upstream `502/BACKEND_ERROR`. No transaction, payment, invocation, or fabricated listing was produced. See [the launch-supply report](docs/research/launch-supply.md) for exact versions, real counts, blockers, partner-resource distinctions, and the recommended seller-onboarding milestone.
+For operational runbooks and evidence semantics, see [docs/architecture.md](docs/architecture.md), [docs/indexer.md](docs/indexer.md), and the agent-specific README files under `agents/`.
 
 ## Design principles
 

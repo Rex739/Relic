@@ -18,6 +18,8 @@ export type RelationshipStatus =
   | "Needs attention"
   | "Paused"
   | "Completed"
+  | "Cancelled"
+  | "Expired"
   | "Failed";
 
 export function resolveHireSelection<T extends { mandate: { id: string } }>(
@@ -124,13 +126,12 @@ export function relationshipStatus(input: {
   if (mandate.attentionReason !== null) return "Needs attention";
   if (mandate.status === "PAUSED" || agreement?.status === "SUSPENDED")
     return "Paused";
-  if (
-    expired ||
-    ["REVOKED", "EXPIRED", "SUPERSEDED"].includes(mandate.status) ||
-    (agreement !== null &&
-      ["COMPLETED", "CANCELLED", "EXPIRED"].includes(agreement.status))
-  )
+  if (mandate.status === "REVOKED" || agreement?.status === "CANCELLED")
+    return "Cancelled";
+  if (agreement?.status === "COMPLETED" || mandate.status === "SUPERSEDED")
     return "Completed";
+  if (expired || mandate.status === "EXPIRED" || agreement?.status === "EXPIRED")
+    return "Expired";
   if (mandate.status === "ACTIVE" && relationshipSetupComplete(agreement))
     return "Running";
   if (

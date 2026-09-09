@@ -64,7 +64,7 @@ describe("relationship status projection", () => {
     ).toBe("Running");
   });
 
-  it("projects attention, pause, completion, and failure consistently", () => {
+  it("projects attention, pause, terminal states, and failure consistently", () => {
     expect(
       relationshipStatus({
         mandate: { ...mandate, attentionReason: "Review evidence" },
@@ -81,6 +81,22 @@ describe("relationship status projection", () => {
       relationshipStatus({
         mandate: { ...mandate, status: "REVOKED" },
         agreement: null,
+      }),
+    ).toBe("Cancelled");
+    expect(
+      relationshipStatus({
+        mandate: { ...mandate, status: "EXPIRED" },
+        agreement: agreement("active", "ACTIVE", [
+          { operationType: "FUND", state: "FINALIZED" },
+        ]),
+        now: Date.parse("2026-08-26T00:00:00.000Z"),
+      }),
+    ).toBe("Expired");
+    expect(
+      relationshipStatus({
+        mandate,
+        agreement: agreement("completed", "COMPLETED", []),
+        now: Date.parse("2026-09-02T00:00:00.000Z"),
       }),
     ).toBe("Completed");
     expect(

@@ -1,10 +1,13 @@
-# Relic BNB Grid Trader
+# Relic BNB Grid Trader (prototype)
 
-The first transactional Relic seller is deliberately constrained to BSC Testnet
-and the BNB/USDT pair. Its first milestone exposes a deterministic grid-plan
-API. It accepts only a capital cap, a price range, 5–8 grid levels, and a
-1–168 hour duration; it derives a finite plan with a 15-minute execution
-cooldown.
+> This is the original deterministic planning prototype. The deployed seller
+> workspace is [`../RelicGridTrader`](../RelicGridTrader), which adds the
+> private signer and public gateway boundaries.
+
+This original planning milestone is deliberately constrained to BSC Testnet and
+the BNB/USDT pair. It exposes a deterministic grid-plan API, accepts only a
+capital cap, a price range, 5–8 grid levels, and a 1–168 hour duration, and
+derives a finite plan with a 15-minute execution cooldown.
 
 The public service must not execute a trade until the next milestone adds all
 of the following: verified Relic mandate binding, exact router allowlisting,

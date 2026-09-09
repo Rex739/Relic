@@ -1581,7 +1581,7 @@ describe("production commerce persistence", () => {
     ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
 
     // Funding, running work, and an intermediate delivery are not the end of
-    // a hire. A review unlocks only after durable successful completion.
+    // a hire. A review unlocks only after durable terminal completion.
     for (const [lifecycleState, status] of [
       ["ONCHAIN_CREATED", "JOB_CREATED"],
       ["ACTIVE", "FUNDED"],
@@ -1651,6 +1651,7 @@ describe("production commerce persistence", () => {
     }
     await database.exec(
       `update activations set lifecycle_state = 'COMPLETED', status = 'COMPLETED' where id = '${fixture.activation.id}';
+       update commerce_agreements set status = 'COMPLETED' where id = '${fixture.agreement.id}';
        update marketplace_outcomes set commerce_successful = false where activation_id = '${fixture.activation.id}'`,
     );
     await expect(
@@ -1660,7 +1661,7 @@ describe("production commerce persistence", () => {
         walletAddress: buyerAddress,
         reviewerRole: "BUYER",
       }),
-    ).resolves.toMatchObject({ eligible: false, reason: "job_not_completed" });
+    ).resolves.toMatchObject({ eligible: true, reason: "eligible" });
   });
 
   it("persists a sentiment-only Bad review with optional fields empty", async () => {

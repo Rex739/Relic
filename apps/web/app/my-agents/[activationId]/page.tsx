@@ -114,6 +114,7 @@ const executionPresentation = (execution: ExecutionRecord) => {
     typeof outcome.swapTransactionHash === "string"
       ? outcome.swapTransactionHash
       : null;
+  const transactionHash = execution.receipt?.transactionHash ?? null;
   const observedProtocol =
     typeof outcome.protocol === "string"
       ? outcome.protocol
@@ -206,6 +207,7 @@ const executionPresentation = (execution: ExecutionRecord) => {
     risk,
     withdrawalTransactionHash,
     swapTransactionHash,
+    transactionHash,
     why,
     statusLabel:
       denied && safetyValidation
@@ -472,12 +474,32 @@ export default async function ExecutionRoomPage({
         </div>
       </details>
 
-      {relationshipState === "Completed" &&
+      {["Completed", "Failed"].includes(relationshipState) &&
       walletAuthenticated &&
       typeof reviewableActivationId === "string" ? (
         <MarketplaceReviewPrompt
           activationId={reviewableActivationId}
           tagOptions={marketplaceReviewTags.BUYER}
+          {...(agentResponse.data?.category === undefined
+            ? {}
+            : { category: agentResponse.data.category })}
+          receipt={
+            latest === null || latest.receipt === null
+              ? null
+              : {
+                  executionId: latest.id,
+                  status: latest.status,
+                  chainId: latest.chainId,
+                  ...(agentResponse.data?.category === undefined
+                    ? {}
+                    : { category: agentResponse.data.category }),
+                  outcome: latest.receipt.outcome,
+                  evidence: latest.receipt.evidence,
+                  source: latest.receipt.source,
+                  transactionHash: latest.receipt.transactionHash,
+                  observedAt: latest.receipt.observedAt,
+                }
+          }
         />
       ) : null}
 
@@ -737,6 +759,20 @@ export default async function ExecutionRoomPage({
                                 rel="noreferrer"
                               >
                                 View transaction ↗
+                              </a>
+                            </dd>
+                          </div>
+                        )}
+                        {presentation.transactionHash === null ? null : (
+                          <div>
+                            <dt>Receipt</dt>
+                            <dd>
+                              <a
+                                href={`${execution.chainId === 97 ? "https://testnet.bscscan.com" : "https://bscscan.com"}/tx/${presentation.transactionHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View verified transaction ↗
                               </a>
                             </dd>
                           </div>

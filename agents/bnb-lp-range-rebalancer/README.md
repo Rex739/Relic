@@ -1,6 +1,11 @@
-# Relic BNB LP Range Rebalancer
+# Relic BNB LP Range Rebalancer (prototype)
 
-A bounded PancakeSwap V3 BNB/USDT range-rebalancing service for BSC Testnet.
+> This is the original planning-only prototype. The deployed seller workspace
+> is [`../RelicLpRangeRebalancer`](../RelicLpRangeRebalancer), which adds
+> mandate-bound execution and the two-layer gateway deployment.
+
+A bounded, planning-only PancakeSwap V3 BNB/USDT range-rebalancing service for
+BSC Testnet.
 
 For one buyer-approved LP-position NFT, the service calculates whether the
 market price has left the active range. It will only produce a rebalance plan

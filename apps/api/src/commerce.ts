@@ -531,6 +531,7 @@ export class CommerceApplicationService {
       reviewerRole: MarketplaceReviewRole;
       sentiment: MarketplaceReviewSentiment;
       tags: string[];
+      answers?: Record<string, string>;
       message?: string | null | undefined;
     },
   ) {
@@ -558,7 +559,7 @@ export class CommerceApplicationService {
         `review_${eligibility.reason}`,
         eligibility.reason === "already_reviewed"
           ? "This marketplace job has already been reviewed by this party"
-          : "Only a successfully completed marketplace job can be reviewed by its buyer or agent",
+          : "Only a completed marketplace job can be reviewed by its buyer or agent",
       );
     return this.store.createMarketplaceReview({
       activationId: eligibility.activationId,
@@ -576,11 +577,15 @@ export class CommerceApplicationService {
       tags: [...new Set(input.tags)],
       message: input.message?.trim() || null,
       eligibilityProvenance: {
-        rule: "successful_completed_user_commerce_v2",
+        rule: "completed_user_commerce_receipt_v3",
         activationId: eligibility.activationId,
         agreementId: eligibility.agreementId,
         marketplaceHistoryEligible: true,
-        commerceSuccessful: true,
+        commerceSuccessful: eligibility.commerceSuccessful,
+        receiptReference: {
+          executionRequestId: eligibility.receiptReference,
+        },
+        reviewAnswers: input.answers ?? {},
       },
     });
   }

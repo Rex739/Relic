@@ -6,6 +6,46 @@ import type {
 } from "@relic/domain";
 import { useEffect, useRef, useState } from "react";
 
+type ReceiptPreview = {
+  executionId: string;
+  status: string;
+  chainId: 56 | 97;
+  category?: string;
+  outcome: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+  source: string;
+  transactionHash: string | null;
+  observedAt: string;
+};
+
+const questionsFor = (category?: string) => {
+  if (category === "health-factor-monitoring")
+    return [
+      ["timeliness", "Did the alert or response arrive in time?"],
+      ["accuracy", "Did the reported health-factor result match what you observed?"],
+      ["risk_adherence", "Did the service stay within the authorized risk limits?"],
+    ] as const;
+  if (category === "grid-trading")
+    return [
+      ["capital_adherence", "Did the service stay within the capital cap?"],
+      ["execution_accuracy", "Did the reported fills and result match the activity?"],
+      ["risk_adherence", "Did the service stay within the requested grid and limits?"],
+    ] as const;
+  if (category === "rebalancing")
+    return [
+      ["range_result", "Did the position end in the requested range?"],
+      ["execution_accuracy", "Did the reported transactions match what happened?"],
+      ["risk_adherence", "Did the service stay within the authorized cap and contracts?"],
+    ] as const;
+  if (category === "yield-optimisation")
+    return [
+      ["balance_accuracy", "Did the reported balances match the result?"],
+      ["execution_accuracy", "Were deposits or withdrawals executed as described?"],
+      ["risk_adherence", "Did the service stay within the authorized limits?"],
+    ] as const;
+  return [] as const;
+};
+
 const tagLabel = (tag: string) =>
   tag === "didnt-follow-instructions"
     ? "Didn't follow instructions"
@@ -17,10 +57,14 @@ export function MarketplaceReviewPrompt({
   activationId,
   reviewerRole = "BUYER",
   tagOptions,
+  category,
+  receipt = null,
 }: {
   activationId: string;
   reviewerRole?: MarketplaceReviewRole;
   tagOptions: Record<MarketplaceReviewSentiment, readonly string[]>;
+  category?: string;
+  receipt?: ReceiptPreview | null;
 }) {
   const [eligible, setEligible] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -29,6 +73,7 @@ export function MarketplaceReviewPrompt({
   );
   const [tags, setTags] = useState<string[]>([]);
   const [message, setMessage] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -63,11 +108,13 @@ export function MarketplaceReviewPrompt({
       <section className="review-prompt success" aria-live="polite">
         <span className="overline">Verified review</span>
         <h2>Thank you for sharing your experience.</h2>
-        <p>Your review is linked to this completed marketplace job.</p>
+        <p>Your review is linked to this finished marketplace job and its receipt.</p>
       </section>
     );
 
   const availableTags = sentiment === null ? [] : tagOptions[sentiment];
+  const questions = questionsFor(category);
+  const questionsComplete = questions.every(([key]) => answers[key] !== undefined);
   const submit = async () => {
     if (sentiment === null) return;
     setPending(true);
@@ -81,6 +128,7 @@ export function MarketplaceReviewPrompt({
           reviewerRole,
           sentiment,
           tags,
+          answers,
           message: message.trim() || null,
         }),
       });
@@ -117,9 +165,64 @@ export function MarketplaceReviewPrompt({
             : "How did it go with this buyer?"}
         </h2>
         <p>
-          This review will be linked to the completed job. No wallet signature
-          is required.
+          This review will be linked to the finished job and its receipt. No wallet
+          signature is required.
         </p>
+        {receipt === null ? null : (
+          <section
+            className="review-receipt"
+            aria-label="Verified execution receipt"
+          >
+            <span className="overline">Verified execution receipt</span>
+            <strong>{receipt.status.replaceAll("_", " ")}</strong>
+            <p>
+              {typeof receipt.outcome.message === "string"
+                ? receipt.outcome.message
+                : "Relic recorded the execution result for this job."}
+            </p>
+            <small>
+              {receipt.source.replaceAll("_", " ")} ·{" "}
+              {new Date(receipt.observedAt).toLocaleString()}
+              {receipt.transactionHash === null
+                ? ""
+                : " · "}
+              {receipt.transactionHash === null ? null : (
+                <a
+                  href={`${receipt.chainId === 97 ? "https://testnet.bscscan.com" : "https://bscscan.com"}/tx/${receipt.transactionHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View transaction ↗
+                </a>
+              )}
+            </small>
+          </section>
+        )}
+        {reviewerRole === "BUYER" && questions.length > 0 ? (
+          <fieldset className="review-outcome-questions">
+            <legend>How did the verified result hold up?</legend>
+            {questions.map(([key, question]) => (
+              <label key={key}>
+                <span>{question}</span>
+                <select
+                  value={answers[key] ?? ""}
+                  onChange={(event) =>
+                    setAnswers((current) => ({
+                      ...current,
+                      [key]: event.target.value,
+                    }))
+                  }
+                  required
+                >
+                  <option value="">Choose one</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                  <option value="not_sure">Not sure</option>
+                </select>
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
       </div>
       <button type="button" onClick={() => setOpen(true)}>
         Leave a verified review
@@ -149,8 +252,8 @@ export function MarketplaceReviewPrompt({
           </button>
         </div>
         <p>
-          This review will be linked to the completed job. No wallet signature
-          is required.
+          This review will be linked to the finished job and its receipt. No wallet
+          signature is required.
         </p>
         <div
           className="review-sentiment"
@@ -203,7 +306,7 @@ export function MarketplaceReviewPrompt({
         <div className="review-actions">
           <button
             type="button"
-            disabled={pending || sentiment === null}
+            disabled={pending || sentiment === null || !questionsComplete}
             onClick={submit}
           >
             {pending ? "Submitting review…" : "Submit review"}

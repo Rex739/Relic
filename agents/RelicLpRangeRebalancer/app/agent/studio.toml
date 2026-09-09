@@ -26,7 +26,7 @@ kind = "altana"
 keystore_dir = "../../.studio/wallets"
 session_file = "../../.studio/wallets/altana-session.json"
 # address = "0x..."   # filled by `bag wallet new`; session must match it
-address = "0x39327A2AB36fd1C5bdE2B5B7e08C8E6AA5C50c50"
+address = "0x2bcD943A3Ce7fCc03c1d31646d28354d6D1f0dE9"
 
 [llm]
 provider = "openrouter"
@@ -79,3 +79,8 @@ acknowledged_at = "2026-09-06T07:02:00Z"
 max_per_topup_usd = 1.0
 max_per_day_usd = 3.0
 max_per_month_usd = 15.0
+
+[identity]
+endpoint = "https://p01--relic-lp-range-rebalancer-gateway--b28z25yb24gx.code.run/.well-known/agent-card.json"
+registered_at = "2026-09-07T05:16:22.953Z"
+agent_id = 2202

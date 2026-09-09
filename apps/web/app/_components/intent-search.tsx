@@ -4,10 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { z } from "zod";
 
-import {
-  intentSearchParams,
-  understandMarketplaceIntent,
-} from "../../lib/marketplace";
+import { intentSearchParams } from "../../lib/marketplace";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 
@@ -17,8 +14,6 @@ export function IntentSearch({ initialValue = "" }: { initialValue?: string }) {
   const router = useRouter();
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
-  const understood =
-    value.trim().length > 3 ? understandMarketplaceIntent(value) : {};
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -30,21 +25,6 @@ export function IntentSearch({ initialValue = "" }: { initialValue?: string }) {
     setError(null);
     router.push(`/marketplace?${intentSearchParams(parsed.data).toString()}`);
   };
-  const label = (key: string, item: unknown) => {
-    if (key === "capital" && typeof item === "object" && item !== null) {
-      const value = item as { amount?: number; asset?: string };
-      return `${value.amount?.toLocaleString() ?? ""} ${value.asset ?? ""}`.trim();
-    }
-    if (key === "durationDays" && typeof item === "number")
-      return `${item} days`;
-    return String(item);
-  };
-  const fieldLabel = (key: string) => {
-    if (key === "durationDays") return "duration";
-    if (key === "risk") return "risk preference";
-    return key;
-  };
-
   return (
     <div className="intent-search">
       <form className="intent-form" onSubmit={submit}>
@@ -66,16 +46,6 @@ export function IntentSearch({ initialValue = "" }: { initialValue?: string }) {
         </div>
       </form>
       {error === null ? null : <p className="intent-error" role="alert">{error}</p>}
-      {Object.keys(understood).length > 0 ? (
-        <div className="understanding" aria-live="polite">
-          <span>Relic understands</span>
-          {Object.entries(understood).map(([key, item]) => (
-            <b key={key}>
-              {fieldLabel(key)}: {label(key, item)}
-            </b>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

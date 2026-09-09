@@ -194,6 +194,12 @@ export const createMarketplaceReviewSchema = z
     reviewerRole: z.enum(["BUYER", "AGENT"]),
     sentiment: z.enum(["GOOD", "BAD"]),
     tags: z.array(z.string()).max(6).default([]),
+    answers: z
+      .record(
+        z.string().trim().min(1).max(80),
+        z.string().trim().min(1).max(240),
+      )
+      .default({}),
     message: z.string().trim().max(1_000).nullable().optional(),
   })
   .superRefine((value, context) => {

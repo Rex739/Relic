@@ -11,6 +11,7 @@ default = "bsc-testnet"
 kind = "altana"
 session_file = ".studio/wallets/altana-session.json"
 # address is added by the universal seller flow after `bag wallet new`.
+address = "0x156B8Bc272f480CD27A26b41c9481E19c1d7a20B"
 
 [identity]
 # agent_id and public endpoint are added only after ERC-8004 registration.
