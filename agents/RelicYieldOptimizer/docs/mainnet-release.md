@@ -63,7 +63,7 @@ this exact network setting is present.
    and the mainnet RPC. Do not copy addresses from testnet or from this file.
 2. Create a fresh, mainnet-only wallet/session with a very small cap and BNB
    reserve. Never copy testnet keystore or session data.
-3. Run the read-only verifier in Layer A and check `/ready` is `ready`.
+3. Run the read-only verifier in Layer A and check `/readiness` is `ready`.
 4. Register/import the distinct mainnet ERC-8004 identity and create a new
    mainnet listing. Testnet identity and evidence do not prove mainnet.
 5. Make one deliberately tiny, user-approved canary job. Review all receipts
