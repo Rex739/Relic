@@ -9,6 +9,11 @@ const items = [
     label: "Agents",
     match: ["/marketplace", "/agents", "/categories", "/compare"],
   },
+  {
+    href: "/docs",
+    label: "Docs",
+    match: ["/docs"],
+  },
 ];
 
 export function AppNavigation() {
