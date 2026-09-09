@@ -17,6 +17,14 @@ const BSC_TESTNET = {
   blockExplorerUrls: ["https://testnet.bscscan.com"],
 };
 
+const BSC_MAINNET = {
+  chainId: "0x38",
+  chainName: "BNB Smart Chain",
+  nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+  rpcUrls: ["https://bsc-dataseed.bnbchain.org"],
+  blockExplorerUrls: ["https://bscscan.com"],
+};
+
 export const walletChainId = async (provider: EthereumProvider) =>
   Number.parseInt(
     (await provider.request({ method: "eth_chainId" })) as string,
@@ -27,8 +35,13 @@ export async function switchWalletChain(
   provider: EthereumProvider,
   chainId: number,
 ) {
-  if (chainId !== 97)
-    throw new Error("Only BSC Testnet wallet switching is enabled right now");
+  const requestedChain = chainId === 56
+    ? BSC_MAINNET
+    : chainId === 97
+      ? BSC_TESTNET
+      : null;
+  if (requestedChain === null)
+    throw new Error("Relic supports BSC Mainnet and BSC Testnet only.");
   const target = `0x${chainId.toString(16)}`;
   if ((await walletChainId(provider)) === chainId) return;
   try {
@@ -44,11 +57,11 @@ export async function switchWalletChain(
     if (code !== 4902) throw caught;
     await provider.request({
       method: "wallet_addEthereumChain",
-      params: [BSC_TESTNET],
+      params: [requestedChain],
     });
   }
   if ((await walletChainId(provider)) !== chainId)
-    throw new Error("Wallet did not switch to BSC Testnet");
+    throw new Error(`Wallet did not switch to ${requestedChain.chainName}`);
 }
 
 export function walletTypedDataPayload(typedData: Record<string, unknown>) {

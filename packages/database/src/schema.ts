@@ -1631,6 +1631,43 @@ export const altanaSessionAuthorizations = pgTable(
   ],
 );
 
+/**
+ * A Kernel/ZeroDev permission session is kept separate from Altana sessions.
+ * The owner is an external EOA, the smart account is deterministic from that
+ * owner, and Relic stores only the encrypted agent session key plus the
+ * owner-approved permission-account payload needed by the private runtime.
+ */
+export const kernelSessionAuthorizations = pgTable(
+  "kernel_session_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mandateId: uuid("mandate_id")
+      .notNull()
+      .references(() => mandates.id, { onDelete: "cascade" }),
+    principalId: text("principal_id").notNull(),
+    chainId: integer("chain_id").notNull(),
+    ownerAddress: text("owner_address"),
+    smartAccountAddress: text("smart_account_address"),
+    sessionAddress: text("session_address").notNull(),
+    sessionPublicKey: text("session_public_key").notNull(),
+    encryptedSessionPrivateKey: text("encrypted_session_private_key").notNull(),
+    encryptedPermissionAccount: text("encrypted_permission_account"),
+    permissions: jsonb("permissions").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("PENDING"),
+    ownerConfirmedAt: timestamp("owner_confirmed_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("kernel_session_authorization_mandate_unique").on(table.mandateId),
+    index("kernel_session_authorization_principal_status_idx").on(
+      table.principalId,
+      table.status,
+    ),
+  ],
+);
+
 export const mandateVersions = pgTable(
   "mandate_versions",
   {

@@ -33,6 +33,8 @@ import type { ServiceWorkflow } from "../../lib/service-workflow";
 import type { HealthGuardPreflight } from "../../lib/mandates";
 import { Check, CircleHelp, ShieldCheck } from "lucide-react";
 import { AltanaSessionAuthorization } from "./altana-session-authorization";
+import { KernelSessionAuthorization } from "./kernel-session-authorization";
+import { kernelSmartAccountEnabled } from "../../lib/zerodev-smart-account";
 
 type QuickServiceCheckoutProps = {
   agentId: string;
@@ -91,6 +93,7 @@ export function QuickServiceCheckout({
     (agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt"));
   const isRebalancing = agentCategory === "rebalancing";
   const isGridTrader = agentCategory === "grid-trading";
+  const useKernelAuthorization = isGridTrader && kernelSmartAccountEnabled();
   const isHealthGuard = agentCategory === "health-factor-monitoring" && agentCapabilities.includes("repay_debt");
   const healthGuardPoolOptions = workflow.requirements.find((field) => field.name === "healthGuardPoolId")?.options ?? [];
   const healthGuardPool = healthGuardPoolOptions.find(
@@ -266,7 +269,7 @@ export function QuickServiceCheckout({
                 This is a buyer-owned wallet grant. The order remains inactive until Relic verifies it on-chain.
               </DialogDescription>
             </DialogHeader>
-            <AltanaSessionAuthorization
+            {useKernelAuthorization ? <KernelSessionAuthorization
               mandateId={authorizationMandateId}
               onAuthorized={async () => {
                 const started = await startHireCheckoutForAuthorizedMandate({
@@ -276,7 +279,17 @@ export function QuickServiceCheckout({
                 setAuthorizationMandateId(null);
                 setCheckout(started);
               }}
-            />
+            /> : <AltanaSessionAuthorization
+              mandateId={authorizationMandateId}
+              onAuthorized={async () => {
+                const started = await startHireCheckoutForAuthorizedMandate({
+                  mandateId: authorizationMandateId,
+                  offerId,
+                });
+                setAuthorizationMandateId(null);
+                setCheckout(started);
+              }}
+            />}
           </>
         ) : (
           <>

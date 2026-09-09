@@ -3,6 +3,12 @@ import { randomUUID } from "node:crypto";
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
 import { sealFundedSession } from "./funded-session-envelope.js";
 
+type AltanaGridRow = NonNullable<Awaited<ReturnType<DrizzleCommerceStore["findFundedGridSession"]>>>;
+type KernelGridRow = NonNullable<Awaited<ReturnType<DrizzleCommerceStore["findFundedGridKernelSession"]>>>;
+type AuthorizedGridRow =
+  | Readonly<{ kind: "ALTANA"; row: AltanaGridRow }>
+  | Readonly<{ kind: "KERNEL"; row: KernelGridRow }>;
+
 /** Releases a buyer session to the Grid Trader only after its own funded,
  * active commerce job has been resolved by Relic. */
 export class GridFundedSessionRelease {
@@ -14,23 +20,50 @@ export class GridFundedSessionRelease {
   ) {}
 
   async release(jobId: string) {
-    const row = await this.#row(jobId);
-    if (row.session.walletAddress === null) throw new Error("The funded Grid Trader session has no authorized buyer wallet");
+    const authorized = await this.#row(jobId);
+    if (authorized.kind === "ALTANA") {
+      const row = authorized.row;
+      if (row.session.walletAddress === null) throw new Error("The funded Grid Trader session has no authorized buyer wallet");
+      return {
+        kind: "ALTANA" as const,
+        commerceJobId: jobId,
+        mandateId: row.mandate.id,
+        walletAddress: row.session.walletAddress,
+        sessionAddress: row.session.sessionAddress,
+        sessionPublicKey: row.session.sessionPublicKey,
+        permissions: row.session.permissions,
+        expiresAt: row.session.expiresAt.toISOString(),
+        envelope: sealFundedSession(this.encryption.decrypt(row.session.encryptedSessionPrivateKey), this.executorPublicKey),
+      };
+    }
+    const row = authorized.row;
+    if (row.session.ownerAddress === null || row.session.smartAccountAddress === null || row.session.encryptedPermissionAccount === null)
+      throw new Error("The funded Grid Trader Kernel session is incomplete");
     return {
+      kind: "KERNEL" as const,
       commerceJobId: jobId,
       mandateId: row.mandate.id,
-      walletAddress: row.session.walletAddress,
+      ownerAddress: row.session.ownerAddress,
+      smartAccountAddress: row.session.smartAccountAddress,
       sessionAddress: row.session.sessionAddress,
       sessionPublicKey: row.session.sessionPublicKey,
       permissions: row.session.permissions,
       expiresAt: row.session.expiresAt.toISOString(),
-      envelope: sealFundedSession(this.encryption.decrypt(row.session.encryptedSessionPrivateKey), this.executorPublicKey),
+      // Both values are encrypted at rest and this combined payload is sealed
+      // again for the Grid Trader's X25519 executor key. It is never emitted
+      // to a browser or included in an execution receipt.
+      envelope: sealFundedSession(JSON.stringify({
+        sessionPrivateKey: this.encryption.decrypt(row.session.encryptedSessionPrivateKey),
+        serializedPermissionAccount: this.encryption.decrypt(row.session.encryptedPermissionAccount),
+      }), this.executorPublicKey),
     };
   }
 
   async canonicalExecution(jobId: string) {
-    const row = await this.#row(jobId);
-    if (row.session.walletAddress === null) throw new Error("The funded Grid Trader session has no authorized buyer wallet");
+    const authorized = await this.#row(jobId);
+    const row = authorized.row;
+    const account = authorized.kind === "ALTANA" ? authorized.row.session.walletAddress : authorized.row.session.smartAccountAddress;
+    if (account === null) throw new Error("The funded Grid Trader session has no authorized execution account");
     const constraints = record(row.version.riskConstraints, "risk constraints");
     const maximumCapitalBaseUnits = positive(constraints.maximumCapitalBaseUnits, "riskConstraints.maximumCapitalBaseUnits");
     const maximumFeeWei = positive(constraints.maximumFeeWei, "riskConstraints.maximumFeeWei");
@@ -48,7 +81,7 @@ export class GridFundedSessionRelease {
       idempotencyKey: `grid:${row.activation.id}:${jobId}`,
       mandate: {
         jobId,
-        account: row.session.walletAddress,
+        account,
         expiresAt: expiresAt.toISOString(),
         maximumCapitalBaseUnits,
         lowerPrice,
@@ -60,11 +93,17 @@ export class GridFundedSessionRelease {
     };
   }
 
-  async #row(jobId: string) {
-    const row = await this.commerce.findFundedGridSession(jobId);
-    if (!row || row.mandate.agentId !== this.agentId)
+  async #row(jobId: string): Promise<AuthorizedGridRow> {
+    const altana = await this.commerce.findFundedGridSession(jobId);
+    if (altana !== undefined) {
+      if (altana.mandate.agentId !== this.agentId)
+        throw new Error("No funded active Grid Trader session is bound to this job");
+      return { kind: "ALTANA" as const, row: altana };
+    }
+    const kernel = await this.commerce.findFundedGridKernelSession(jobId);
+    if (kernel === undefined || kernel.mandate.agentId !== this.agentId)
       throw new Error("No funded active Grid Trader session is bound to this job");
-    return row;
+    return { kind: "KERNEL" as const, row: kernel };
   }
 }
 

@@ -1,7 +1,8 @@
 import { openGridFundedSession } from "./gridSessionEnvelope.js";
 import type { Address } from "viem";
 
-export type GridFundedSession = Readonly<{
+export type AltanaGridFundedSession = Readonly<{
+  kind: "ALTANA";
   commerceJobId: string;
   mandateId: string;
   walletAddress: Address;
@@ -10,6 +11,25 @@ export type GridFundedSession = Readonly<{
   expiresAt: Date;
   sessionPrivateKey: `0x${string}`;
 }>;
+
+/** A Kernel permission is opaque to the API and browser. The private agent
+ * receives it only inside an X25519 envelope and must deserialize it against
+ * the recorded session signer before it can construct a UserOperation. */
+export type KernelGridFundedSession = Readonly<{
+  kind: "KERNEL";
+  commerceJobId: string;
+  mandateId: string;
+  ownerAddress: Address;
+  smartAccountAddress: Address;
+  sessionAddress: Address;
+  sessionPublicKey: `0x${string}`;
+  permissions: Record<string, unknown>;
+  expiresAt: Date;
+  sessionPrivateKey: `0x${string}`;
+  serializedPermissionAccount: string;
+}>;
+
+export type GridFundedSession = AltanaGridFundedSession | KernelGridFundedSession;
 
 const address = /^0x[0-9a-fA-F]{40}$/u;
 const hex = /^0x[0-9a-fA-F]+$/u;
@@ -30,11 +50,20 @@ export class GridFundedSessionClient {
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Grid funded-session release returned invalid data");
     const value = body as Record<string, unknown>;
     const expiresAt = typeof value.expiresAt === "string" ? new Date(value.expiresAt) : null;
-    if (value.commerceJobId !== jobId || typeof value.mandateId !== "string" || typeof value.walletAddress !== "string" || !address.test(value.walletAddress) || typeof value.sessionPublicKey !== "string" || !hex.test(value.sessionPublicKey) || !value.permissions || typeof value.permissions !== "object" || Array.isArray(value.permissions) || !expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date() || typeof value.envelope !== "string")
+    if (value.commerceJobId !== jobId || typeof value.mandateId !== "string" || typeof value.sessionAddress !== "string" || !address.test(value.sessionAddress) || typeof value.sessionPublicKey !== "string" || !hex.test(value.sessionPublicKey) || !value.permissions || typeof value.permissions !== "object" || Array.isArray(value.permissions) || !expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date() || typeof value.envelope !== "string")
       throw new Error("Grid funded-session release returned malformed data");
-    const sessionPrivateKey = openGridFundedSession(value.envelope, this.config.executorPrivateKeyPem);
-    if (!hex.test(sessionPrivateKey)) throw new Error("Grid funded-session release returned an invalid session key");
-    return Object.freeze({ commerceJobId: jobId, mandateId: value.mandateId, walletAddress: value.walletAddress as Address, sessionPublicKey: value.sessionPublicKey as `0x${string}`, permissions: value.permissions as Record<string, unknown>, expiresAt, sessionPrivateKey: sessionPrivateKey as `0x${string}` });
+    const plaintext = openGridFundedSession(value.envelope, this.config.executorPrivateKeyPem);
+    if (value.kind === "ALTANA") {
+      if (typeof value.walletAddress !== "string" || !address.test(value.walletAddress) || !hex.test(plaintext))
+        throw new Error("Grid funded-session release returned an invalid Altana session");
+      return Object.freeze({ kind: "ALTANA", commerceJobId: jobId, mandateId: value.mandateId, walletAddress: value.walletAddress as Address, sessionPublicKey: value.sessionPublicKey as `0x${string}`, permissions: value.permissions as Record<string, unknown>, expiresAt, sessionPrivateKey: plaintext as `0x${string}` });
+    }
+    if (value.kind !== "KERNEL" || typeof value.ownerAddress !== "string" || !address.test(value.ownerAddress) || typeof value.smartAccountAddress !== "string" || !address.test(value.smartAccountAddress))
+      throw new Error("Grid funded-session release returned an unknown authorization kind");
+    const payload = json(plaintext);
+    if (typeof payload.sessionPrivateKey !== "string" || !hex.test(payload.sessionPrivateKey) || typeof payload.serializedPermissionAccount !== "string" || payload.serializedPermissionAccount.length < 20)
+      throw new Error("Grid funded-session release returned an invalid Kernel session");
+    return Object.freeze({ kind: "KERNEL", commerceJobId: jobId, mandateId: value.mandateId, ownerAddress: value.ownerAddress as Address, smartAccountAddress: value.smartAccountAddress as Address, sessionAddress: value.sessionAddress as Address, sessionPublicKey: value.sessionPublicKey as `0x${string}`, permissions: value.permissions as Record<string, unknown>, expiresAt, sessionPrivateKey: payload.sessionPrivateKey as `0x${string}`, serializedPermissionAccount: payload.serializedPermissionAccount });
   }
 
   async request(jobId: string): Promise<GridExecutionRequest> {
@@ -51,6 +80,7 @@ export type GridExecutionRequest = Readonly<{ commerceJobId: string; idempotency
 export type GridExecutionJob = Readonly<{ id: string; state: string; revision: number; approvalTxHash: string | null; swapTxHash: string | null; recoveryReason: string | null }>;
 
 function detail(body: unknown) { return body && typeof body === "object" && !Array.isArray(body) ? String((body as { error?: unknown }).error ?? "request failed") : "request failed"; }
+function json(value: string): Record<string, unknown> { try { const parsed: unknown = JSON.parse(value); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>; } catch { /* normalized below */ } throw new Error("Grid funded-session release returned malformed Kernel credentials"); }
 function parsePositive(value: unknown, label: string) { if (typeof value !== "string" || !/^[1-9]\d*$/u.test(value)) throw new Error(`Grid execution request rejected: ${label}`); return BigInt(value); }
 function parseRequest(body: unknown, jobId: string): GridExecutionRequest {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Grid execution request returned invalid data");

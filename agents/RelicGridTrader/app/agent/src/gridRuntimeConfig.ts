@@ -11,6 +11,7 @@ export type GridRuntimeConfig = Readonly<{
   usdtDecimals: number;
   maximumJobAmountBaseUnits: bigint;
   minimumBnbGasReserveWei: bigint;
+  kernel?: Readonly<{ bundlerRpcUrl: string; paymasterRpcUrl: string }>;
 }>;
 
 const address = /^0x[0-9a-fA-F]{40}$/u;
@@ -42,6 +43,12 @@ export function loadGridRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Gri
   const decimals = Number(required(env, "GRID_TESTNET_USDT_DECIMALS"));
   if (!Number.isInteger(fee) || fee < 1 || fee >= 1_000_000) throw new Error("Grid Trader configuration has invalid GRID_TESTNET_POOL_FEE");
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) throw new Error("Grid Trader configuration has invalid GRID_TESTNET_USDT_DECIMALS");
+  const bundlerRpcUrl = env.ZERODEV_BUNDLER_RPC_URL?.trim();
+  const paymasterRpcUrl = env.ZERODEV_PAYMASTER_RPC_URL?.trim();
+  if ((bundlerRpcUrl === undefined) !== (paymasterRpcUrl === undefined))
+    throw new Error("Grid Trader Kernel configuration requires both ZERODEV_BUNDLER_RPC_URL and ZERODEV_PAYMASTER_RPC_URL");
+  if (bundlerRpcUrl !== undefined && (!/^https:\/\//u.test(bundlerRpcUrl) || !/^https:\/\//u.test(paymasterRpcUrl!)))
+    throw new Error("Grid Trader Kernel RPC URLs must use HTTPS");
   return Object.freeze({
     chainId: 97,
     rpcUrl,
@@ -53,5 +60,6 @@ export function loadGridRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Gri
     usdtDecimals: decimals,
     maximumJobAmountBaseUnits: positive(env, "MAX_GRID_JOB_AMOUNT_BASE_UNITS"),
     minimumBnbGasReserveWei: positive(env, "MINIMUM_BNB_GAS_RESERVE_WEI"),
+    ...(bundlerRpcUrl === undefined ? {} : { kernel: Object.freeze({ bundlerRpcUrl, paymasterRpcUrl: paymasterRpcUrl! }) }),
   });
 }

@@ -6,6 +6,7 @@ import {
   DrizzleAgentExecutionJobStore,
   DrizzleHealthGuardCycleStore,
   DrizzleAltanaSessionAuthorizationStore,
+  DrizzleKernelSessionAuthorizationStore,
   DrizzleCommerceStore,
   DrizzleExecutionStore,
   DrizzleMandateStore,
@@ -19,6 +20,7 @@ import { createApp } from "./app.js";
 import { MandateApplicationService } from "./mandates.js";
 import { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
 import { AltanaSessionEncryption } from "./altana-session-encryption.js";
+import { KernelSessionAuthorizationService } from "./kernel-session-authorization.js";
 import { ExecutionApplicationService } from "./executions.js";
 import { PancakeLpRebalanceExecutor } from "./pancake-lp-rebalance-executor.js";
 import { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
@@ -113,6 +115,23 @@ const altanaSessions =
           ? undefined
           : { pools: healthGuardPools },
         healthGuardPreflight,
+      );
+const kernelSessions =
+  connection === null || mandates === undefined || environment.ALTANA_SESSION_ENCRYPTION_KEY === undefined ||
+  environment.RELIC_KERNEL_SESSIONS_ENABLED !== "true" || environment.ZERODEV_RPC_URL === undefined
+    ? undefined
+    : new KernelSessionAuthorizationService(
+    mandates,
+    new DrizzleKernelSessionAuthorizationStore(connection.db),
+    new AltanaSessionEncryption(environment.ALTANA_SESSION_ENCRYPTION_KEY),
+    environment.GRID_TESTNET_USDT === undefined || environment.GRID_TESTNET_WBNB === undefined || environment.GRID_TESTNET_SWAP_ROUTER === undefined || environment.GRID_TESTNET_POOL_FEE === undefined
+      ? undefined
+      : {
+          usdt: environment.GRID_TESTNET_USDT as `0x${string}`,
+          wrappedBnb: environment.GRID_TESTNET_WBNB as `0x${string}`,
+          swapRouter: environment.GRID_TESTNET_SWAP_ROUTER as `0x${string}`,
+          fee: Number(environment.GRID_TESTNET_POOL_FEE),
+        },
       );
 const executions =
   connection === null
@@ -260,6 +279,7 @@ const app = createApp(repository, onboarding, mandates, {
     : { privyJwtVerificationKey: environment.PRIVY_JWT_VERIFICATION_KEY }),
   ...(commerce === undefined ? {} : { commerceService: commerce }),
   ...(altanaSessions === undefined ? {} : { altanaSessionService: altanaSessions }),
+  ...(kernelSessions === undefined ? {} : { kernelSessionService: kernelSessions }),
   ownershipReader,
   ...(sellerAuthorization === undefined
     ? {}

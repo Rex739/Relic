@@ -151,6 +151,22 @@ export class MandateApplicationService {
     return this.activate(principalId, id, true);
   }
 
+  /** Kernel approval is an EIP-712 authorization for a deterministic buyer
+   * smart account. Execution remains fail-closed in the private worker, which
+   * reconstructs the account and enforces its call policy before sending. */
+  public async activateAfterKernelAuthorization(
+    principalId: string,
+    id: string,
+    evidence: { ownerAddress: string; smartAccountAddress: string; sessionPublicKey: string },
+  ) {
+    const marked = await this.mandates.setAuthorizationBoundary({
+      id, principalId, boundary: "WALLET_AUTHORIZED", event: "KERNEL_SESSION_CONFIRMED",
+      details: { ...evidence, approvalType: "EIP712_KERNEL_PERMISSION", buyerAdminPrivateKeyStored: false },
+    });
+    if (marked === null) throw new MandateValidationError("mandate_not_found", "Mandate not found.");
+    return this.activate(principalId, id, true);
+  }
+
   public async pause(principalId: string, id: string) {
     return this.#transition({
       id,

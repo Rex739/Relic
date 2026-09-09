@@ -46,6 +46,7 @@ import { getAddress, keccak256 } from "viem";
 
 import type { MandateApplicationService } from "./mandates.js";
 import type { AltanaSessionAuthorizationService } from "./altana-session-authorization.js";
+import type { KernelSessionAuthorizationService } from "./kernel-session-authorization.js";
 import type { ExecutionApplicationService } from "./executions.js";
 import type { LpRebalanceAgentBridge } from "./lp-rebalance-agent-bridge.js";
 import type { YieldOptimizerExecutionStore } from "./yield-optimizer-execution-store.js";
@@ -471,6 +472,35 @@ const confirmAltanaSessionRoute = createRoute({
       },
     },
   },
+  responses: mandateResponses,
+});
+const kernelSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/kernel-session-authorization",
+  request: { params: mandateParams, headers: principalHeaders, body: { content: { "application/json": { schema: z.object({
+    ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+    smartAccountAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  }) } } } },
+  responses: { ...mandateResponses, 201: json(mandateDataResponse, "Buyer Kernel session prepared") },
+});
+const confirmKernelSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/kernel-session-authorization/confirm",
+  request: {
+    params: mandateParams,
+    headers: principalHeaders,
+    body: { content: { "application/json": { schema: z.object({
+      ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+      smartAccountAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+      serializedPermissionAccount: z.string().min(20).max(100_000),
+    }) } } },
+  },
+  responses: mandateResponses,
+});
+const revokeKernelSessionRoute = createRoute({
+  method: "post",
+  path: "/v1/mandates/{id}/kernel-session-authorization/revoke",
+  request: { params: mandateParams, headers: principalHeaders },
   responses: mandateResponses,
 });
 const executionPreflightRoute = createRoute({
@@ -1193,6 +1223,7 @@ export function createApp(
     privyJwtVerificationKey?: string;
     commerceService?: CommerceApplicationService;
     altanaSessionService?: AltanaSessionAuthorizationService;
+    kernelSessionService?: KernelSessionAuthorizationService;
     ownershipReader?: Erc8004OwnershipReader;
     sellerAuthorizationGuard?: SellerAuthorizationGuard;
     adminPrincipalIds?: readonly string[];
@@ -1512,6 +1543,14 @@ export function createApp(
         "Buyer wallet authorization is not configured for this environment.",
       );
     return options.altanaSessionService;
+  };
+  const requireKernelSession = () => {
+    if (options.kernelSessionService === undefined)
+      throw new MandateValidationError(
+        "kernel_session_unavailable",
+        "Smart-account authorization is not configured for this environment.",
+      );
+    return options.kernelSessionService;
   };
   const requireExecutions = () => {
     if (options.executionService === undefined)
@@ -2687,6 +2726,53 @@ export function createApp(
           transactionHash: body.transactionHash,
         }),
       },
+      200,
+    );
+  });
+
+  app.openapi(kernelSessionRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
+    const body = z.object({
+      ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+      smartAccountAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+    }).parse(await context.req.json());
+    if (getAddress(body.ownerAddress) !== getAddress(session.walletAddress))
+      throw new MandateValidationError(
+        "kernel_session_owner_mismatch",
+        "Prepare the smart-account permission with the wallet connected to your Relic account.",
+      );
+    return context.json(
+      { data: await requireKernelSession().prepare({ principalId: session.principalId, mandateId: id, ...body }) },
+      201,
+    );
+  });
+
+  app.openapi(confirmKernelSessionRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
+    const body = z.object({
+      ownerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+      smartAccountAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+      serializedPermissionAccount: z.string().min(20).max(100_000),
+    }).parse(await context.req.json());
+    if (getAddress(body.ownerAddress) !== getAddress(session.walletAddress))
+      throw new MandateValidationError(
+        "kernel_session_owner_mismatch",
+        "Authorize the smart account with the wallet connected to your Relic account.",
+      );
+    return context.json({ data: await requireKernelSession().confirm({
+      principalId: session.principalId,
+      mandateId: id,
+      ...body,
+    }) }, 200);
+  });
+
+  app.openapi(revokeKernelSessionRoute, async (context) => {
+    const { id } = mandateParams.parse(context.req.param());
+    const session = await walletPrincipal(context);
+    return context.json(
+      { data: await requireKernelSession().revoke(session.principalId, id) },
       200,
     );
   });

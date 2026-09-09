@@ -34,6 +34,7 @@ import {
   activationTransitions,
   activations,
   altanaSessionAuthorizations,
+  kernelSessionAuthorizations,
   agentIdentities,
   agentOfferEvents,
   agentOfferVersions,
@@ -231,6 +232,33 @@ export class DrizzleCommerceStore {
         eq(activations.externalJobId, externalJobId), eq(activations.status, "FUNDED"), eq(activations.lifecycleState, "ACTIVE"),
         eq(mandates.status, "ACTIVE"), eq(mandates.chainId, 97), eq(altanaSessionAuthorizations.status, "GRANTED"),
         gt(altanaSessionAuthorizations.expiresAt, new Date()),
+        sql`${mandateVersions.riskConstraints}->>'executionKind' = 'PANCAKESWAP_V3_GRID_V1'`,
+      ))
+      .limit(1);
+    return row;
+  }
+
+  /**
+   * Kernel is a separate authorization mechanism from the legacy Altana
+   * session. Keep the queries separate: an executor must never accidentally
+   * interpret one kind of buyer authority as the other.
+   *
+   * OWNER_CONFIRMED is deliberately enough to release the encrypted material
+   * to the designated private worker. That worker still has to deserialize
+   * the permission account, prove it resolves to this session key, and submit
+   * a policy-compliant UserOperation before the authorization becomes usable.
+   */
+  public async findFundedGridKernelSession(externalJobId: string) {
+    const [row] = await this.database
+      .select({ activation: activations, mandate: mandates, version: mandateVersions, session: kernelSessionAuthorizations })
+      .from(activations)
+      .innerJoin(mandates, eq(activations.mandateId, mandates.id))
+      .innerJoin(mandateVersions, and(eq(mandateVersions.mandateId, mandates.id), eq(mandateVersions.version, mandates.currentVersion)))
+      .innerJoin(kernelSessionAuthorizations, eq(kernelSessionAuthorizations.mandateId, mandates.id))
+      .where(and(
+        eq(activations.externalJobId, externalJobId), eq(activations.status, "FUNDED"), eq(activations.lifecycleState, "ACTIVE"),
+        eq(mandates.status, "ACTIVE"), eq(mandates.chainId, 97), eq(kernelSessionAuthorizations.status, "OWNER_CONFIRMED"),
+        gt(kernelSessionAuthorizations.expiresAt, new Date()),
         sql`${mandateVersions.riskConstraints}->>'executionKind' = 'PANCAKESWAP_V3_GRID_V1'`,
       ))
       .limit(1);

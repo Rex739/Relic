@@ -1,8 +1,10 @@
 import { BNB_TESTNET, createClient, signerFromPrivateKey, type Session } from "@altananetwork/sdk";
+import { createKernelAccountClient, createZeroDevPaymasterClient } from "@zerodev/sdk";
 import { createPublicClient, encodeFunctionData, getAddress, http, parseUnits, type Address } from "viem";
 import { bscTestnet } from "viem/chains";
 import type { GridExecutionRequest, GridFundedSession, GridFundedSessionClient } from "./gridFundedSessionClient.js";
 import type { GridRuntimeConfig } from "./gridRuntimeConfig.js";
+import { reconstructGridKernelSession } from "./gridKernelSession.js";
 
 const Q192 = 2n ** 192n;
 const erc20Abi = [
@@ -44,7 +46,8 @@ export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; re
   const claimed = await store.createOrFindExecution({ id: crypto.randomUUID(), commerceJobId: request.commerceJobId, idempotencyKey: request.idempotencyKey });
   if (!claimed.created) return { status: "already_processed", executionState: claimed.job.state, approvalTx: claimed.job.approvalTxHash, swapTx: claimed.job.swapTxHash };
   let execution = await mustTransition(store, { id: claimed.job.id, expectedRevision: claimed.job.revision, to: "POLICY_ACCEPTED" });
-  if (!same(request.mandate.account, session.walletAddress)) throw new Error("Grid signing denied: funded session owner does not match mandate");
+  const executionAccount = session.kind === "ALTANA" ? session.walletAddress : session.smartAccountAddress;
+  if (!same(request.mandate.account, executionAccount)) throw new Error("Grid signing denied: funded session owner does not match mandate");
   if (request.mandate.expiresAt > session.expiresAt || request.mandate.expiresAt <= new Date()) throw new Error("Grid signing denied: mandate is expired or exceeds its session");
   if (request.mandate.maximumCapitalBaseUnits > config.maximumJobAmountBaseUnits) throw new Error("Grid signing denied: mandate exceeds the deployment cap");
   const client = createPublicClient({ chain: bscTestnet, transport: http(config.rpcUrl) });
@@ -54,9 +57,9 @@ export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; re
     client.readContract({ address: config.pool, abi: poolAbi, functionName: "token1" }),
     client.readContract({ address: config.pool, abi: poolAbi, functionName: "fee" }),
     client.readContract({ address: config.pool, abi: poolAbi, functionName: "slot0" }),
-    client.getBalance({ address: session.walletAddress }),
-    client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "balanceOf", args: [session.walletAddress] }),
-    client.readContract({ address: config.wrappedBnb, abi: erc20Abi, functionName: "balanceOf", args: [session.walletAddress] }),
+    client.getBalance({ address: executionAccount }),
+    client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "balanceOf", args: [executionAccount] }),
+    client.readContract({ address: config.wrappedBnb, abi: erc20Abi, functionName: "balanceOf", args: [executionAccount] }),
   ]);
   if (!((same(token0, config.usdt) && same(token1, config.wrappedBnb)) || (same(token0, config.wrappedBnb) && same(token1, config.usdt))) || fee !== config.fee || slot0[0] === 0n) throw new Error("Grid signing denied: configured pool does not match the approved pair and fee tier");
   if (nativeBalance < config.minimumBnbGasReserveWei) throw new Error("Grid signing denied: buyer wallet is below the required BNB gas reserve");
@@ -71,37 +74,61 @@ export async function executeFirstGridLeg(input: { config: GridRuntimeConfig; re
   if (amountIn <= 0n || amountIn > usdtBefore) throw new Error("Grid signing denied: buyer wallet lacks the first bounded grid amount");
   const minimumOut = (amountIn * (10n ** BigInt(36 - config.usdtDecimals)) * 98n) / (price * 100n);
   if (minimumOut <= 0n) throw new Error("Grid signing denied: live price yields zero minimum output");
-  const altana = createClient({ chains: [BNB_TESTNET] });
-  const scoped: Session = { walletAddress: getAddress(session.walletAddress), signer: signerFromPrivateKey(session.sessionPrivateKey), publicKey: session.sessionPublicKey, permissions: permissions(session.permissions, config), expiry: Math.floor(session.expiresAt.getTime() / 1_000) };
+  const altana = session.kind === "ALTANA" ? createClient({ chains: [BNB_TESTNET] }) : null;
+  const scoped: Session | null = session.kind === "ALTANA" ? { walletAddress: getAddress(session.walletAddress), signer: signerFromPrivateKey(session.sessionPrivateKey), publicKey: session.sessionPublicKey, permissions: permissions(session.permissions, config), expiry: Math.floor(session.expiresAt.getTime() / 1_000) } : null;
+  const kernel = session.kind === "KERNEL" ? await kernelClient({ config, session }) : null;
   let reservedFeeWei = 0n;
   const send = async (to: Address, data: `0x${string}`) => {
-    const gas = await client.estimateGas({ account: scoped.walletAddress, to, data });
+    if (kernel !== null) {
+      const userOperationHash = await kernel.sendTransaction({ to, data, value: 0n });
+      const userOperation = await kernel.waitForUserOperationReceipt({ hash: userOperationHash });
+      const transactionHash = userOperation.receipt.transactionHash;
+      const receipt = await client.waitForTransactionReceipt({ hash: transactionHash });
+      if (receipt.status !== "success") throw new Error("Grid signing denied: Kernel UserOperation receipt reverted");
+      return transactionHash;
+    }
+    const gas = await client.estimateGas({ account: scoped!.walletAddress, to, data });
     const estimatedFeeWei = gas * await client.getGasPrice();
     if (reservedFeeWei + estimatedFeeWei > request.maximumFeeWei) throw new Error("Grid signing denied: estimated transaction fees exceed the buyer cap");
     reservedFeeWei += estimatedFeeWei;
-    const result = await altana.execute({ session: scoped, chainId: config.chainId, calls: { to, data } });
+    const result = await altana!.execute({ session: scoped!, chainId: config.chainId, calls: { to, data } });
     if (result.status !== "CONFIRMED" || !result.transactionHash) throw new Error("Grid signing denied: Altana session execution did not confirm");
     const receipt = await client.waitForTransactionReceipt({ hash: result.transactionHash });
     if (receipt.status !== "success") throw new Error("Grid signing denied: transaction receipt reverted");
     return result.transactionHash;
   };
   let approvalTx: `0x${string}` | undefined;
-  const allowance = await client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "allowance", args: [session.walletAddress, config.router] });
+  const allowance = await client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "allowance", args: [executionAccount, config.router] });
   if (allowance < amountIn) {
     approvalTx = await send(config.usdt, encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [config.router, amountIn] }));
     execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "APPROVAL_SUBMITTED", transactionHash: approvalTx });
     execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "APPROVED" });
   } else execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "APPROVED" });
   const deadline = BigInt(Math.floor(Math.min(request.mandate.expiresAt.getTime(), Date.now() + 10 * 60_000) / 1_000));
-  const swapTx = await send(config.router, encodeFunctionData({ abi: routerAbi, functionName: "exactInputSingle", args: [{ tokenIn: config.usdt, tokenOut: config.wrappedBnb, fee: config.fee, recipient: session.walletAddress, amountIn, amountOutMinimum: minimumOut, sqrtPriceLimitX96: 0n }] }));
+  const swapTx = await send(config.router, encodeFunctionData({ abi: routerAbi, functionName: "exactInputSingle", args: [{ tokenIn: config.usdt, tokenOut: config.wrappedBnb, fee: config.fee, recipient: executionAccount, amountIn, amountOutMinimum: minimumOut, sqrtPriceLimitX96: 0n }] }));
   execution = await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "SUPPLY_SUBMITTED", transactionHash: swapTx });
   const [usdtAfter, wbnbAfter] = await Promise.all([
-    client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "balanceOf", args: [session.walletAddress] }),
-    client.readContract({ address: config.wrappedBnb, abi: erc20Abi, functionName: "balanceOf", args: [session.walletAddress] }),
+    client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "balanceOf", args: [executionAccount] }),
+    client.readContract({ address: config.wrappedBnb, abi: erc20Abi, functionName: "balanceOf", args: [executionAccount] }),
   ]);
   if (usdtBefore - usdtAfter < amountIn || wbnbAfter - wbnbBefore < minimumOut) throw new Error("Grid signing denied: receipt reconciliation did not show the approved swap outcome");
   await mustTransition(store, { id: execution.id, expectedRevision: execution.revision, to: "COMPLETED" });
   return { status: "executed", priceUsdtPerBnb: formatPrice(price), amountInBaseUnits: amountIn.toString(), minimumAmountOutBaseUnits: minimumOut.toString(), approvalTx, swapTx };
+}
+
+async function kernelClient(input: { config: GridRuntimeConfig; session: Extract<GridFundedSession, { kind: "KERNEL" }> }) {
+  if (input.config.kernel === undefined) throw new Error("Grid signing denied: Kernel execution RPC and paymaster are not configured");
+  const restored = await reconstructGridKernelSession({ rpcUrl: input.config.rpcUrl, chainId: input.config.chainId, session: input.session });
+  const paymaster = createZeroDevPaymasterClient({ chain: bscTestnet, transport: http(input.config.kernel.paymasterRpcUrl) });
+  return createKernelAccountClient({
+    account: restored.account,
+    chain: bscTestnet,
+    bundlerTransport: http(input.config.kernel.bundlerRpcUrl),
+    paymaster: {
+      getPaymasterData: (parameters) => paymaster.sponsorUserOperation({ userOperation: parameters }),
+      getPaymasterStubData: (parameters) => paymaster.sponsorUserOperation({ userOperation: parameters }),
+    },
+  });
 }
 
 async function mustTransition(store: GridFundedSessionClient, input: { id: string; expectedRevision: number; to: string; transactionHash?: string }) {

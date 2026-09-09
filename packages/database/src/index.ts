@@ -5,6 +5,7 @@ export * from "./indexer-store.js";
 export * from "./repository.js";
 export * from "./mandates.js";
 export * from "./altana-sessions.js";
+export * from "./kernel-sessions.js";
 export * from "./executions.js";
 export * from "./agent-execution-jobs.js";
 export * from "./health-guard-cycles.js";

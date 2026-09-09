@@ -58,6 +58,11 @@ const serverEnvironmentSchema = z.object({
   RELIC_GRID_TRADER_INTERNAL_TOKEN: z.string().min(32).optional(),
   RELIC_GRID_TRADER_AGENT_ID: z.uuid().optional(),
   RELIC_GRID_SESSION_TRANSFER_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  // Kernel/ZeroDev is the external-wallet path. Keep it opt-in: an agent may
+  // never receive autonomous signing authority until its ZeroDev project RPC
+  // and sponsorship policy have been explicitly configured.
+  RELIC_KERNEL_SESSIONS_ENABLED: z.enum(["true", "false"]).optional(),
+  ZERODEV_RPC_URL: optionalUrl,
   GRID_TESTNET_USDT: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   GRID_TESTNET_WBNB: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   GRID_TESTNET_SWAP_ROUTER: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
